@@ -224,20 +224,20 @@ function String Prog__ToolSearch(Prog_State *state, Arena *arena, const Prog__Js
         } \
     } while (0)
     for (u64 i = 0; i < state->drives.header.count; ++i) {
-        i32 score = Prog__GoToScore(state, state->drives.v[i].name, state->drives.v[i].path, query);
+        i32 score = Prog__GoToScore(state, state->drives.v[i].name, state->drives.v[i].path, query, (String){0});
         if (score > 0) Prog__Hit(state->drives.v[i].path, score, false);
     }
     const ArrayStr *lists[] = { &state->bookmarks, &state->recents };
     for (u32 l = 0; l < CArrayCount(lists); ++l) {
         for (u64 i = 0; i < lists[l]->header.count; ++i) {
             String path = lists[l]->v[i];
-            i32 score = Prog__GoToScore(state, Prog__FolderName(path), path, query);
+            i32 score = Prog__GoToScore(state, Prog__FolderName(path), path, query, (String){0});
             if (score > 0) Prog__Hit(path, score, false);
         }
     }
     for (u64 i = 0; i < state->places.header.count; ++i) {
         String path = state->places.v[i].path;
-        i32 score = Prog__GoToScore(state, state->places.v[i].name, path, query);
+        i32 score = Prog__GoToScore(state, state->places.v[i].name, path, query, (String){0});
         if (score > 0 && !StrIsEqual(path, Prog_ThisPC)) Prog__Hit(path, score, false);
     }
     const Prog_Index *index = state->indexDone || !state->savedIndex.count ? &state->index : &state->savedIndex;

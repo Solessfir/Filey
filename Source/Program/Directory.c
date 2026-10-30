@@ -368,8 +368,11 @@ function i32 Prog__FuzzyTerm(Prog__FuzzyText *t, const rune *term, u32 termCount
         u32 found = 0;
         for (u64 i = 0; i < text.length && found < termCount; ++i) found += (rune)Prog__FoldAscii((u8)text.value[i]) == term[found];
         if (found < termCount) return 0;
-    } else if (!Prog_FilterMatch(text, termText, NULL)) {
-        return 0;
+    } else {
+        // A letter beyond ASCII folds to none in it, so a text all of ASCII cannot hold it, which bytes tell sooner than letters.
+        b32 wide = false;
+        for (u64 i = 0; i < text.length && !wide; ++i) wide = (u8)text.value[i] >= 0x80;
+        if (!wide || !Prog_FilterMatch(text, termText, NULL)) return 0;
     }
     if (!t->decoded) {
         for (u64 from = 0; from < text.length && t->count < Prog_FuzzyText;) {
@@ -426,12 +429,66 @@ function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMar
     return result;
 }
 
+// The keys of the US layout that type letters, and what the same keys type in the Russian one.
+global const String Prog__LatinKeys = SInit("qwertyuiop[]asdfghjkl;'zxcvbnm,.`QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>~");
+global const String Prog__RussianKeys = SInit("йцукенгшщзхъфывапролджэячсмитьбюёЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮЁ");
+
+// `typed` as the same keys type it in the other of the US and Russian layouts, for text typed with the wrong one on: the letters of either become the other's, and the rest stays.
+// Empty when nothing changes.
+// ponytail: these two layouts only; the layouts the system has installed would bring the others.
+function String Prog_OtherLayout(Arena *arena, String typed)
+{
+    StrBuilder out = {0};
+    b32 changed = false;
+    for (u64 at = 0; at < typed.length;) {
+        rune c = StrDecodeUtf8(typed, &at), swapped = c;
+        for (u64 latin = 0, russian = 0; russian < Prog__RussianKeys.length && swapped == c; ++latin) {
+            rune key = StrDecodeUtf8(Prog__RussianKeys, &russian);
+            if (c == (rune)(u8)Prog__LatinKeys.value[latin]) swapped = key;
+            else if (c == key) swapped = (rune)(u8)Prog__LatinKeys.value[latin];
+        }
+        changed |= swapped != c;
+        u8 bytes[4];
+        StrBuildBytes(arena, &out, bytes, StrEncodeUtf8(swapped, bytes));
+    }
+    return changed ? out.buffer : (String){0};
+}
+
+// The palette's score for a label and its description: the better of the text as typed and `other`, it in the other layout (Prog_OtherLayout), whose letters `marks` light when it scored more.
+// A match through the other layout scores half, so that one as typed ranks first.
+function i32 Prog_PaletteScore(String label, String tooltip, String typed, String other, u8 *labelMarks, u8 *tooltipMarks)
+{
+    i32 result = Prog_FuzzyScore(label, tooltip, typed, labelMarks, tooltipMarks);
+    i32 swapped = other.length ? Prog_FuzzyScore(label, tooltip, other, NULL, NULL) / 2 : 0;
+    if (swapped <= result) return result;
+    if (labelMarks || tooltipMarks) Prog_FuzzyScore(label, tooltip, other, labelMarks, tooltipMarks);
+    return swapped;
+}
+
+// Whether the letters of `filter`, or of it typed with the other keyboard layout on (Prog_OtherLayout), appear in `name` in order; `marks` light those of the one that does.
+function b32 Prog_FilterMatchEither(String name, String filter, u8 *marks)
+{
+    if (Prog_FilterMatch(name, filter, marks)) return true;
+    Scratch scratch = GetScratch();
+    String other = Prog_OtherLayout(scratch.arena, filter);
+    b32 result = other.length && Prog_FilterMatch(name, other, marks);
+    ReleaseScratch(scratch);
+    return result;
+}
+
 // What the filter scores an entry with: its own name, and the folder it is in for a listing of the subfolders too.
 function i32 Prog_EntryScore(String name, String filter, u8 *marks)
 {
     String leaf = Prog_EntryLeaf(name);
     u64 prefix = name.length - leaf.length;
     return Prog_FuzzyScore(leaf, StrFromTo(name, 0, prefix ? (i64)prefix - 1 : 0), filter, marks ? marks + prefix : NULL, marks);
+}
+
+// The filter as the view applies it: as typed, or as typed with the other keyboard layout on when only that finds anything.
+function String Prog_ShownFilter(const Prog_State *state, Arena *arena)
+{
+    String filter = Prog_EditText(&state->filter);
+    return state->filterSwapped ? Prog_OtherLayout(arena, filter) : filter;
 }
 
 // Filter scores as ranks for a counting sort, best first; scores of Prog_FilterRanks and above tie, which only long texts of several words reach.
@@ -847,10 +904,21 @@ function void Prog_ApplyFilter(Prog_State *state, b32 edited)
         // a big listing is ranked on several lanes.
         Prog__FilterLook look = { .state = state, .filter = filter, .ranks = ArenaPushArrayNoZero(scratch.arena, Max(state->directory.count, (u64)1), u16) };
         look.parentScores = ArenaPushArrayNoZero(scratch.arena, Max(state->directory.parentCount, 1u), atomic_int);
-        for (u32 i = 0; i < state->directory.parentCount; ++i) atomic_init(&look.parentScores[i], Prog_FilterUnscored);
         u32 lanes = state->directory.count >= 4 * Prog_FilterBlock ? Max(1u, Min(P_ProcessorCount(), (u32)Prog_WalkLanes)) : 1;
-        if (lanes > 1) P_RunLanes(lanes, Prog__FilterLane, &look);
-        else Prog__FilterLane(&look, 0);
+        // A filter that finds nothing as it is typed is tried as typed with the other keyboard layout on, as the same keys spell it there.
+        String other = Prog_OtherLayout(scratch.arena, filter);
+        state->filterSwapped = false;
+        for (u32 pass = 0; pass < 2; ++pass) {
+            for (u32 i = 0; i < state->directory.parentCount; ++i) atomic_init(&look.parentScores[i], Prog_FilterUnscored);
+            atomic_store(&look.next, 0);
+            if (lanes > 1) P_RunLanes(lanes, Prog__FilterLane, &look);
+            else Prog__FilterLane(&look, 0);
+            b32 found = false;
+            for (u64 i = 0; i < state->directory.count && !found; ++i) found = look.ranks[i] != Prog_FilterHidden;
+            if (found || !other.length || pass) break;
+            look.filter = other;
+            state->filterSwapped = true;
+        }
         u16 *ranks = filter.length ? look.ranks : NULL;
         // A tree's nested items show only in rows.
         state->treeNested = Prog_TreeShowsNested(state);
@@ -8759,7 +8827,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     }
                     if (renameCreated && created != 1 && !pick.length) pickRow = UINT64_MAX;
                     // The filter resets in another folder unless pinned, though not on a tab's first listing, and gives way to an item that was just created or renamed.
-                    if ((!samePath && state->directory.path.length && !state->filterSticky) || (pickRow < result->count && Prog_EntryScore(result->entries[pickRow].file.name, Prog_EditText(&state->filter), NULL) <= 0)) {
+                    if ((!samePath && state->directory.path.length && !state->filterSticky) || (pickRow < result->count && Prog_EntryScore(result->entries[pickRow].file.name, Prog_ShownFilter(state, &state->frameArena), NULL) <= 0)) {
                         Prog_ClearFilter(state);
                     }
                     // So do the types shown, which the Types popup set for this folder's.

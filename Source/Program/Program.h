@@ -1491,7 +1491,7 @@ typedef struct Prog_PdfView {
     X(u64, focusedRow) X(u64, anchorRow) X(u64, selectedCount) X(b32, hasFocus) X(b32, hasAnchor) \
     X(b32, showHidden) X(enum8(Prog_Sort), sort) X(b32, descending) X(enum8(Prog_FolderSort), folderSort) X(u32, zoom) X(Prog_ColumnSet, columnSet) \
     X(b32, ownView) X(Prog_ViewSettings, ownSettings) \
-    X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, tree) X(Arena, treeArena) X(ArrayStr, treeOpen) X(Arena, treeAllArena) X(ArrayStr, treeAll) X(b32, treeNested) X(enum8(Prog_GroupBy), groupBy) X(Arena, groupArena) X(ArrayStr, groupsFolded) X(b32, hideFolders) X(b32, hideFiles) X(Prog_TypeFilter, types) \
+    X(Prog_TextEdit, filter) X(b32, filterSwapped) X(b32, filterSticky) X(b32, expanded) X(b32, tree) X(Arena, treeArena) X(ArrayStr, treeOpen) X(Arena, treeAllArena) X(ArrayStr, treeAll) X(b32, treeNested) X(enum8(Prog_GroupBy), groupBy) X(Arena, groupArena) X(ArrayStr, groupsFolded) X(b32, hideFolders) X(b32, hideFiles) X(Prog_TypeFilter, types) \
     X(Arena, viewArena) X(u64 *, view) X(u64 *, viewAt) X(u64, viewCount) X(u64, viewFolders) X(Prog_ListGroup *, groups) X(u32, groupCount) X(UI_Vec2, scroll) X(Prog_Trail, trail) \
     Prog_PreviewFields(X)
 

@@ -673,15 +673,33 @@ function String Prog_HotkeyText(Arena *arena, const Prog_State *state, Prog_Comm
     return result;
 }
 
-// Whether `needle` appears in `text` as one run, ignoring ASCII case.
+// Whether `needle` appears in `text` as one run, ignoring case: byte by byte for an ASCII needle, else letter by letter as the filter folds them.
 function b32 Prog__ContainsFolded(String text, String needle)
 {
+    b32 ascii = true, wide = false;
+    for (u64 i = 0; i < needle.length && ascii; ++i) ascii = (u8)needle.value[i] < 0x80;
+    // A letter beyond ASCII folds to none in it, so a text all of ASCII holds no such needle.
+    for (u64 i = 0; !ascii && i < text.length && !wide; ++i) wide = (u8)text.value[i] >= 0x80;
+    if (!ascii && !wide) return false;
+    for (u64 start = 0; !ascii && start < text.length; StrDecodeUtf8(text, &start)) {
+        u64 t = start, n = 0;
+        b32 same = true;
+        while (same && n < needle.length) same = t < text.length && Prog__FoldRune(StrDecodeUtf8(text, &t)) == Prog__FoldRune(StrDecodeUtf8(needle, &n));
+        if (same) return true;
+    }
+    if (!ascii) return false;
     for (u64 start = 0; start + needle.length <= text.length; ++start) {
         u64 i = 0;
         while (i < needle.length && Prog__FoldAscii((u8)text.value[start + i]) == Prog__FoldAscii((u8)needle.value[i])) ++i;
         if (i == needle.length) return true;
     }
     return false;
+}
+
+// Whether `text` starts with `needle`, apart from case.
+function b32 Prog__StartsFolded(String text, String needle)
+{
+    return text.length >= needle.length && Prog__ContainsFolded(StrFromTo(text, 0, (i64)needle.length), needle);
 }
 
 // The palette's groups and their commands. Quick holds the starred commands, Prog_State.quickCommands, which their own groups then leave out.
@@ -895,6 +913,8 @@ function b32 Prog_IsQuick(const Prog_State *state, Prog_CommandKind kind)
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
 {
     String text = Prog_EditText(&state->palette);
+    Scratch scratch = GetScratch();
+    String other = Prog_OtherLayout(scratch.arena, text);
     i32 scores[Prog_MaxPaletteRows];
     u32 count = 0, group = 0;
     // The tree, with the starred commands in Quick, its first group, and out of their own.
@@ -923,11 +943,14 @@ function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
             if (state->paletteQuick || !(state->paletteFolded & (1u << group)) || Prog__PaletteFolding(state, group)) out[count++] = (Prog_PaletteRow){ (u8)group, (u16)item };
             continue;
         }
-        // The English label, tooltip and aliases find a command in any language.
-        i32 score = Max(Prog_FuzzyScore(Prog_CommandLabel((Prog_CommandKind)item), Prog_CommandTooltip((Prog_CommandKind)item), text, NULL, NULL),
-                        Prog_FuzzyScore(Prog_Commands[item].label, Prog_Commands[item].tooltip, text, NULL, NULL));
+        // The English label, tooltip and aliases find a command in any language, and so does what was typed with the other keyboard layout on.
+        String label = Prog_CommandLabel((Prog_CommandKind)item), tooltip = Prog_CommandTooltip((Prog_CommandKind)item);
+        i32 score = Prog_PaletteScore(label, tooltip, text, other, NULL, NULL);
+        if (!StrIsEqual(label, Prog_Commands[item].label) || !StrIsEqual(tooltip, Prog_Commands[item].tooltip)) {
+            score = Max(score, Prog_PaletteScore(Prog_Commands[item].label, Prog_Commands[item].tooltip, text, other, NULL, NULL));
+        }
         if (score <= 0) {
-            if (!Prog_FilterMatch(Prog_Commands[item].aliases, text, NULL)) continue;
+            if (!Prog_FilterMatch(Prog_Commands[item].aliases, text, NULL) && !(other.length && Prog_FilterMatch(Prog_Commands[item].aliases, other, NULL))) continue;
             score = INT32_MIN;
         }
         u32 at = count++;
@@ -938,6 +961,7 @@ function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
         out[at] = (Prog_PaletteRow){ (u8)group, (u16)item };
         scores[at] = score;
     }
+    ReleaseScratch(scratch);
     return count;
 }
 
@@ -1016,14 +1040,15 @@ function String Prog__GoToPath(Prog_State *state, String typed)
     return path;
 }
 
-// What a Go To row scores: its name and its path as the row shows it, from the root it is in or its drive.
-function i32 Prog__GoToScore(const Prog_State *state, String name, String path, String typed)
+// What a Go To row scores: its name and its path as the row shows it, from the root it is in or its drive, by the text typed or by `other`, it typed with the other keyboard layout on, whichever scores more.
+function i32 Prog__GoToScore(const Prog_State *state, String name, String path, String typed, String other)
 {
     b32 drive;
     u64 start = Prog__CrumbStart(state, path, &drive);
     String shown = StrFrom(path, drive ? 0 : start);
     while (shown.length > 2 && shown.value[shown.length - 1] == '/') --shown.length;
-    return Prog_FuzzyScore(name, shown, typed, NULL, NULL);
+    i32 result = Prog_FuzzyScore(name, shown, typed, NULL, NULL);
+    return other.length ? Max(result, Prog_FuzzyScore(name, shown, other, NULL, NULL) / 2) : result;
 }
 
 // Go To's search ranks matches by score; ranks of Prog_GoToRanks and above tie, which only long texts of several words reach.
@@ -1047,7 +1072,7 @@ enum { Prog_GoToBlock = 2048 };
 typedef struct Prog__GoToLook {
     const Prog_State *state;
     const Prog_Index *index;
-    String text;
+    String text, other;  // the text typed with the other keyboard layout on, empty when that is the same
     u64 first, count, until;
     u32 floor;
     atomic_uint_fast64_t next;  // the next block to take
@@ -1091,10 +1116,10 @@ function void Prog__GoToBlock(Prog__GoToLook *look, u64 block)
         String name = Prog_IndexName(index, entry);
         // A root's name is its whole path.
         if (index->parents[entry] == UINT32_MAX) name = Prog__FolderName(name);
-        if (!Prog__HoldsWords(name, look->text)) continue;
+        if (!Prog__HoldsWords(name, look->text) && !(look->other.length && Prog__HoldsWords(name, look->other))) continue;
         if (!look->state->showHidden && Prog__GoToHidden(index, entry)) continue;
         char made[1024];
-        i32 score = Prog__GoToScore(look->state, name, Prog__IndexPathTo(made, sizeof(made), index, entry), look->text);
+        i32 score = Prog__GoToScore(look->state, name, Prog__IndexPathTo(made, sizeof(made), index, entry), look->text, look->other);
         if (score <= 0 || (u32)Prog_GoToShortRanks + Prog__GoToRank(score) >= look->floor) continue;
         found[count++] = (Prog__GoToFound){ entry, score };
     }
@@ -1160,7 +1185,7 @@ function b32 Prog_GoToFolded(const Prog_State *state, u32 section)
 function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *folder)
 {
     Arena *frame = &state->frameArena;
-    String text = Prog_EditText(&state->palette);
+    String text = Prog_EditText(&state->palette), other = Prog_OtherLayout(frame, text);
     u8 separator = (u8)P_NativePath(frame, S("/")).value[0];
     i64 cut = -1;
     for (u64 i = 0; i < text.length; ++i) if (text.value[i] == '/' || text.value[i] == separator) cut = (i64)i;
@@ -1197,7 +1222,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             for (u64 i = 0; i < drives; ++i) {
                 const P_Place *drive = &state->drives.v[i];
                 // Or by its UUID, pasted from a disk tool, which names it wholly: scored as its name and its path, so that files named after it, as "uuid-<UUID>.log", do not outrank it.
-                i32 score = Max(Prog__GoToScore(state, drive->name, drive->path, text), drive->id.length ? Prog_FuzzyScore(drive->id, drive->id, text, NULL, NULL) : 0);
+                i32 score = Max(Prog__GoToScore(state, drive->name, drive->path, text, other), drive->id.length ? Prog_FuzzyScore(drive->id, drive->id, text, NULL, NULL) : 0);
                 if (score <= 0 || MapsGetPtrNull(state->gotoSeen, drive->path)) continue;
                 String path = StrCopy(arena, drive->path);
                 MapsPut(arena, state->gotoSeen, path, true);
@@ -1236,7 +1261,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
                 // A copy, as the pool outlives lists written anew under the same count, as the recents are on every visit.
                 path = StrCopy(arena, path);
                 if (!name.length) name = Prog__FolderName(path);
-                i32 score = Prog__GoToScore(state, name, path, text);
+                i32 score = Prog__GoToScore(state, name, path, text, other);
                 if (score <= 0 || MapsGetPtrNull(state->gotoSeen, path)) continue;
                 MapsPut(arena, state->gotoSeen, path, true);
                 Prog__GoToPool(state, frame, (Prog_GoToItem){ path, Prog_GoToSection_Found, (b8)file, (b8)(name.length && name.value[0] == '.'), {0}, NULL }, Prog__GoToRank(score));
@@ -1248,7 +1273,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         if (index && state->gotoScanFrame != state->ui.frameIndex && state->gotoScanAt < entries) ProfileScope("GoToSearch") {
             state->gotoScanFrame = state->ui.frameIndex;
             Prog__GoToLook look = {
-                .state = state, .index = index, .text = text, .first = state->gotoScanAt, .count = Min(entries - state->gotoScanAt, (u64)1 << 20),
+                .state = state, .index = index, .text = text, .other = other, .first = state->gotoScanAt, .count = Min(entries - state->gotoScanAt, (u64)1 << 20),
                 .until = PlatformNowMicroseconds() + 4000, .floor = state->gotoFloor,
             };
             u64 blocks = (look.count + Prog_GoToBlock - 1) / Prog_GoToBlock;
@@ -1333,7 +1358,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         }
         return result;
     }
-    String leaf = StrFrom(text, (u64)cut + 1);
+    String leaf = StrFrom(text, (u64)cut + 1), leafOther = Prog_OtherLayout(frame, leaf);
     String path = Prog__GoToPath(state, StrFromTo(text, 0, cut + 1));
     if (!path.length) return NULL;
     *folder = path;
@@ -1354,12 +1379,13 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
     }
     if (!state->gotoListed) return NULL;
     Prog_GoToItem *result = ArenaPushArray(frame, Max(state->gotoListing.count, (u64)1), Prog_GoToItem);
-    // Names that start with what is typed after the folder come before those that only hold it.
+    // Names that start with what is typed after the folder come before those that only hold it, typed either way.
     for (u32 tier = 0; tier < 2; ++tier) {
         for (u64 i = 0; i < state->gotoListing.count; ++i) {
             const P_File *file = &state->gotoListing.files[i];
-            b32 starts = file->name.length >= leaf.length && Prog__ContainsFolded(StrFromTo(file->name, 0, (i64)leaf.length), leaf);
-            if ((tier == 0 && starts) || (tier == 1 && !starts && Prog__ContainsFolded(file->name, leaf))) {
+            b32 starts = Prog__StartsFolded(file->name, leaf) || (leafOther.length && Prog__StartsFolded(file->name, leafOther));
+            b32 holds = Prog__ContainsFolded(file->name, leaf) || (leafOther.length && Prog__ContainsFolded(file->name, leafOther));
+            if ((tier == 0 && starts) || (tier == 1 && !starts && holds)) {
                 b32 hidden = file->hidden || (file->name.length && file->name.value[0] == '.');
                 result[(*count)++] = (Prog_GoToItem){ Prog_JoinPath(frame, path, file->name), Prog_GoToSection_Folder, file->kind != P_FileKind_Directory, (b8)hidden, {0}, NULL };
             }

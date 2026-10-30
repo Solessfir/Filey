@@ -1811,7 +1811,7 @@ finish:
 function b32 TestFilterConsistent(Prog_State *state)
 {
     b32 result = true;
-    String filter = Prog_EditText(&state->filter);
+    String filter = Prog_ShownFilter(state, &state->frameArena);
     u64 shown = 0;
     for (u64 i = 0; i < state->directory.count; ++i) {
         b32 match = Prog_EntryScore(state->directory.entries[i].file.name, filter, NULL) > 0;
@@ -1841,7 +1841,7 @@ function void TestFilter(TestFileFixture *fixture)
     // Typing filters and focuses the first match; hidden rows leave the selection.
     TestBrowsingCommand(&state, Prog_CommandKind_SelectAll, 0);
     TestRenameType(&state, S("FOLDER"));
-    Check(state.filtering && state.viewCount == 2 && TestFilterConsistent(&state) && TestSelectionCount(&state) == 2);
+    Check(state.filtering && state.viewCount == 2 && TestFilterConsistent(&state) && TestSelectionCount(&state) == 2 && !state.filterSwapped);
     Check(state.hasFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("Folder2")));
     TestRenameKey(&state, Key_Down, 0);
     Check(StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("Folder10")) && TestSelectionCount(&state) == 1);
@@ -1861,6 +1861,14 @@ function void TestFilter(TestFileFixture *fixture)
     Check(state.viewCount == 1 && TestFilterConsistent(&state));
     TestRenameKey(&state, Key_Escape, 0);
     Check(!state.filter.length && !state.filtering && state.viewCount == state.directory.count);
+
+    // Typed with the Russian layout on, the filter finds what the same keys spell in the US one, as Go To and the sidebar's filter do, whose words are found apart from case beyond ASCII too.
+    TestRenameType(&state, S("ащдвук"));
+    Check(state.filtering && state.viewCount == 2 && TestFilterConsistent(&state) && state.filterSwapped && StrIsEqual(Prog_ShownFilter(&state, &state.frameArena), S("folder")));
+    TestRenameKey(&state, Key_Escape, 0);
+    Check(!state.filter.length && state.viewCount == state.directory.count);
+    Check(Prog_FilterMatchEither(S("AppData"), S("фззвфеф"), NULL) && !Prog_FilterMatchEither(S("AppData"), S("ывф"), NULL));
+    Check(Prog__ContainsFolded(S("Мои Документы"), S("документы")) && !Prog__ContainsFolded(S("abc"), S("д")) && !Prog__ContainsFolded(S("appdata"), S("фзз")) && Prog__StartsFolded(S("AppData"), S("app")));
 
     // The counts toggles leave out folders or files; totals include hidden items.
     Check(state.directory.totalFolders == 3 && state.directory.totalFiles == state.directory.count - 3 + 1);
@@ -4025,6 +4033,21 @@ function void TestTabs(TestFileFixture *fixture)
         Check(state.paletteOpen && state.paletteMode == Prog_PaletteMode_Options && Prog_OptionMatches(&state, options) == 1 && options[0] == Prog_Option_Animations);
         TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, UINT64_MAX);
         Check(state.animationsOff && state.paletteOpen);
+        // In another language they are found by their English words too, and by what was typed with the other keyboard layout on.
+        Prog_SetOptionText(&state, Prog_Option_Language, S("Русский"));
+        Check(StrIsEqual(Prog_Tr(Prog_Options[Prog_Option_SidebarTree].label), S("Дерево папок на боковой панели")));
+        const char *typings[] = { "Sidebar Folder Tree", "Lhtdj gfgjr yf ,jrjdjq gfytkb", "дерево" };
+        for (u32 t = 0; t < CArrayCount(typings); ++t) {
+            state.palette = (Prog_TextEdit){0};
+            Prog__EditReplace(&state.palette, (const u8 *)typings[t], (u32)StrFromCStr(typings[t]).length);
+            u32 shown = Prog_OptionMatches(&state, options);
+            b32 found = false;
+            for (u32 i = 0; i < shown; ++i) found |= options[i] == Prog_Option_SidebarTree;
+            Check(found);
+        }
+        Check(StrIsEqual(Prog_OtherLayout(&state.frameArena, S("Ыфму")), S("Save")) && !Prog_OtherLayout(&state.frameArena, S("1 2")).length);
+        Prog_SetOptionText(&state, Prog_Option_Language, S("English"));
+        state.palette = (Prog_TextEdit){0};
         // A key alone that types nothing, such as the Windows key, leaves the list where the wheel scrolled it, and typing brings it back.
         state.paletteWheeled = true;
         PlatformEvent alone[] = { { .kind = PlatformEventKind_KeyDown, .key = Key_Super }, { .kind = PlatformEventKind_KeyDown, .key = Key_None } };

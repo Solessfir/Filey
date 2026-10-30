@@ -1380,7 +1380,7 @@ function u32 Prog_OptionSection(u32 option)
 
 function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
 {
-    String typed = Prog_EditText(&state->palette);
+    String typed = Prog_EditText(&state->palette), other = Prog_OtherLayout(&state->frameArena, typed);
     u32 count = 0, section = UINT32_MAX;
     for (u32 i = 0; i < Prog_Option_Count; ++i) {
         if (!Prog_OptionApplies((Prog_Option)i)) continue;
@@ -1395,7 +1395,12 @@ function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
         if (i == Prog_Option_MutedNotices && !state->mutedNotices.header.count) continue;
         b32 colors = i == Prog_Option_ColorGroups || Prog_Options[i].control == Prog_OptionControl_Color;
         if (colors && (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || typed.length || (i != Prog_Option_ColorGroups && !state->colorsExpanded))) continue;
-        if (typed.length && Prog_FuzzyScore(Prog_Tr(Prog_Options[i].label), Prog_Tr(Prog_Options[i].tooltip), typed, NULL, NULL) <= 0) continue;
+        // As the commands, by their English words too, and by what was typed with the other keyboard layout on.
+        const Prog_OptionDesc *desc = &Prog_Options[i];
+        String label = Prog_Tr(desc->label), tooltip = Prog_Tr(desc->tooltip);
+        b32 translated = !StrIsEqual(label, desc->label) || !StrIsEqual(tooltip, desc->tooltip);
+        if (typed.length && Prog_PaletteScore(label, tooltip, typed, other, NULL, NULL) <= 0 &&
+            (!translated || Prog_PaletteScore(desc->label, desc->tooltip, typed, other, NULL, NULL) <= 0)) continue;
         // A section's heading goes before the first of its options shown; a section easing shut lists them until it has.
         u32 own = Prog_OptionSection(i);
         if (!typed.length && own != section) found[count++] = (u8)(Prog_Option_Count + own);
@@ -4707,7 +4712,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
                 String leaf = Prog_EntryLeaf(entry->file.name);
                 u64 prefix = entry->file.name.length - leaf.length;
                 u8 *marks = state->filter.length ? ArenaPushArrayNoZero(&state->frameArena, Max(entry->file.name.length, (u64)1), u8) : NULL;
-                if (marks) Prog_EntryScore(entry->file.name, Prog_EditText(&state->filter), marks);
+                if (marks) Prog_EntryScore(entry->file.name, Prog_ShownFilter(state, &state->frameArena), marks);
                 // A tree shows where an item is by its depth instead.
                 if (tree) Prog__NameLabel(leaf, 0, marks ? marks + prefix : NULL, width, height, color, theme->textDim, Prog__ItemMatch(entry, hot), m);
                 else Prog__NameLabel(entry->file.name, prefix, marks, width, height, color, theme->textDim, Prog__ItemMatch(entry, hot), m);
@@ -5796,7 +5801,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         // Folders and drives have the folders' color, This PC the text's; what the sidebar's filter found is in the match color.
         R_Color color = hot ? theme->contentHover : faded && !current ? theme->textDim : StrIsEqual(path, Prog_ThisPC) ? theme->text : theme->folder;
         u8 *marks = state->sidebarFilter.length ? ArenaPushArray(&state->frameArena, name.length + 1, u8) : NULL;
-        if (marks && !Prog_FilterMatch(name, Prog_EditText(&state->sidebarFilter), marks)) marks = NULL;
+        if (marks && !Prog_FilterMatchEither(name, Prog_EditText(&state->sidebarFilter), marks)) marks = NULL;
         if (drive && drive->totalBytes) {
             // The name sits a little high to leave room for the bar under it.
             UI_SetNextPrefWidth(UI_Flex());
@@ -5911,7 +5916,7 @@ function UI_Block *Prog__GroupBody(Prog_State *state, Prog_Group group, const Pr
 // Whether the Quick Access filter leaves the sidebar the item named `name`.
 function b32 Prog__SidebarFinds(const Prog_State *state, String name)
 {
-    return !state->sidebarFilter.length || Prog_FilterMatch(name, Prog_EditText(&state->sidebarFilter), NULL);
+    return !state->sidebarFilter.length || Prog_FilterMatchEither(name, Prog_EditText(&state->sidebarFilter), NULL);
 }
 
 // The Quick Access filter's box over the sections: a press starts filtering, and while it holds text a button clears it.
@@ -7495,7 +7500,7 @@ function void Prog__MarkedLabel(Prog_State *state, String text, String search, c
         for (u64 i = 0; i < search.length; ++i) marks[start + i] = 1;
         whole = true;
     }
-    if (marks && !whole && !Prog_FilterMatch(text, search, marks)) marks = NULL;
+    if (marks && !whole && !Prog_FilterMatchEither(text, search, marks)) marks = NULL;
     for (u64 start = 0, end = 0; start < text.length; start = end) {
         b32 isMatch = marks && marks[start];
         while (end < text.length && (marks && marks[end]) == isMatch) ++end;
@@ -9720,7 +9725,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     u8 found[Prog_OptionRows];
     u32 count = options ? Prog_OptionMatches(state, found) : Prog_PaletteMatches(state, rows);
     state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
-    String typed = Prog_EditText(&state->palette);
+    String typed = Prog_EditText(&state->palette), other = Prog_OtherLayout(&state->frameArena, typed);
     b32 searching = typed.length > 0;
     // A row's group, and whether it is the group's heading rather than one of its rows.
 #define Prog__RowGroup(i) (options ? (Prog_OptionHeading(found[i]) ? (u32)found[i] - Prog_Option_Count : Prog_OptionSection(found[i])) : (u32)rows[i].group)
@@ -9942,7 +9947,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                         // What was typed shows in the match color, in the label and in the description.
                         u8 *labelMarks = searching ? ArenaPushArray(&state->frameArena, label.length + 1, u8) : NULL;
                         u8 *tooltipMarks = searching ? ArenaPushArray(&state->frameArena, tooltip.length + 1, u8) : NULL;
-                        if (searching) Prog_FuzzyScore(label, tooltip, typed, labelMarks, tooltipMarks);
+                        if (searching) Prog_PaletteScore(label, tooltip, typed, other, labelMarks, tooltipMarks);
                         UI_SetNextPrefWidth(UI_Flex());
                         UI_SetNextPrefHeight(UI_Pixels(face));
                         UI_SetNextChildrenLayout(UI_Layout_Vertical);
