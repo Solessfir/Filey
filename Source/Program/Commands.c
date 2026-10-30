@@ -1470,8 +1470,8 @@ function b32 Prog_CommandChecked(const Prog_State *state, Prog_CommandKind kind)
         case Prog_CommandKind_ViewList: return zoom == Prog_ZoomList;
         case Prog_CommandKind_ViewColumns: return zoom == Prog_ZoomColumns;
         case Prog_CommandKind_ViewMediumIcons: return zoom >= Prog_ZoomIcons && zoom < Prog_ZoomLarge;
-        case Prog_CommandKind_ViewLargeIcons: return zoom >= Prog_ZoomLarge && zoom < Prog_ZoomMax;
-        case Prog_CommandKind_ViewXLIcons: return zoom >= Prog_ZoomMax;
+        case Prog_CommandKind_ViewLargeIcons: return zoom >= Prog_ZoomLarge && zoom < Prog_ZoomXL;
+        case Prog_CommandKind_ViewXLIcons: return zoom >= Prog_ZoomXL;
         case Prog_CommandKind_ToggleMillerColumns: return state->miller;
         case Prog_CommandKind_ToggleTreeView: return state->tree;
         case Prog_CommandKind_GroupByNone: case Prog_CommandKind_GroupByType: case Prog_CommandKind_GroupByDateModified: case Prog_CommandKind_GroupBySize:
@@ -4078,7 +4078,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ViewColumns: state->zoom = Prog_ZoomColumns; state->revealFocus = true; break;
             case Prog_CommandKind_ViewMediumIcons: state->zoom = Prog_ZoomIcons; state->revealFocus = true; break;
             case Prog_CommandKind_ViewLargeIcons: state->zoom = Prog_ZoomLarge; state->revealFocus = true; break;
-            case Prog_CommandKind_ViewXLIcons: state->zoom = Prog_ZoomMax; state->revealFocus = true; break;
+            case Prog_CommandKind_ViewXLIcons: state->zoom = Prog_ZoomXL; state->revealFocus = true; break;
             case Prog_CommandKind_ToggleMillerColumns: state->miller = !state->miller; state->revealFocus = true; break;
             case Prog_CommandKind_ToggleTreeView: {
                 // Turned off, it folds everything, which turning it on again starts from.

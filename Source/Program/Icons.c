@@ -230,7 +230,7 @@ function void Prog__ResetThumbnails(Prog_ThumbnailSlot *slot, i32 size)
 // more than that and a zoom step rarely crosses into another.
 function i32 Prog__ThumbnailTier(i32 size)
 {
-    local_persist const i32 tiers[] = { 64, 96, 128, 192, 256, 384, 512, 768 };
+    local_persist const i32 tiers[] = { 64, 96, 128, 192, 256, 384, 512, 768, 1024 };
     for (u32 i = 0; i < CArrayCount(tiers); ++i) if (size <= tiers[i]) return tiers[i];
     return size;
 }

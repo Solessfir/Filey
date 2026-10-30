@@ -6261,7 +6261,7 @@ function void Prog__SetCurrentView(Prog_State *state, Prog_ViewSettings view)
     state->groupBy = view.groupBy;
 }
 
-// One zoom step in or out: a view at a time up to M Icons, then the icon sizes a step apart up to XL Icons.
+// One zoom step in or out: a view at a time up to M Icons, then the icon sizes a step apart.
 function u32 Prog_ZoomStepped(u32 zoom, b32 up)
 {
     if (up) return zoom < Prog_ZoomIcons ? Min(zoom + Prog_ZoomList, (u32)Prog_ZoomIcons) : Min(zoom + Prog_ZoomStep, (u32)Prog_ZoomMax);
@@ -6273,7 +6273,7 @@ function u32 Prog_ZoomStepped(u32 zoom, b32 up)
 function u32 Prog_ZoomFromSaved(u64 value)
 {
     if (value < 3) return (u32)value * Prog_ZoomList;
-    if (value <= 16) return (u32)Min((u64)Prog_ZoomIcons + (value - 3) * Prog_ZoomStep, (u64)Prog_ZoomMax);
+    if (value <= 16) return (u32)Min((u64)Prog_ZoomIcons + (value - 3) * Prog_ZoomStep, (u64)Prog_ZoomXL);
     return (u32)Min(value, (u64)Prog_ZoomMax);
 }
 
@@ -6356,7 +6356,7 @@ function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSett
 // The view new tabs and splits start in: the settings' view, by name with the usual columns.
 function Prog_ViewSettings Prog_DefaultView(const Prog_State *state)
 {
-    local_persist const u32 zooms[Prog_NewTabView_Count] = { 0, Prog_ZoomList, Prog_ZoomColumns, Prog_ZoomIcons, Prog_ZoomLarge, Prog_ZoomMax };
+    local_persist const u32 zooms[Prog_NewTabView_Count] = { 0, Prog_ZoomList, Prog_ZoomColumns, Prog_ZoomIcons, Prog_ZoomLarge, Prog_ZoomXL };
     return (Prog_ViewSettings){ .zoom = zooms[Min((u32)state->newTabView, (u32)Prog_NewTabView_Count - 1)], .folders = Prog_FolderSort_First };
 }
 

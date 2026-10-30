@@ -406,12 +406,13 @@ typedef struct Prog_IconAtlas {
 
 // Zoom levels, smallest first: Details, List, Columns, then icon grids that grow a step at a time.
 // Zoom in tenths of a percent: Details at 0, List at 100 and Columns at 200, then the icon views from M Icons at 300 through L Icons from 650 to
-// XL Icons at 1000, which a zoom step moves through 55 at a time.
+// XL Icons at 1000, and on past it to 2000 for the pictures of a high-resolution display, which a zoom step moves through 55 at a time.
 #define Prog_ZoomList    100
 #define Prog_ZoomColumns 200
 #define Prog_ZoomIcons   300
 #define Prog_ZoomLarge   650
-#define Prog_ZoomMax     1000
+#define Prog_ZoomXL      1000
+#define Prog_ZoomMax     2000
 #define Prog_ZoomStep    55
 
 typedef enum Prog_View {

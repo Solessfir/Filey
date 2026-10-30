@@ -821,10 +821,10 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(state.zoom == Prog_ZoomLarge);
         TestBrowsingCommand(&state, Prog_CommandKind_ZoomSet, Prog_ZoomMax + 1);
         Check(state.zoom == Prog_ZoomLarge);
-        // Steps of 5.5% through the icon sizes, a view at a time below them, and old files' levels read as zoom.
+        // Steps of 5.5% through the icon sizes, past XL Icons too, a view at a time below them, and old files' levels read as zoom.
         TestBrowsingCommand(&state, Prog_CommandKind_ZoomOut, 0);
-        Check(state.zoom == 595 && Prog_ZoomStepped(1000, true) == 1000 && Prog_ZoomStepped(330, false) == 300 && Prog_ZoomStepped(300, false) == 200);
-        Check(Prog_ZoomStepped(200, true) == 300 && Prog_ZoomFromSaved(2) == 200 && Prog_ZoomFromSaved(10) == 685 && Prog_ZoomFromSaved(16) == 1000 && Prog_ZoomFromSaved(650) == 650);
+        Check(state.zoom == 595 && Prog_ZoomStepped(1000, true) == 1055 && Prog_ZoomStepped(1980, true) == Prog_ZoomMax && Prog_ZoomStepped(330, false) == 300 && Prog_ZoomStepped(300, false) == 200);
+        Check(Prog_ZoomStepped(200, true) == 300 && Prog_ZoomFromSaved(2) == 200 && Prog_ZoomFromSaved(10) == 685 && Prog_ZoomFromSaved(16) == 1000 && Prog_ZoomFromSaved(650) == 650 && Prog_ZoomFromSaved(1500) == 1500);
         TestBrowsingCommand(&state, Prog_CommandKind_ZoomSet, before);
     }
     // A locked folder opens with its view, while a folder without one gets the panel's own back; what changes while it is shown is kept in

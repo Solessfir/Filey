@@ -4923,21 +4923,21 @@ function Prog_View Prog_ZoomView(u32 zoom)
 }
 
 // Zoom as a fraction: 0 for Details up to 1 for XL Icons.
-function f32 Prog__ZoomFraction(u32 zoom) { return MinF32(1, (f32)zoom / (f32)Prog_ZoomMax); }
+function f32 Prog__ZoomFraction(u32 zoom) { return MinF32(1, (f32)zoom / (f32)Prog_ZoomXL); }
 
 // The view's name, as the status bar and the zoom popup call it.
 function String Prog__ZoomName(u32 zoom)
 {
     local_persist const String names[Prog_View_Count] = { TrInit("Details"), TrInit("List"), TrInit("Columns"), {0} };
     Prog_View view = Prog_ZoomView(zoom);
-    return view != Prog_View_Icons ? Prog_Tr(names[view]) : zoom < Prog_ZoomLarge ? Tr("M Icons") : zoom < Prog_ZoomMax ? Tr("L Icons") : Tr("XL Icons");
+    return view != Prog_View_Icons ? Prog_Tr(names[view]) : zoom < Prog_ZoomLarge ? Tr("M Icons") : zoom < Prog_ZoomXL ? Tr("L Icons") : Tr("XL Icons");
 }
 
-// Icon views draw their icons from 48 logical pixels at 30% to 205 at 100%, in physical pixels.
+// Icon views draw their icons from 48 logical pixels at 30% to 205 at 100% and 512 at 200%, in physical pixels.
 function f32 Prog__ZoomIconSize(u32 zoom, f32 scale)
 {
-    f32 t = (Prog__ZoomFraction(zoom) - 0.3f) / 0.7f;
-    return floorf((48.0f + t * (204.8f - 48.0f)) * scale + 0.5f);
+    f32 t = (Prog__ZoomFraction(zoom) - 0.3f) / 0.7f, beyond = (f32)(Max(zoom, (u32)Prog_ZoomXL) - Prog_ZoomXL) / (Prog_ZoomMax - Prog_ZoomXL);
+    return floorf((48.0f + t * (204.8f - 48.0f) + beyond * (512.0f - 204.8f)) * scale + 0.5f);
 }
 
 // A grouped list's heading: its name and how many items it has, before a line, which a press folds the group away or shows again.
@@ -8363,11 +8363,11 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill(), .border = theme->tabBorder });
     UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ZoomPopup")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     Prog_View view = Prog_ZoomView(state->zoom);
-    u32 lit = view != Prog_View_Icons ? (u32)view : state->zoom < Prog_ZoomLarge ? 3u : state->zoom < Prog_ZoomMax ? 4u : 5u;
+    u32 lit = view != Prog_View_Icons ? (u32)view : state->zoom < Prog_ZoomLarge ? 3u : state->zoom < Prog_ZoomXL ? 4u : 5u;
     local_persist const String names[] = { TrInit("Details"), TrInit("List"), TrInit("Columns"), TrInit("M Icons"), TrInit("L Icons"), TrInit("XL Icons") };
     const String icons[] = { Icon_List, Icon_Menu, Icon_Columns3, Icon_Image, Icon_Image, Icon_Image };
     f32 places[] = { 0, 0.1f, 0.2f, 0.3f, 0.65f, 1 };
-    u32 levels[] = { 0, Prog_ZoomList, Prog_ZoomColumns, Prog_ZoomIcons, Prog_ZoomLarge, Prog_ZoomMax };
+    u32 levels[] = { 0, Prog_ZoomList, Prog_ZoomColumns, Prog_ZoomIcons, Prog_ZoomLarge, Prog_ZoomXL };
     f32 inset = floorf(11.2f * s + 0.5f), rowWidth = floorf(120.0f * s + 0.5f), rowHeight = floorf(17.6f * s + 0.5f);
     UI_Parent(box) {
         // The header: what the slider sets, and where it is.
@@ -8435,7 +8435,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
         if (drag.pressed || (drag.active && drag.isDragging)) {
             f32 at = UI->mouse.y - box->rect.y0;
             u32 wanted = Prog_ZoomIcons;
-            if (at <= iconsRow) wanted = (u32)MinF32((f32)Prog_ZoomMax, (f32)Prog_ZoomIcons + floorf((iconsRow - at) / MaxF32(1, iconsRow - topRow) * 700.0f + 0.5f));
+            if (at <= iconsRow) wanted = (u32)MinF32((f32)Prog_ZoomXL, (f32)Prog_ZoomIcons + floorf((iconsRow - at) / MaxF32(1, iconsRow - topRow) * 700.0f + 0.5f));
             else wanted = (u32)MaxF32(0, (f32)Prog_ZoomIcons - floorf((at - iconsRow) / pitch + 0.5f) * Prog_ZoomList);
             if (wanted != state->zoom) Prog_QueueCommand(state, Prog_CommandKind_ZoomSet, wanted, 0, drag.pressOrder);
         }
