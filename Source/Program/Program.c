@@ -5193,8 +5193,8 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
                 if (y > drawn) Prog__Spacer(UI_Flex(), UI_Pixels(y - drawn));
                 drawn = y + pitch.y;
                 u64 from = group->start + line * perLine, to = Min(group->start + group->count, from + perLine);
-                // Columns keeps its cells when only one fits across.
-                if (perLine == 1 && view != Prog_View_Columns) {
+                // Columns and the icon views keep their cells when only one fits across.
+                if (view == Prog_View_Details || view == Prog_View_List) {
                     u64 row = state->view[from];
                     UI_Key key = UI_KeyFromStr(directoryKey, state->directory.entries[row].file.name);
                     // Rows after a folder folding up are striped as they will be once its items are gone.
