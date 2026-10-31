@@ -1134,7 +1134,10 @@ function String P_SystemLanguage(Arena *arena)
 
 function String P_ExpandVariables(Arena *arena, String text, b32 final)
 {
-    (void)final;
+    // A leading ~ is the user's folder, as shells take it.
+    if (text.length && text.value[0] == '~' && (text.length == 1 ? final : text.value[1] == '\\' || text.value[1] == '/')) {
+        text = StrFormat(arena, "%%USERPROFILE%%%S", StrFrom(text, 1));
+    }
     if (!StrIndexChar(text, '%', SSF_None).exists) return text;
     Scratch scratch = GetScratchEx(arena);
     wchar *wide = P__FilePathWide(scratch.arena, text);

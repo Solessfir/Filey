@@ -72,6 +72,11 @@ function void TestExpandVariables(void)
     Check(root.length > 8 && root.value[1] == ':' && StrIsEqual(StrFrom(root, root.length - 6), S("\\Fonts")));
     Check(StrIsEqual(P_ExpandVariables(&arena, S("%FILEY_NO_SUCH_VARIABLE%"), true), S("%FILEY_NO_SUCH_VARIABLE%")));
     Check(StrIsEqual(P_ExpandVariables(&arena, S("%SYSTEMROOT"), true), S("%SYSTEMROOT")));
+    String home = P_ExpandVariables(&arena, S("%USERPROFILE%"), true);
+    Check(StrIsEqual(P_ExpandVariables(&arena, S("~\\a"), false), StrFormat(&arena, "%S\\a", home)));
+    Check(StrIsEqual(P_ExpandVariables(&arena, S("~/a"), false), StrFormat(&arena, "%S\\a", home)));
+    Check(StrIsEqual(P_ExpandVariables(&arena, S("~"), false), S("~")) && StrIsEqual(P_ExpandVariables(&arena, S("~"), true), home));
+    Check(StrIsEqual(P_ExpandVariables(&arena, S("~a"), true), S("~a")));
 #else
     String home = StrFromCStr(getenv("HOME"));
     Check(StrIsEqual(P_ExpandVariables(&arena, S("${HOME}/a"), false), StrFormat(&arena, "%S/a", home)));
