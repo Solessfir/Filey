@@ -3236,7 +3236,7 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             }
             if (count) {
                 PlatformClipboardSetText(text.buffer);
-                state->pathFlashTime = PlatformNowMicroseconds();
+                state->itemsFlashTime = PlatformNowMicroseconds();
             }
         } break;
         case Prog_CommandKind_CopyAsPathSmart: {
@@ -3248,7 +3248,8 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
                 shownCount = 1;
             }
             PlatformClipboardSetText(Prog_QuotedPaths(frame, shown, shownCount));
-            state->pathFlashTime = PlatformNowMicroseconds();
+            if (state->selectedCount) state->itemsFlashTime = PlatformNowMicroseconds();
+            else state->pathFlashTime = PlatformNowMicroseconds();
         } break;
         case Prog_CommandKind_CreateFolder:
         case Prog_CommandKind_CreateFile: {

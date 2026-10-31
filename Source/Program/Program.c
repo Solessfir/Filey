@@ -3417,6 +3417,22 @@ function void Prog__GitStatus(Prog_State *state, const Prog_Metrics *m)
     Prog__Spacer(UI_Pixels(m->gap - pad), UI_Pixels(bar));
 }
 
+// A copy's flash since `start` over the current block: `color` washes in and out, to `amount` of its opacity.
+function void Prog__CopyFlash(u64 start, R_Color color, f32 amount, UI_Vec2 offset, UI_Size width, UI_Size height, f32 radius)
+{
+    u64 since = UI->nowMicroseconds > start ? UI->nowMicroseconds - start : 0;
+    if (!start || since >= 450000) return;
+    R_Color flash = color;
+    flash.a *= amount * (UI->animate ? sinf(3.14159265f * (f32)since / 450000.0f) : 1);
+    UI_SetNextFloatingOffset(offset);
+    UI_SetNextPrefWidth(width);
+    UI_SetNextPrefHeight(height);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextColors((UI_Colors){ .background = flash });
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    UI_KeepAnimating();
+}
+
 function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -3451,19 +3467,10 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
             b32 fromStart = false;
             hovered = Prog__Breadcrumbs(state, crumbs->rect.x1 - crumbs->rect.x0, &fromStart, m);
             if (fromStart) crumbs->scrollOffset.x = crumbs->scrollShown.x = 0;
-            // A path copied flashes the path bar: the selection color washes in and out over it.
-            u64 since = UI->nowMicroseconds > state->pathFlashTime ? UI->nowMicroseconds - state->pathFlashTime : 0;
-            if (state->pathFlashTime && since < 450000 && crumbs->rect.x1 > crumbs->rect.x0) {
-                R_Color flash = theme->selection;
-                flash.a *= 0.45f * (UI->animate ? sinf(3.14159265f * (f32)since / 450000.0f) : 1);
+            // A path copied flashes the path bar.
+            if (crumbs->rect.x1 > crumbs->rect.x0) {
                 f32 inset = floorf(3.2f * m->scale + 0.5f);
-                UI_SetNextFloatingOffset((UI_Vec2){ 0, inset });
-                UI_SetNextPrefWidth(UI_Pixels(crumbs->rect.x1 - crumbs->rect.x0));
-                UI_SetNextPrefHeight(UI_Pixels(bar - 2 * inset));
-                UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
-                UI_SetNextColors((UI_Colors){ .background = flash });
-                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-                UI_KeepAnimating();
+                Prog__CopyFlash(state->pathFlashTime, theme->selection, 0.45f, (UI_Vec2){ 0, inset }, UI_Pixels(crumbs->rect.x1 - crumbs->rect.x0), UI_Pixels(bar - 2 * inset), floorf(4.0f * m->scale + 0.5f));
             }
         }
         if (strip.pressed && strip.button == MouseButton_Right) {
@@ -4667,6 +4674,8 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     b32 counting = entry->file.kind == P_FileKind_Directory && !entry->measured && Prog__LiveTotals(state, entry, &live) && !live.complete;
     UI_Parent(row) {
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Percent(1), m);
+        // Paths copied flash the items they came from.
+        if (entry->selected) Prog__CopyFlash(state->itemsFlashTime, Prog_CurrentTheme()->text, 0.25f, (UI_Vec2){ 0, 0 }, UI_Percent(1), UI_Pixels(m->row - Prog__RowLine(m)), m->radius);
         if (Prog__MarksRecents(state) && entry->recent) Prog__Icon(Icon_Clock, Prog__RecentGutter(m->scale), height, theme->text, 0.5f, m);
         else if (Prog__MarksRecents(state)) Prog__Spacer(UI_Pixels(Prog__RecentGutter(m->scale)), UI_Pixels(height));
         if (tree) {
@@ -4798,6 +4807,7 @@ function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key
     b32 result = Prog__ItemInput(state, index, cell, key, onName, renaming);
     UI_Parent(cell) {
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Pixels(width), m);
+        if (entry->selected) Prog__CopyFlash(state->itemsFlashTime, Prog_CurrentTheme()->text, 0.25f, (UI_Vec2){ 0, 0 }, UI_Pixels(width), UI_Pixels(m->row - Prog__RowLine(m)), m->radius);
         if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, Prog__ListIconInset(m), highlighted, m);
         if (renaming) Prog__RenameBox(state, UI_Flex(), false, m);
         else Prog__Label(Prog_EntryName(state, entry), UI_Flex(), height, m->gap, Prog__ItemInk(state, entry, hot, true), 0);
@@ -4846,6 +4856,7 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
     Prog__EntryValues(state, entry, values);
     f32 text = width - m->gap;
     UI_Parent(cell) {
+        if (entry->selected) Prog__CopyFlash(state->itemsFlashTime, Prog_CurrentTheme()->text, 0.25f, (UI_Vec2){ 0, 0 }, UI_Percent(1), UI_Percent(1), m->radius * 2);
         Prog__ItemIcon(state, entry, iconSize, width, iconSize, 0.5f, 0, highlighted, m);
         // While several are selected, when asked, a checked box in the cell's corner takes it out of the selection, as the rows' does.
         f32 box = floorf(16.0f * m->scale + 0.5f), corner = floorf(6.4f * m->scale + 0.5f);

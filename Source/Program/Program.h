@@ -1548,7 +1548,7 @@ typedef struct Prog_TreeWatches {
     X(Arena, repoArena) X(Prog_Repos, repos) X(String, reposPath) X(P_Job *, reposJob) X(u64, reposNext) X(u64, reposTime) \
     X(b32, miller) X(Arena, millerArena) X(Prog_MillerColumns *, millerColumns) \
     X(Arena, pickArena) X(ArrayStr, pickNames) X(f32, pickScroll) X(b32, pickScrollSet) \
-    X(u64, pathFlashTime) X(u32, columnDrag) X(UI_Key, columnDragKey) X(f32, columnGrab) X(u32, columnDropAt) X(u64, columnSlideUntil)
+    X(u64, pathFlashTime) X(u64, itemsFlashTime) X(u32, columnDrag) X(UI_Key, columnDragKey) X(f32, columnGrab) X(u32, columnDropAt) X(u64, columnSlideUntil)
 
 #define Prog__PanelField(type, name) type name;
 typedef struct Prog_Panel {
