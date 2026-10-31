@@ -134,7 +134,9 @@ function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, con
         String key = StrFormat(&state->frameArena, "online:%S", P_FileTypeKey(&state->frameArena, entry->file.name, entry->file.kind));
         return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, entry->file.name, entry->file.kind, state->iconSize, false, false);
     }
-    return Prog_PathIcon(state, Prog_JoinPath(&state->frameArena, directory, entry->file.name), entry->drive ? P_FileKind_Drive : entry->file.kind);
+    String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
+    if (entry->file.ownIcon && !entry->drive) return Prog_FolderIcon(state, path);
+    return Prog_PathIcon(state, path, entry->drive ? P_FileKind_Drive : entry->file.kind);
 }
 
 // The cached icon for `key` in `map`, or NULL after queueing a load of `path` at `size` when it is new.

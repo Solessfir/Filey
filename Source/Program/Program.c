@@ -8281,7 +8281,10 @@ function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
             UI_Interaction pick = UI_InteractionFromBlock(row);
             if (pick.clicked) Prog_QueueCommand(state, Prog_CommandKind_TypesToggle, t, 0, pick.clickOrder)->target = 1;
             UI_Parent(row) {
-                const Prog_Icon *icon = state->typeFirsts[t] < state->directory.count ? Prog_FileIcon(state, state->directory.path, &state->directory.entries[state->typeFirsts[t]]) : NULL;
+                // The type's icon, not the first folder's own one.
+                Prog_Entry first = state->typeFirsts[t] < state->directory.count ? state->directory.entries[state->typeFirsts[t]] : (Prog_Entry){0};
+                first.file.ownIcon = false;
+                const Prog_Icon *icon = state->typeFirsts[t] < state->directory.count ? Prog_FileIcon(state, state->directory.path, &first) : NULL;
                 UI_SetNextPrefWidth(UI_Pixels(iconSize + floorf(8.0f * s + 0.5f)));
                 UI_SetNextPrefHeight(UI_Pixels(pitch));
                 UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
@@ -13191,7 +13194,7 @@ function void Prog__MillerColumnUI(Prog_State *state, Prog_MillerColumn *column,
             if (dropping) state->dropPlace = StrCopy(&state->dropPlaceArena, path);
             UI_Parent(line) {
                 Prog__ItemBox(Prog__ItemLook(row == litRow || dropping, hot, false), UI_Percent(1), m);
-                const Prog_Icon *icon = Prog_PathIcon(state, path, entry->file.kind);
+                const Prog_Icon *icon = entry->file.ownIcon ? Prog_FolderIcon(state, path) : Prog_PathIcon(state, path, entry->file.kind);
                 f32 size = (f32)state->iconSize;
                 if (icon) {
                     UI_SetNextPrefWidth(UI_Pixels(m->iconSlot - m->gap));
