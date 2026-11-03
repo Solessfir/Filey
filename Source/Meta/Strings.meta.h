@@ -635,7 +635,7 @@ global const char *const Prog_Strings[] = {
     "Couldn't rename \"%S\" to \"%S\"",
     "Compress video failed",
     "Download failed",
-    "Trash failed",
+    "Remove failed",
     "Delete failed",
     "Create failed",
     "Restore failed",

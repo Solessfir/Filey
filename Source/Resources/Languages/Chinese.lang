@@ -1279,7 +1279,7 @@ Couldn't open "%S"
 Couldn't rename "%S" to "%S"
 = 无法将“%S”重命名为“%S”
 
-Trash failed
+Remove failed
 = 移到回收站失败
 
 Delete failed

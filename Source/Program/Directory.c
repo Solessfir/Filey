@@ -8327,10 +8327,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                           input->kind == Prog_JobKind_Restore ? NoTr("Restore") : input->move ? NoTr("Move") : NoTr("Copy");
             // One stopped from its card, with Escape or in the system's own progress window ends without an error.
             if (error.code && !P_IsCancelled(&job->cancelToken) && !P_FileErrorIsCancel(error)) {
-                String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Trash failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
+                String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Remove failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
                               : input->kind == Prog_JobKind_Create ? Tr("Create failed") : input->kind == Prog_JobKind_Link ? Tr("Paste shortcut failed")
                               : input->kind == Prog_JobKind_Restore ? Tr("Restore failed") : input->move ? Tr("Move failed") : Tr("Copy failed");
-                Prog_Notify(state, Prog_NoticeKind_Error, Prog__NoticeKey(&state->frameArena, verb), failed, error.message);
+                // A trash or delete that fails leaves the files as they were, which is no harm done.
+                b32 harmless = input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash;
+                Prog_Notify(state, harmless ? Prog_NoticeKind_Warning : Prog_NoticeKind_Error, Prog__NoticeKey(&state->frameArena, verb), failed, error.message);
             } else if (created) {
                 // The new item is selected once the listing shows it, and a new file or folder renamed.
                 String name = Prog__ListedName(&state->frameArena, state, input->path, ((Prog_Created *)job->result)->name);
