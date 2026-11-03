@@ -6589,6 +6589,7 @@ typedef struct Prog_MenuBorder {
     u32 shape;
     R_Rect gaps[Prog_MenuGapCount];
     u32 gapCount;
+    f32 gapOpacity; // how much of the border still shows across the gaps, while the submenu joined there fades in
 } Prog_MenuBorder;
 
 function void Prog__MenuBorderGap(Prog_MenuBorder *border, R_Rect gap)
@@ -6625,20 +6626,33 @@ function void Prog__MenuBorderDraw(const Prog_MenuBorder *border, const Prog_Met
             spanCount = keptCount;
             for (u32 k = 0; k < keptCount; ++k) spans[k] = kept[k];
         }
-        for (u32 s = 0; s < spanCount; s += 2) {
-            if (spans[s + 1] - spans[s] <= 0) continue;
-            UI_SetNextFloatingOffset((UI_Vec2){ spans[s] - view.x0, y0 - view.y0 });
-            UI_SetNextPrefWidth(UI_Pixels(spans[s + 1] - spans[s]));
+        // What the gaps cut out still shows, as faint as the joined submenu is not yet there.
+        f32 cut[4 * Prog_MenuGapCount + 4];
+        u32 cutSpans = 0;
+        if (border->gapOpacity > 0) {
+            f32 at = rect.x0;
+            for (u32 s = 0; s <= spanCount; s += 2) {
+                f32 end = s < spanCount ? spans[s] : rect.x1;
+                if (end > at) { cut[cutSpans++] = at; cut[cutSpans++] = end; }
+                if (s < spanCount) at = spans[s + 1];
+            }
+        }
+        for (u32 s = 0; s < spanCount + cutSpans; s += 2) {
+            b32 faint = s >= spanCount;
+            f32 x0 = faint ? cut[s - spanCount] : spans[s], x1 = faint ? cut[s - spanCount + 1] : spans[s + 1];
+            if (x1 - x0 <= 0) continue;
+            UI_SetNextFloatingOffset((UI_Vec2){ x0 - view.x0, y0 - view.y0 });
+            UI_SetNextPrefWidth(UI_Pixels(x1 - x0));
             UI_SetNextPrefHeight(UI_Pixels(y1 - y0));
             UI_Block *clip = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
             UI_Parent(clip) {
-                UI_SetNextFloatingOffset((UI_Vec2){ rect.x0 - spans[s], rect.y0 - y0 });
+                UI_SetNextFloatingOffset((UI_Vec2){ rect.x0 - x0, rect.y0 - y0 });
                 UI_SetNextPrefWidth(UI_Pixels(rect.x1 - rect.x0));
                 UI_SetNextPrefHeight(UI_Pixels(rect.y1 - rect.y0));
                 UI_SetNextCornerRadius(border->radius);
                 UI_SetNextShape(border->shape);
                 UI_SetNextBorderThickness(m->stroke);
-                UI_SetNextOpacity(border->opacity);
+                UI_SetNextOpacity(border->opacity * (faint ? border->gapOpacity : 1));
                 UI_SetNextColors((UI_Colors){ .border = Prog_CurrentTheme()->tabBorder });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
             }
@@ -6800,6 +6814,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
         join = Prog__MenuJoinShape(place.opener, parent, rect, joinLeft, radius, m);
         Prog__MenuBorderGap(border, join.childGap);
         Prog__MenuBorderGap(parentBorder, join.parentGap);
+        parentBorder->gapOpacity = 1 - opacity;
     }
     border->shape = join.childShape | squared;
     if (level > 0 && level - 1 < CArrayCount(state->menuSquare)) state->menuSquare[level - 1] = join.parentShape;
