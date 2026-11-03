@@ -5176,6 +5176,22 @@ function void TestApps(TestFileFixture *fixture)
 
 // A bin's records read back as its items, with their own names, where they came from and when they went; a bin built in the fixture stands in
 // for the real one, which the tests leave alone.
+#if defined(_WIN32)
+// A file held open fails to delete with the program that holds it named, rather than the shell's own code.
+function void TestLockedDelete(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String path = StrFormat(&arena, "%S/Locked.txt", fixture->path);
+    HANDLE held = CreateFileW(P__FilePathWide(&arena, path), GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, 0, NULL);
+    Check(held != INVALID_HANDLE_VALUE);
+    P_FileError error = P_DeleteItems(&arena, &path, 1, false, NULL);
+    Check(error.code == ERROR_SHARING_VIOLATION && StrIndexStr(error.message, S("Locked.txt is open in "), SSF_None).exists);
+    CloseHandle(held);
+    Check(!P_DeleteItems(&arena, &path, 1, false, NULL).code && !P_PathExists(path));
+    ArenaRelease(&arena);
+}
+#endif
+
 function void TestTrash(TestFileFixture *fixture)
 {
     Arena arena = {0};
@@ -5387,6 +5403,7 @@ function void TestBrowsing(void)
 #endif
         TestTrash(&fixture);
 #if defined(_WIN32)
+        TestLockedDelete(&fixture);
         P__TestDropForwarding(&fixture);
         P__TestNeighborQuery(&fixture);
 #endif

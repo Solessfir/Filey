@@ -7,6 +7,7 @@
 #include <objbase.h>
 #include <lm.h>
 #include <winioctl.h>
+#include <restartmanager.h>
 #pragma pop_macro("function")
 
 // Phones, cameras and other devices that the shell shows under This PC have no file paths.
@@ -852,6 +853,74 @@ function P_FileError P__ShellItemOperation(Arena *arena, u32 operation, const St
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
+// The programs that have `path` open, by the names the Restart Manager knows them by, each once; empty when it names none.
+function String P__LockingApps(Arena *arena, const wchar *path)
+{
+    DWORD session = 0;
+    WCHAR key[CCH_RM_SESSION_KEY + 1] = {0};
+    if (RmStartSession(&session, 0, key) != ERROR_SUCCESS) return (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    StrBuilder out = {0};
+    UINT needed = 0, have = 0;
+    DWORD reasons = 0;
+    RM_PROCESS_INFO *apps = NULL;
+    if (RmRegisterResources(session, 1, &path, 0, NULL, 0, NULL) == ERROR_SUCCESS && RmGetList(session, &needed, &have, NULL, &reasons) == ERROR_MORE_DATA && needed) {
+        have = needed;
+        apps = ArenaPushArray(scratch.arena, needed, RM_PROCESS_INFO);
+        if (RmGetList(session, &needed, &have, apps, &reasons) != ERROR_SUCCESS) have = 0;
+    }
+    String *names = ArenaPushArray(scratch.arena, Max(have, 1u), String);
+    u32 named = 0;
+    for (UINT i = 0; i < have; ++i) {
+        String name = P__FileStringWide(scratch.arena, apps[i].strAppName, lstrlenW(apps[i].strAppName));
+        b32 seen = !name.length;
+        for (u32 n = 0; n < named && !seen; ++n) seen = StrIsEqual(names[n], name);
+        if (seen) continue;
+        if (named) StrBuildStr(scratch.arena, &out, S(", "));
+        StrBuildStr(scratch.arena, &out, name);
+        names[named++] = name;
+    }
+    RmEndSession(session);
+    String result = StrCopy(arena, out.buffer);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// What stopped the shell, whose own old codes say little: the first item that cannot be opened to be deleted or moved, with why, and for one that another program holds open, which programs those are.
+function P_FileError P__OperationError(Arena *arena, u32 operation, wchar **wide, const String *paths, u64 count, u32 code)
+{
+    if (code == ERROR_CANCELLED || code == 0x75) return P__FileError(arena, code);
+    for (u64 i = 0; (operation == FO_DELETE || operation == FO_MOVE) && i < count; ++i) {
+        HANDLE file = CreateFileW(wide[i], DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+        if (file != INVALID_HANDLE_VALUE) {
+            CloseHandle(file);
+            continue;
+        }
+        u32 why = GetLastError();
+        if (why == ERROR_FILE_NOT_FOUND || why == ERROR_PATH_NOT_FOUND) continue;
+        String path = paths[i];
+        while (path.length > 1 && (path.value[path.length - 1] == '/' || path.value[path.length - 1] == '\\')) --path.length;
+        u64 cut = 0;
+        for (u64 c = 0; c < path.length; ++c) if (path.value[c] == '/' || path.value[c] == '\\') cut = c + 1;
+        String name = StrFrom(path, cut);
+        P_FileError result = P__FileError(arena, why);
+        String apps = why == ERROR_SHARING_VIOLATION || why == ERROR_LOCK_VIOLATION ? P__LockingApps(arena, wide[i]) : (String){0};
+        result.message = apps.length ? StrFormat(arena, "%S is open in %S.", name, apps) : StrFormat(arena, "%S: %S", name, result.message);
+        return result;
+    }
+    // The shell's own codes, from before Win32 errors, where nothing above told more.
+    switch (code) {
+        case 0x71: case 0x7D: code = ERROR_INVALID_PARAMETER; break; // The source and the destination are the same.
+        case 0x74: case 0x78: case 0x10000: case 0x10074: code = ERROR_ACCESS_DENIED; break;
+        case 0x79: case 0x81: code = ERROR_FILENAME_EXCED_RANGE; break;
+        case 0x7C: case 0x402: code = ERROR_FILE_NOT_FOUND; break;
+        case 0x82: case 0x83: case 0x84: case 0x85: case 0x86: case 0x87: case 0x88: code = ERROR_WRITE_PROTECT; break;
+        case 0xB7: code = ERROR_FILENAME_EXCED_RANGE; break;
+        default: break;
+    }
+    return P__FileError(arena, code);
+}
+
 function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const String *paths, u64 count, String directory, u16 flags, HWND owner, String *placed)
 {
     b32 device = P__IsDevicePath(directory);
@@ -874,6 +943,7 @@ function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const St
         at += size;
     }
     wchar *to = NULL;
+    b32 shell = false;
     if (!error && directory.length) {
         wchar *target = P__FilePathWide(scratch.arena, directory);
         if (!target) error = GetLastError();
@@ -885,6 +955,7 @@ function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const St
         SHFILEOPSTRUCTW op = { .hwnd = owner, .wFunc = operation, .pFrom = from, .pTo = to, .fFlags = (FILEOP_FLAGS)(flags | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR | (placed ? FOF_WANTMAPPINGHANDLE : 0)) };
         i32 result = SHFileOperationW(&op);
         error = result ? (u32)result : op.fAnyOperationsAborted ? ERROR_CANCELLED : 0;
+        shell = true;
         for (u64 i = 0; placed && i < count; ++i) placed[i] = P__PlacedPath(arena, directory, paths[i]);
         if (placed && op.hNameMappings) {
             // The handle is a count followed by the mappings, each from the item's old path to its new one.
@@ -908,8 +979,9 @@ function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const St
             SHFreeNameMappings(op.hNameMappings);
         }
     }
+    P_FileError failure = !error ? (P_FileError){0} : shell ? P__OperationError(arena, operation, wide, paths, count, error) : P__FileError(arena, error);
     ReleaseScratch(scratch);
-    return error ? P__FileError(arena, error) : (P_FileError){0};
+    return failure;
 }
 
 function b32 P_MountsRemote(void) { return false; }
