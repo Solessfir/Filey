@@ -41,7 +41,8 @@ jobs:
       # Ubuntu's own Clang is 18, older than #embed needs.
       - name: Install Clang and the libraries
         run: |
-          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          # The LLVM site now and then turns the runners away for a while, so it is asked again.
+          curl -fsSL --retry 6 --retry-all-errors --retry-delay 20 -o llvm.sh https://apt.llvm.org/llvm.sh
           sudo bash llvm.sh 20
           sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libegl-dev libfreetype-dev libfontconfig-dev libarchive13t64 git
       - name: Build and test
