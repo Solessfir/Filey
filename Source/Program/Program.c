@@ -5944,9 +5944,10 @@ function void Prog__SidebarFilterBox(Prog_State *state, const Prog_Metrics *m)
     if (press.pressed && !state->sidebarFiltering) Prog_QueueCommand(state, Prog_CommandKind_StartQuickAccessFilter, 0, 0, press.pressOrder);
     state->sidebarFilterRect = filter->rect;
     UI_Parent(filter) {
-        Prog__Spacer(UI_Pixels(floorf(9.6f * m->scale + 0.5f)), UI_Pixels(strip));
-        Prog__SearchIcon(0, strip, theme->textDim, 0, 0, m);
-        f32 pad = floorf(8.8f * m->scale + 0.5f);
+        // The glass and the text line up with the groups' icons and titles under them.
+        Prog__Spacer(UI_Pixels(floorf(8.0f * m->scale + 0.5f)), UI_Pixels(strip));
+        Prog__SearchIcon(floorf(m->line * 1.5f) - floorf(2.4f * m->scale + 0.5f), strip, theme->textDim, 0, 0, m);
+        f32 pad = 0;
         UI_SetNextPrefWidth(UI_Flex());
         UI_SetNextPrefHeight(UI_Pixels(strip));
         UI_Block *text = UI_AddBlock(UI_Flag_Clip);
