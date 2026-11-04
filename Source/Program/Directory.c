@@ -2954,15 +2954,16 @@ function void Prog__DirectoryJob(P_Job *job)
         const Prog_Undo *undo = &input->undo;
         if (undo->kind == Prog_UndoKind_Rename && undo->count == 1) {
             *error = P_RenamePath(&job->arena, Prog_ParentPath(undo->to[0]), Prog_EntryLeaf(undo->to[0]), Prog_EntryLeaf(undo->from[0]));
-        } else if (undo->kind == Prog_UndoKind_Create || undo->kind == Prog_UndoKind_Copy) {
+        } else if ((undo->kind == Prog_UndoKind_Create || undo->kind == Prog_UndoKind_Copy) && !input->redo) {
             String *paths = ArenaPushArray(&job->arena, Max(undo->count, (u64)1), String);
             u64 count = 0;
             for (u64 i = 0; i < undo->count; ++i) if (undo->to[i].length) paths[count++] = undo->to[i];
             if (count) *error = P_TrashItems(&job->arena, paths, count);
         } else if (undo->kind == Prog_UndoKind_Trash && input->redo) {
             *error = P_TrashItems(&job->arena, undo->to, undo->count);
-        } else if (undo->kind == Prog_UndoKind_Trash) {
+        } else if (undo->kind == Prog_UndoKind_Trash || undo->kind == Prog_UndoKind_Create || undo->kind == Prog_UndoKind_Copy) {
             // Each item from the bin by where it was, the one deleted last where it holds several from the same place.
+            // That is what was trashed, on undo, and on redo what was made or copied, which undoing it sent there, as Explorer's Redo makes them again.
             String bin = P_TrashFolder(&job->arena);
             P_ArrayTrashed binned = P_ListTrash(&job->arena, bin, &job->cancelToken);
             String *names = ArenaPushArray(&job->arena, Max(undo->count, (u64)1), String);
@@ -8433,9 +8434,20 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         if (Prog__SamePath(Prog_ParentPath(done->to[i]), state->directory.path)) ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, Prog_EntryLeaf(done->to[i])));
                     }
                 }
+            } else if (input->undo.kind == Prog_UndoKind_Create || input->undo.kind == Prog_UndoKind_Copy) {
+                // New items and copies went to the bin, or came back out of it, which the other stack then reverses; what came back is selected where it shows.
+                const Prog_Undo *done = &input->undo;
+                Prog__PushStep(input->redo ? &state->undoArena : &state->redoArena, input->redo ? &state->undo : &state->redo, (Prog_UndoKind)done->kind, NULL, done->to, done->count);
+                Prog_ReloadFolderIcon(state, P_TrashFolder(&state->frameArena));
+                if (input->redo) {
+                    ArenaClear(&state->pickArena);
+                    state->pickNames = (ArrayStr){0};
+                    for (u64 i = 0; i < done->count; ++i) {
+                        if (Prog__SamePath(Prog_ParentPath(done->to[i]), state->directory.path)) ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, Prog_EntryLeaf(done->to[i])));
+                    }
+                }
             } else if (input->undo.kind == Prog_UndoKind_Rename || input->undo.kind == Prog_UndoKind_Move) {
-                // The items are back at `from`, so the way back to `to` is the same step the other way round. New items and copies went to the
-                // trash, which Redo does not take them out of.
+                // The items are back at `from`, so the way back to `to` is the same step the other way round.
                 const Prog_Undo *done = &input->undo;
                 Prog__FollowMoved(state, done->to, done->from, done->count);
                 if (input->redo) Prog__PushStep(&state->undoArena, &state->undo, (Prog_UndoKind)done->kind, done->to, done->from, done->count);

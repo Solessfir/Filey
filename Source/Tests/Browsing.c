@@ -3112,6 +3112,20 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_Redo, 0);
     for (u64 start = PlatformNowMicroseconds(); TestEntryIndex(&state, S("a.txt")) != UINT64_MAX && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) Prog_TakeCompletions(&state);
     Check(TestEntryIndex(&state, S("a.txt")) == UINT64_MAX && TestHasFile(&arena, fixture, S("Commands/data/Trash/files"), S("a.txt")));
+    // A new item undone goes to the trash, and Redo takes it back out, as Explorer's Redo makes it again, selected.
+    String made = {0};
+    Check(!P_CreateItem(&arena, state.directory.path, S("Remade"), true, &made).code);
+    String remade = Prog_JoinPath(&arena, state.directory.path, made);
+    Prog_PushUndo(&state, Prog_UndoKind_Create, NULL, &remade, 1);
+    u64 steps = state.undo.header.count;
+    TestBrowsingCommand(&state, Prog_CommandKind_Undo, 0);
+    for (u64 start = PlatformNowMicroseconds(); P_PathExists(remade) && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) Prog_TakeCompletions(&state);
+    for (u64 start = PlatformNowMicroseconds(); !state.redo.header.count && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) Prog_TakeCompletions(&state);
+    Check(!P_PathExists(remade) && state.redo.header.count == 1);
+    TestBrowsingCommand(&state, Prog_CommandKind_Redo, 0);
+    for (u64 start = PlatformNowMicroseconds(); !P_PathExists(remade) && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) Prog_TakeCompletions(&state);
+    for (u64 start = PlatformNowMicroseconds(); state.undo.header.count != steps && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) Prog_TakeCompletions(&state);
+    Check(P_PathExists(remade) && !state.error.length && state.undo.header.count == steps && !state.redo.header.count);
     if (saved.length) setenv("XDG_DATA_HOME", P__FilePathCString(&arena, saved), 1);
     else unsetenv("XDG_DATA_HOME");
 
