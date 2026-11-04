@@ -1454,11 +1454,11 @@ function void TestFileIcons(TestFileFixture *fixture)
         top = P_EnumerateArchive(&arena, archive, (String){0}, NULL);
         Check(top.files.header.count == 2 && (StrIsEqual(top.files.v[0].name, S("ünï 日本.txt")) || StrIsEqual(top.files.v[1].name, S("ünï 日本.txt"))));
 #if !defined(_WIN32)
-        // A Linux name that is not UTF-8 goes in with the replacement character for each byte that starts no character.
+        // A Linux name that is not UTF-8 goes in with each byte that starts no character as %XX.
         String latin = Prog_JoinPath(&arena, out, S("caf\xe9.txt")), latinArchive = Prog_JoinPath(&arena, out, S("latin.zip"));
         Check(!P_WriteFile(&arena, latin, S("l")).code && !P_AddToArchive(&arena, latinArchive, (String){0}, &latin, 1, 9, NULL, NULL).code);
         P_DirectoryResult latinTop = P_EnumerateArchive(&arena, latinArchive, (String){0}, NULL);
-        Check(latinTop.files.header.count == 1 && StrIsEqual(latinTop.files.v[0].name, S("caf\xef\xbf\xbd.txt")));
+        Check(latinTop.files.header.count == 1 && StrIsEqual(latinTop.files.v[0].name, S("caf%E9.txt")));
         Check(P__TestRemovePath(fixture, S("Out/caf\xe9.txt"), false) && P__TestRemovePath(fixture, S("Out/latin.zip"), false));
 #endif
         // An add counts its progress, and a cancelled one leaves the archive as it was, with nothing beside it.

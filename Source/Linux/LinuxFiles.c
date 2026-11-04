@@ -892,15 +892,17 @@ function b32 P__MakeFolders(char *path)
     return mkdir(path, 0777) == 0 || errno == EEXIST;
 }
 
-// `name` with each byte that starts no UTF-8 character as U+FFFD: an archive keeps its names as UTF-8, which libarchive will not write
-// a name on Linux may be without, so such a file goes in under a name close to its own rather than failing the whole archive.
+// `name` with each byte that starts no UTF-8 character written as %XX, its value in hex: an archive keeps its names as UTF-8, which libarchive
+// will not write a name on Linux may be without, so such a file goes in under a name close to its own, and two that differ only in such
+// bytes stay two, rather than failing the whole archive.
 function String P__ArchiveName(Arena *arena, String name)
 {
     StrBuilder out = {0};
     for (u64 at = 0; at < name.length;) {
-        u8 bytes[4];
-        u32 count = StrEncodeUtf8(StrDecodeUtf8(name, &at), bytes);
-        StrBuildBytes(arena, &out, (const char *)bytes, count);
+        u64 from = at;
+        rune c = StrDecodeUtf8(name, &at);
+        if (c == 0xFFFD && at - from == 1) StrBuildF(arena, &out, "%%%02X", (u32)(u8)name.value[from]);
+        else StrBuildStr(arena, &out, StrFromTo(name, from, (i64)at));
     }
     return out.buffer;
 }
