@@ -892,13 +892,26 @@ function b32 P__MakeFolders(char *path)
     return mkdir(path, 0777) == 0 || errno == EEXIST;
 }
 
+// `name` with each byte that starts no UTF-8 character as U+FFFD: an archive keeps its names as UTF-8, which libarchive will not write
+// a name on Linux may be without, so such a file goes in under a name close to its own rather than failing the whole archive.
+function String P__ArchiveName(Arena *arena, String name)
+{
+    StrBuilder out = {0};
+    for (u64 at = 0; at < name.length;) {
+        u8 bytes[4];
+        u32 count = StrEncodeUtf8(StrDecodeUtf8(name, &at), bytes);
+        StrBuildBytes(arena, &out, (const char *)bytes, count);
+    }
+    return out.buffer;
+}
+
 // Links are left out.
 function u32 P__ArchiveWritePath(void *writer, String path, String name, P_Progress *progress, const P_CancelToken *cancel)
 {
     P__Archive *a = &P__archive;
     if (P_IsCancelled(cancel)) return ECANCELED;
     Scratch scratch = GetScratch();
-    char *native = P__FilePathCString(scratch.arena, path), *inside = P__FilePathCString(scratch.arena, name);
+    char *native = P__FilePathCString(scratch.arena, path), *inside = P__FilePathCString(scratch.arena, P__ArchiveName(scratch.arena, name));
     struct stat info = {0};
     u32 error = native && inside && lstat(native, &info) == 0 ? 0 : (u32)errno;
     b32 file = !error && S_ISREG(info.st_mode), folder = !error && S_ISDIR(info.st_mode);
