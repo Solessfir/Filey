@@ -936,6 +936,8 @@ global const char *const Prog_Strings[] = {
     "Select the last tab.",
     "Toggle Quick Access",
     "Toggle the Quick Access sidebar.",
+    "Focus Sidebar",
+    "Move the keyboard into the sidebar, to go through its folders with the arrow keys; again, back to the list.",
     "Filter Quick Access",
     "Start filtering items in the Quick Access sidebar.",
     "Toggle Folder Bookmark",

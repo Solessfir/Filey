@@ -1604,6 +1604,17 @@ typedef enum Prog_TabDrop {
     Prog_TabDrop_Count,
 } Prog_TabDrop;
 
+// A row of the sidebar the keyboard can be on, as the last build laid them out, in their order: a group's title, or an item as Prog__SidebarItem knows it.
+typedef struct Prog_SidebarStop {
+    u32 group;  // a Prog_Group, or a group of the user's
+    b32 title;
+    u64 index;  // the item's, as Prog__SidebarItem takes it
+    u32 node;   // the tree's folder it unfolds, or UINT32_MAX
+    u32 depth;  // 0 for a title, 1 for an item, and one more for each step down the tree
+    String path;
+    R_Rect rect;
+} Prog_SidebarStop;
+
 typedef struct Prog_TabDropTarget {
     enum8(Prog_TabDrop) kind;
     u64 panel;        // the panel it goes into or beside
@@ -2127,6 +2138,20 @@ typedef struct Prog_State {
     Prog_TextEdit sidebarFilterBefore;  // what it was as this round of typing began, which Escape brings back
     b32 sidebarFiltering;
     R_Rect sidebarFilterRect;  // the box, as the last build laid it out
+    // The keyboard in the sidebar, from Focus Sidebar: on a row of the group sidebarAtGroup, its title or its item sidebarAtIndex, the row sidebarAtOrder, which it falls back to once that row is gone.
+    // A group of UINT32_MAX stands for the first item; sidebarReveal scrolls the row into sight. The rows the last build laid out are sidebarStops, in sidebarStopArena.
+    b32 sidebarKeys;
+    u64 sidebarKeysTime;  // when the keyboard went into the sidebar, whose row it went to flashes
+    b32 sidebarReveal;
+    b32 sidebarAtTitle;
+    u32 sidebarAtGroup;
+    u64 sidebarAtIndex;
+    u32 sidebarAtOrder;
+    Arena sidebarStopArena;
+    Prog_SidebarStop *sidebarStops;
+    u32 sidebarStopCount;
+    u32 sidebarStopRoom;
+    R_Rect sidebarRect;
     f32 sidebarWidth;         // logical pixels its edge was dragged to; 0 for the default
     f32 sidebarGrab;          // how far right of its edge line the pointer took it
     PlatformCursor cursor;    // the pointer's shape the last build asked for, over an edge that drags

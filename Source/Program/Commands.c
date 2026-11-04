@@ -721,6 +721,33 @@ function u32 Prog_FindMatches(String text, String needle, u64 *out)
     return count;
 }
 
+// The row of the sidebar the keyboard is on, among those the last build laid out, or the one where it was once that row is gone; UINT32_MAX for none.
+function u32 Prog__SidebarAt(const Prog_State *state)
+{
+    for (u32 i = 0; i < state->sidebarStopCount; ++i) {
+        const Prog_SidebarStop *stop = &state->sidebarStops[i];
+        if (stop->group == state->sidebarAtGroup && stop->title == state->sidebarAtTitle && (stop->title || stop->index == state->sidebarAtIndex)) return i;
+    }
+    if (!state->sidebarStopCount) return UINT32_MAX;
+    if (state->sidebarAtGroup == UINT32_MAX) {
+        for (u32 i = 0; i < state->sidebarStopCount; ++i) if (!state->sidebarStops[i].title) return i;
+        return 0;
+    }
+    return Min(state->sidebarAtOrder, state->sidebarStopCount - 1);
+}
+
+// Puts the keyboard on the sidebar's row `at`, scrolling it into sight.
+function void Prog__SidebarGo(Prog_State *state, u32 at)
+{
+    if (at >= state->sidebarStopCount) return;
+    const Prog_SidebarStop *stop = &state->sidebarStops[at];
+    state->sidebarAtGroup = stop->group;
+    state->sidebarAtTitle = stop->title;
+    state->sidebarAtIndex = stop->index;
+    state->sidebarAtOrder = at;
+    state->sidebarReveal = true;
+}
+
 // Selects the inspector's next match after the selection, or with `back` the one before it, round from the end to the start, and scrolls to it.
 function void Prog__InspectorFindStep(Prog_State *state, b32 back)
 {
@@ -788,7 +815,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(GoTo),
     Prog_CommandKind_GoToSelectInPanel, Prog_CommandKind_GoToBack, Prog_CommandKind_GoToForward, Prog_CommandKind_GoToUp,
     Prog__PaletteGroup(Misc),
-    Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_QuickCommandsOpen, Prog_CommandKind_ContextMenu,
+    Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_FocusSidebar, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_QuickCommandsOpen, Prog_CommandKind_ContextMenu,
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_LanguageCreate, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_PlacesShowHidden, Prog_CommandKind_PlacesRestore, Prog_CommandKind_GroupNew, Prog_CommandKind_GroupsRestore, Prog_CommandKind_NoticesUnmuteAll, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose,
     Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen, Prog_CommandKind_SetupOpen, Prog_CommandKind_CopyVersion,
@@ -3714,6 +3741,30 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->uiHidden = false;
                 if (state->sidebarHidden) state->sidebarFiltering = false;
             } break;
+            case Prog_CommandKind_FocusSidebar: {
+                if (state->sidebarKeys) {
+                    state->sidebarKeys = false;
+                    break;
+                }
+                Prog_CloseMenu(state);
+                state->sidebarHidden = state->uiHidden = state->sidebarFiltering = false;
+                state->sidebarKeys = true;
+                state->sidebarKeysTime = PlatformNowMicroseconds();
+                // On the folder shown, where the sidebar has it, or the first item.
+                state->sidebarAtGroup = UINT32_MAX;
+                for (u32 i = 0; i < state->sidebarStopCount; ++i) {
+                    if (state->sidebarStops[i].title || !Prog__PathsEqual(state->sidebarStops[i].path, state->directory.path)) continue;
+                    Prog__SidebarGo(state, i);
+                    break;
+                }
+                state->sidebarReveal = true;
+            } break;
+            case Prog_CommandKind_BookmarkMove: {
+                if (command->row >= state->bookmarks.header.count) break;
+                ArrayStr one = {0};
+                ArrayPush(&state->frameArena, one, StrCopy(&state->frameArena, state->bookmarks.v[command->row]));
+                Prog_PinBookmarks(state, &one, command->target);
+            } break;
             case Prog_CommandKind_StartQuickAccessFilter: {
                 Prog_CloseMenu(state);
                 state->sidebarHidden = false;
@@ -3727,7 +3778,14 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->sidebarFilter = state->sidebarFilterBefore;
                 state->sidebarFilter.version = version + 1;
             } break;
-            case Prog_CommandKind_QuickAccessFilterApply: state->sidebarFiltering = false; break;
+            case Prog_CommandKind_QuickAccessFilterApply: {
+                state->sidebarFiltering = false;
+                // With the keyboard in the sidebar, it goes on to the first item found.
+                if (state->sidebarKeys) {
+                    state->sidebarAtGroup = UINT32_MAX;
+                    state->sidebarReveal = true;
+                }
+            } break;
             case Prog_CommandKind_QuickAccessFilterCancel: {
                 state->sidebarFiltering = false;
                 state->sidebarFilter.length = state->sidebarFilter.cursor = state->sidebarFilter.anchor = 0;
@@ -3955,7 +4013,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                                     item->action == P_MenuAction_Trash || item->action == P_MenuAction_Delete;
                     if (selection) item->disabled = true;
                 }
-                state->menuAt = state->ui.mouse;
+                state->menuAt = command->at.x != 0 || command->at.y != 0 ? command->at : state->ui.mouse;
                 state->menuHighlight = UINT32_MAX;
                 Prog__MenuMove(state, 1);
             } break;
@@ -5513,6 +5571,107 @@ function u32 Prog__InspectorAt(const Prog_State *state, f32 x, f32 y)
 
 function String Prog_ControlAnswer(Prog_State *state, Arena *arena, String request);
 
+// Moves what the sidebar's row `at` holds a place up or down among the rows of its kind: a group by its title, a bookmark, a place or a folder in a group of the user's past the one beside it that shows.
+function void Prog__SidebarMoveRow(Prog_State *state, u32 at, b32 up, u64 order)
+{
+    const Prog_SidebarStop *stop = &state->sidebarStops[at];
+    if (stop->title) {
+        u32 groups = Prog_SidebarGroupCount(state), n = groups;
+        for (u32 k = 0; k < groups; ++k) if (Prog_SidebarGroupAt(state, k) == stop->group) n = k;
+        if (n == groups || (up ? n == 0 : n + 1 >= groups)) return;
+        Prog_QueueCommand(state, Prog_CommandKind_GroupMove, stop->group, 0, order)->target = up ? n - 1 : n + 2;
+        state->sidebarReveal = true;
+        return;
+    }
+    b32 own = stop->group >= Prog_Group_Count && stop->group != Prog_Group_Tree;
+    if (stop->group != Prog_Group_Bookmarks && stop->group != Prog_Group_Places && !own) return;
+    u32 beside = up ? at - 1 : at + 1;
+    if ((up && at == 0) || beside >= state->sidebarStopCount || state->sidebarStops[beside].title || state->sidebarStops[beside].group != stop->group) return;
+    u64 other = state->sidebarStops[beside].index, before = up ? other : other + 1;
+    if (stop->group == Prog_Group_Bookmarks) Prog_QueueCommand(state, Prog_CommandKind_BookmarkMove, stop->index, 0, order)->target = before;
+    else if (stop->group == Prog_Group_Places) Prog_QueueCommand(state, Prog_CommandKind_PlaceMove, stop->index, 0, order)->target = before;
+    else Prog_QueueCommand(state, Prog_CommandKind_GroupItemMove, stop->group, 0, order)->target = stop->index | (before << 32);
+    // It lands where the one it went past was.
+    state->sidebarAtIndex = other;
+    state->sidebarReveal = true;
+}
+
+// A key while the keyboard is in the sidebar; whether the sidebar used it, which keys that type are, for the filter their text starts.
+function b32 Prog__SidebarKey(Prog_State *state, const PlatformEvent *event, u64 order)
+{
+    KeyMods mods = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
+    b32 plain = !mods;
+    // Focus Sidebar's own hotkey goes on to it, to hand the keyboard back.
+    const Prog_Hotkey *hotkey = Prog_FindHotkey(state, Prog_HotkeyScope_Browser, Key_None, event->key, mods);
+    if (hotkey && hotkey->command == Prog_CommandKind_FocusSidebar) return false;
+    if (event->key == Key_Escape || (event->key == Key_Tab && plain)) {
+        state->sidebarKeys = false;
+        return true;
+    }
+    u32 count = state->sidebarStopCount, at = Prog__SidebarAt(state);
+    if (at == UINT32_MAX) return Prog__TypesInBox(event->key, event->mods);
+    const Prog_SidebarStop *stop = &state->sidebarStops[at];
+    b32 own = stop->group >= Prog_Group_Count && stop->group != Prog_Group_Tree;
+    b32 treeOpen = stop->node < state->treeNodes.header.count && state->treeNodes.v[stop->node].open;
+    Key key = event->key;
+    if (mods == KeyMod_Alt && (key == Key_Up || key == Key_Down)) {
+        Prog__SidebarMoveRow(state, at, key == Key_Up, order);
+        return true;
+    }
+    if (plain && (key == Key_Up || key == Key_Down || key == Key_Home || key == Key_End || key == Key_PageUp || key == Key_PageDown)) {
+        f32 tall = MaxF32(1, stop->rect.y1 - stop->rect.y0);
+        u32 page = Max((u32)((state->sidebarRect.y1 - state->sidebarRect.y0) / tall), 2u) - 1;
+        u32 to = key == Key_Up ? (at ? at - 1 : 0) : key == Key_Down ? Min(at + 1, count - 1) : key == Key_Home ? 0 : key == Key_End ? count - 1
+               : key == Key_PageUp ? (at > page ? at - page : 0) : Min(at + page, count - 1);
+        Prog__SidebarGo(state, to);
+        return true;
+    }
+    // Left folds what is open and otherwise goes up to the row it is under; Right unfolds what is shut and otherwise goes into it.
+    if (plain && key == Key_Left) {
+        if (stop->title && Prog_GroupOpen(state, (Prog_Group)stop->group)) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, stop->group, 0, order);
+        else if (!stop->title && treeOpen) Prog_QueueCommand(state, Prog_CommandKind_SidebarTreeToggle, stop->node, 0, order);
+        else for (u32 i = at; i-- > 0;) if (state->sidebarStops[i].depth < stop->depth) { Prog__SidebarGo(state, i); break; }
+        return true;
+    }
+    if (plain && key == Key_Right) {
+        if (stop->title && !Prog_GroupOpen(state, (Prog_Group)stop->group)) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, stop->group, 0, order);
+        else if (!stop->title && stop->node < state->treeNodes.header.count && !treeOpen) Prog_QueueCommand(state, Prog_CommandKind_SidebarTreeToggle, stop->node, 0, order);
+        else if (at + 1 < count && state->sidebarStops[at + 1].depth > stop->depth) Prog__SidebarGo(state, at + 1);
+        return true;
+    }
+    // Enter opens the folder and hands the keyboard to its list; Ctrl+Enter opens it in a new tab and stays.
+    if (key == Key_Enter && (plain || mods == KeyMod_Control)) {
+        if (event->isRepeat) return true;
+        if (stop->title) {
+            Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, stop->group, 0, order);
+        } else {
+            Prog_QueueCommand(state, plain ? Prog_CommandKind_SidebarOpen : Prog_CommandKind_SidebarOpenInTab, stop->group, 0, order)->target = stop->index;
+            if (plain) state->sidebarKeys = false;
+        }
+        return true;
+    }
+    // Delete takes a bookmark or a folder out of a group of the user's, and hides a place, as their buttons do.
+    if (plain && key == Key_Delete && !stop->title) {
+        if (stop->group == Prog_Group_Bookmarks) Prog_QueueCommand(state, Prog_CommandKind_RemoveBookmark, stop->index, 0, order);
+        else if (stop->group == Prog_Group_Places) Prog_QueueCommand(state, Prog_CommandKind_PlaceHiddenToggle, stop->index, 0, order);
+        else if (own) Prog_QueueCommand(state, Prog_CommandKind_GroupItemRemove, stop->group, 0, order)->target = stop->index;
+        return true;
+    }
+    if (plain && key == Key_F2) {
+        if (stop->title && own) Prog_QueueCommand(state, Prog_CommandKind_GroupRename, stop->group, 0, order);
+        else if (!stop->title) Prog_QueueCommand(state, Prog_CommandKind_SidebarRename, stop->group, 0, order)->target = stop->index;
+        return true;
+    }
+    // The menu key or Shift+F10 opens the row's menu under it.
+    if ((plain && key == Key_ContextMenu) || (mods == KeyMod_Shift && key == Key_F10)) {
+        Prog_Command *command = Prog_QueueCommand(state, stop->title ? Prog_CommandKind_GroupMenu : Prog_CommandKind_SidebarMenu, stop->group, 0, order);
+        command->target = stop->index;
+        command->at = (UI_Vec2){ stop->rect.x0 + (stop->rect.y1 - stop->rect.y0), stop->rect.y1 };
+        return true;
+    }
+    return Prog__TypesInBox(event->key, event->mods);
+}
+
 function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
 {
     // The control channel listens while the settings turn it on, in the main window, as the agents' server asks the settings folder's.
@@ -5918,8 +6077,30 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     if (!event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterApply, 0, 0, order);
                     continue;
                 }
+                // Down or Up goes from the box to what it found, with the keyboard in the sidebar.
+                if ((event->key == Key_Down || event->key == Key_Up) && !(event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super))) {
+                    state->sidebarKeys = true;
+                    Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterApply, 0, 0, order);
+                    continue;
+                }
                 // Other hotkeys still reach the browser.
                 if (Prog__EditKey(state, &state->sidebarFilter, event) || Prog__TypesInBox(event->key, event->mods)) continue;
+            }
+        }
+        // The keyboard in the sidebar: the arrows go through its rows, Left and Right fold and unfold, Enter opens, Alt with Up or Down moves what it is on among the others, and typing filters it.
+        // Escape, Tab, Focus Sidebar again or a press outside it hand the keyboard back to the list.
+        if (state->sidebarKeys && !state->menuOpen) {
+            if (state->sidebarHidden || state->uiHidden) {
+                state->sidebarKeys = false;
+            } else if (event->kind == PlatformEventKind_MouseDown && !UI__Contains(state->sidebarRect, (UI_Vec2){ event->x, event->y })) {
+                state->sidebarKeys = false;
+            } else if (event->kind == PlatformEventKind_Text) {
+                if (!state->sidebarFiltering) state->sidebarFilterBefore = state->sidebarFilter;
+                state->sidebarFiltering = true;
+                Prog__EditInsert(&state->sidebarFilter, event->codepoint);
+                continue;
+            } else if (event->kind == PlatformEventKind_KeyDown && Prog__SidebarKey(state, event, order)) {
+                continue;
             }
         }
         // The folder dropdown takes the keyboard: typing finds in it, Up and Down move the highlight, Enter goes to or opens what it lights, its own

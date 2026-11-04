@@ -1167,6 +1167,17 @@ command ToggleQuickAccess {
     hotkey  = "Ctrl+B"
 }
 
+command FocusSidebar {
+    label   = "Focus Sidebar^quick access,keyboard,navigate,places,bookmarks"
+    tooltip = "Move the keyboard into the sidebar, to go through its folders with the arrow keys; again, back to the list."
+    hotkey  = "Alt+Q"
+    repeat  = "false"
+}
+
+// A bookmark moved from the keyboard: row before the bookmark target, or last.
+command BookmarkMove {
+}
+
 command StartQuickAccessFilter {
     label   = "Filter Quick Access^sidebar,find,search"
     tooltip = "Start filtering items in the Quick Access sidebar."

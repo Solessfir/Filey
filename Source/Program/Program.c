@@ -5601,11 +5601,14 @@ function void Prog__AskSidebarRename(Prog_State *state, Prog_Group group, u64 in
     state->sidebarRenamePress = UI->lastPressTime;
 }
 
+function b32 Prog__SidebarStop(Prog_State *state, Prog_SidebarStop stop, UI_Block *row, const Prog_Metrics *m);
+function b32 Prog__SidebarKeyed(const Prog_State *state, u32 group, b32 title, u64 index);
+
 function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title, String icon, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Group/%S", title));
-    b32 hot = UI->hotKey == key || state->groupDrag == (u32)group + 1;
+    b32 hot = UI->hotKey == key || state->groupDrag == (u32)group + 1 || Prog__SidebarKeyed(state, (u32)group, true, 0);
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -5615,6 +5618,7 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
     UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
     UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable | (hot ? UI_Flag_DrawBackground : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(row);
+    Prog__SidebarStop(state, (Prog_SidebarStop){ .group = (u32)group, .title = true, .node = UINT32_MAX }, row, m);
     if ((u32)group < Prog_SidebarGroupMax) state->groupTops[group] = row->rect.y0;
     // Dragged, it moves among the groups, before the one the line the sidebar draws is at; the click its release makes folds nothing.
     b32 moved = false;
@@ -5689,6 +5693,41 @@ function f32 Prog__TreeBodyHeight(Prog_State *state, u32 node, u32 depth, f32 ro
 // A row of the sidebar's `group`; a `faded` one, hidden, is dimmed as the list dims hidden items.
 function void Prog__MarkedText(String text, const u8 *marks, const R_Font *font, f32 height, R_Color color);
 
+// Whether the keyboard is on the sidebar's row of `group`, its title or its item `index`.
+function b32 Prog__SidebarKeyed(const Prog_State *state, u32 group, b32 title, u64 index)
+{
+    return state->sidebarKeys && group == state->sidebarAtGroup && title == state->sidebarAtTitle && (title || index == state->sidebarAtIndex);
+}
+
+// Notes a row of the sidebar the keyboard can go to, and brings it into sight once when the keyboard is on it.
+function b32 Prog__SidebarStop(Prog_State *state, Prog_SidebarStop stop, UI_Block *row, const Prog_Metrics *m)
+{
+    if (state->sidebarStopCount == state->sidebarStopRoom) {
+        u32 room = Max(state->sidebarStopRoom * 2, 64u);
+        Prog_SidebarStop *grown = ArenaPushArrayNoZero(&state->sidebarStopArena, room, Prog_SidebarStop);
+        if (state->sidebarStopCount) MemCopy(grown, state->sidebarStops, state->sidebarStopCount * sizeof(Prog_SidebarStop));
+        state->sidebarStops = grown;
+        state->sidebarStopRoom = room;
+    }
+    stop.path = StrCopy(&state->sidebarStopArena, stop.path);
+    stop.rect = row->rect;
+    state->sidebarStops[state->sidebarStopCount++] = stop;
+    b32 result = Prog__SidebarKeyed(state, stop.group, stop.title, stop.index);
+    // The row the keyboard went to as it came into the sidebar flashes, as a copied item does.
+    // Over the whole row, as its light is, rather than inside its padding.
+    UI_Padding pad = row->props.childrenPadding;
+    if (result) UI_Parent(row) Prog__CopyFlash(state->sidebarKeysTime, Prog_CurrentTheme()->text, 0.25f, (UI_Vec2){ -pad.left, -pad.top }, UI_Pixels(row->rect.x1 - row->rect.x0), UI_Pixels(row->rect.y1 - row->rect.y0), m->radius);
+    if (result && state->sidebarReveal && row->rect.y1 > row->rect.y0) {
+        UI_Block *sidebar = UI__Find(UI_KeyFromStr(0, S("Sidebar")));
+        if (sidebar) {
+            f32 top = row->rect.y0 - sidebar->rect.y0 + sidebar->scrollShown.y, bottom = top + (row->rect.y1 - row->rect.y0);
+            sidebar->scrollOffset.y = MinF32(MaxF32(sidebar->scrollOffset.y, bottom + m->row - (sidebar->rect.y1 - sidebar->rect.y0)), MaxF32(0, top - m->row));
+        }
+        state->sidebarReveal = false;
+    }
+    return result;
+}
+
 function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, String name, String path, const P_Place *drive, b32 faded, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -5701,8 +5740,9 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     else if (state->sidebarTree && group == Prog_Group_Storage && Prog_TreeFolder(path)) node = Prog_TreeNodeOf(state, path, true);
     f32 arrow = node != UINT32_MAX ? floorf(16.0f * m->scale + 0.5f) : 0, indent = (f32)depth * floorf(12.8f * m->scale + 0.5f);
     // Not lit under a drag, which would hide the line where it goes; a place dragged stays lit.
-    b32 hot = (UI->hotKey == key || UI->hotKey == removeKey || UI->hotKey == arrowKey) && !P_DropPending() &&
-              (!state->sidebarDrag || (state->sidebarDragGroup == (u32)group + 1 && state->sidebarDrag == index + 1));
+    b32 keyed = Prog__SidebarKeyed(state, (u32)group, false, index);
+    b32 hot = ((UI->hotKey == key || UI->hotKey == removeKey || UI->hotKey == arrowKey) && !P_DropPending() &&
+               (!state->sidebarDrag || (state->sidebarDragGroup == (u32)group + 1 && state->sidebarDrag == index + 1))) || keyed;
     b32 own = (u32)group >= Prog_Group_Count && group != Prog_Group_Tree;
     // Lit while it is shown, or while its menu is open; not under a drag, where only the folder a drop would go into is lit.
     b32 current = !P_DropPending() && (StrIsEqual(path, state->directory.path) || (state->menuOpen && StrIsEqual(path, state->menuTarget)));
@@ -5720,9 +5760,13 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     }
     UI_SetNextChildrenPadding((UI_Padding){ MaxF32(0, floorf(m->line * 1.5f + m->gap * 0.5f) + floorf(3.2f * m->scale + 0.5f) - arrow) + indent, shift, floorf(m->gap * 0.5f), -shift });
     UI_SetNextCornerRadius(m->radius);
-    UI_SetNextColors((UI_Colors){ .background = theme->selection });
+    // While the keyboard is in the sidebar, the row it is on is lit fully and the folder shown dimly, as the list lights its focus and its selection.
+    R_Color fill = theme->selection;
+    if (state->sidebarKeys && !hot) fill.a *= theme->hoverAmount.r;
+    UI_SetNextColors((UI_Colors){ .background = fill });
     UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable | UI_Flag_RightMouseClickable | (hot || current ? UI_Flag_DrawBackground : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(row);
+    Prog__SidebarStop(state, (Prog_SidebarStop){ .group = (u32)group, .index = index, .node = node, .depth = 1 + depth, .path = path }, row, m);
     // The folder the tree unfolded down to scrolls into sight once it is laid out.
     if (state->treeReveal && group == Prog_Group_Tree && Prog__PathsEqual(path, state->directory.path) && row->rect.y1 > row->rect.y0) {
         UI_Block *sidebar = UI__Find(UI_KeyFromStr(0, S("Sidebar")));
@@ -5892,7 +5936,8 @@ function void Prog__SidebarTree(Prog_State *state, u32 node, u32 depth, const Pr
             if (!Prog__TreeShows(state, folder)) continue;
             f32 height = m->row + Prog__TreeBodyHeight(state, child, depth + 1, m->row);
             // The way down to the folder shown is built out of sight too, while it is to scroll into sight.
-            if ((y + height <= top || y >= bottom) && !(state->treeReveal && Prog__UnderRoot(state->directory.path, folder->path))) {
+            // With the keyboard in the sidebar every row is built, for the arrows to go through.
+            if ((y + height <= top || y >= bottom) && !(state->treeReveal && Prog__UnderRoot(state->directory.path, folder->path)) && !state->sidebarKeys) {
                 skipped += height;
                 y += height;
                 continue;
@@ -5990,6 +6035,19 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextColors((UI_Colors){ .background = theme->panel });
     UI_SetNextEdgeFade(floorf(m->row * 0.75f));
     UI_Block *sidebar =UI_AddBlockFromKey(UI_KeyFromStr(0, S("Sidebar")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable | UI_Flag_RightMouseClickable);
+    // The row the keyboard is on settles on one the last build laid out, before this build lays them out again.
+    u32 settled = state->sidebarKeys ? Prog__SidebarAt(state) : UINT32_MAX;
+    if (settled != UINT32_MAX) {
+        const Prog_SidebarStop *stop = &state->sidebarStops[settled];
+        state->sidebarAtGroup = stop->group;
+        state->sidebarAtTitle = stop->title;
+        state->sidebarAtIndex = stop->index;
+        state->sidebarAtOrder = settled;
+    }
+    ArenaClear(&state->sidebarStopArena);
+    state->sidebarStops = NULL;
+    state->sidebarStopCount = state->sidebarStopRoom = 0;
+    state->sidebarRect = sidebar->rect;
     // The rename a slow click asked for starts once the double-click time passed without another press.
     if (state->sidebarRenameAt && UI->lastPressTime != state->sidebarRenamePress) {
         state->sidebarRenameAt = 0;
@@ -6056,6 +6114,17 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                                 row->flags |= UI_Flag_Floating;
                                 // Rounded rather than floored, or a row easing sits a pixel short through the tail of the ease and then jumps.
                                 row->props.floatingOffset = (UI_Vec2){ 0, floorf(slid[n] + 0.5f) };
+                            }
+                        }
+                        // The keyboard goes down them in their order, not the order they were drawn in.
+                        Prog_SidebarStop *stops = state->sidebarStopCount >= shown ? state->sidebarStops + state->sidebarStopCount - shown : NULL;
+                        for (u32 n = 0; stops && n < shown; ++n) {
+                            for (u32 k = n; k < shown; ++k) {
+                                if (stops[k].index != indices[n]) continue;
+                                Prog_SidebarStop swap = stops[n];
+                                stops[n] = stops[k];
+                                stops[k] = swap;
+                                break;
                             }
                         }
                     }

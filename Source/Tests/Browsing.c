@@ -3228,6 +3228,59 @@ function void TestIndexPatch(void)
 
 // The user's own groups: made, named, their folders added, moved and taken out, folded and deleted, the groups' order keeping up, and read
 // back from Groups.conf.
+// A key in the sidebar, with the keyboard there; returns whether it was used.
+function b32 TestSidebarKey(Prog_State *state, Key key, KeyMods mods)
+{
+    PlatformEvent event = { .kind = PlatformEventKind_KeyDown, .key = key, .mods = mods };
+    return Prog__SidebarKey(state, &event, 0);
+}
+
+// The keyboard in the sidebar goes through the rows the build laid out, and Alt with Up or Down moves a bookmark past the next one shown.
+function void TestSidebarKeys(void)
+{
+    Prog_State state = {0};
+    String marks[] = { S("/a"), S("/b"), S("/c") };
+    Prog__SetList(&state.bookmarkArena, &state.bookmarks, marks, 3);
+    Prog_SidebarStop stops[] = {
+        { .group = Prog_Group_Bookmarks, .title = true, .node = UINT32_MAX, .depth = 0 },
+        { .group = Prog_Group_Bookmarks, .index = 0, .node = UINT32_MAX, .depth = 1, .path = S("/a") },
+        { .group = Prog_Group_Bookmarks, .index = 1, .node = UINT32_MAX, .depth = 1, .path = S("/b") },
+        { .group = Prog_Group_Bookmarks, .index = 2, .node = UINT32_MAX, .depth = 1, .path = S("/c") },
+        { .group = Prog_Group_Storage, .title = true, .node = UINT32_MAX, .depth = 0 },
+    };
+    state.sidebarStops = stops;
+    state.sidebarStopCount = CArrayCount(stops);
+    state.sidebarKeys = true;
+    state.sidebarAtGroup = UINT32_MAX;
+    // It starts on the first item, and stops at the ends.
+    Check(Prog__SidebarAt(&state) == 1);
+    Prog__SidebarGo(&state, 1);
+    Check(TestSidebarKey(&state, Key_Down, 0) && TestSidebarKey(&state, Key_Down, 0) && Prog__SidebarAt(&state) == 3 && state.sidebarAtIndex == 2);
+    Check(TestSidebarKey(&state, Key_End, 0) && Prog__SidebarAt(&state) == 4 && TestSidebarKey(&state, Key_Down, 0) && Prog__SidebarAt(&state) == 4);
+    Check(TestSidebarKey(&state, Key_Home, 0) && Prog__SidebarAt(&state) == 0);
+    // Left from an item goes up to its group's title.
+    Prog__SidebarGo(&state, 2);
+    Check(TestSidebarKey(&state, Key_Left, 0) && Prog__SidebarAt(&state) == 0);
+    // The last bookmark goes up past the one before it, and the keyboard goes with it; the first goes no higher, nor the last lower.
+    Prog__SidebarGo(&state, 3);
+    state.commandFirst = NULL;
+    Check(TestSidebarKey(&state, Key_Up, KeyMod_Alt) && state.commandFirst && state.commandFirst->kind == Prog_CommandKind_BookmarkMove);
+    Check(state.commandFirst->row == 2 && state.commandFirst->target == 1 && state.sidebarAtIndex == 1);
+    ArrayStr one = {0};
+    ArrayPush(&state.frameArena, one, S("/c"));
+    Prog_PinBookmarks(&state, &one, state.commandFirst->target);
+    Check(StrIsEqual(state.bookmarks.v[1], S("/c")) && StrIsEqual(state.bookmarks.v[2], S("/b")));
+    state.commandFirst = NULL;
+    Prog__SidebarGo(&state, 1);
+    Check(TestSidebarKey(&state, Key_Up, KeyMod_Alt) && !state.commandFirst);
+    Prog__SidebarGo(&state, 3);
+    Check(TestSidebarKey(&state, Key_Down, KeyMod_Alt) && !state.commandFirst);
+    // Escape hands the keyboard back.
+    Check(TestSidebarKey(&state, Key_Escape, 0) && !state.sidebarKeys);
+    ArenaRelease(&state.frameArena);
+    ArenaRelease(&state.bookmarkArena);
+}
+
 function void TestUserGroups(TestFileFixture *fixture)
 {
     Arena arena = {0};
@@ -5396,6 +5449,7 @@ function void TestBrowsing(void)
         TestUpdates(&fixture);
         TestPlaces(&fixture);
         TestUserGroups(&fixture);
+        TestSidebarKeys();
         TestSidebarTree(&fixture);
         TestIndexPatch();
         TestSidebarNames(&fixture);
