@@ -433,7 +433,7 @@ function b32 P_RunCommandStream(String directory, const String *arguments, u32 c
 // queued ahead. NULL where there is no sound.
 typedef struct P_Audio P_Audio;
 function P_Audio *P_AudioOpen(Arena *arena, u32 rate, u32 channels);
-// Queues `frames` frames, waiting while the queue is full; gives the frames heard so far.
+// Queues `frames` frames, waiting while the queue is full; gives the frames heard so far, or UINT64_MAX once the device is gone.
 function u64 P_AudioWrite(P_Audio *audio, const i16 *samples, u32 frames);
 // Stops it, at once or with `drain` once what is queued has been heard.
 function void P_AudioClose(P_Audio *audio, b32 drain);

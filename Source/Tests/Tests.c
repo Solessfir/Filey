@@ -560,6 +560,17 @@ function void TestTextEditWords(void)
 }
 
 #if defined(_WIN32)
+// A command line splits again into the arguments it was made of: spaces and quotes inside quotes, and the backslashes before a quote or the closing quote doubled, others kept as they are.
+function void TestCommandLine(void)
+{
+    Scratch scratch = GetScratch();
+    String plain[] = { S("7z"), S("C:\\x\\"), S("a b"), S("") };
+    Check(StrIsEqual(P__CommandLine(scratch.arena, plain, CArrayCount(plain)), S("7z C:\\x\\ \"a b\" \"\"")));
+    String quoted[] = { S("a\"b"), S("C:\\x y\\"), S("a\\\\\"b c") };
+    Check(StrIsEqual(P__CommandLine(scratch.arena, quoted, CArrayCount(quoted)), S("\"a\\\"b\" \"C:\\x y\\\\\" \"a\\\\\\\\\\\"b c\"")));
+    ReleaseScratch(scratch);
+}
+
 // The install's PATH edit adds its folder at the end, takes it out in any case and with a trailing backslash, and keeps every other entry
 // as it was; it never touches the registry here.
 function void TestInstallPath(void)
@@ -806,6 +817,7 @@ int main(void)
     TestTarga();
 #if defined(_WIN32)
     TestFolderThumbnailBackground();
+    TestCommandLine();
     TestInstallPath();
 #endif
 

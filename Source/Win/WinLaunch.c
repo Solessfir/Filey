@@ -570,6 +570,13 @@ function P_FileError P_OpenWindow(Arena *arena, String path, String option)
         // The command line is the quoted program, then the quoted folder, as the program's own startup parses it; the flag gives it a
         // window of its own rather than a tab in this one.
         u64 folderLength = wcslen(folder);
+        // A drive's root ends in a backslash, which would escape the closing quote; a second one keeps it.
+        if (folderLength && folder[folderLength - 1] == L'\\') {
+            wchar *doubled = ArenaPushArray(scratch.arena, folderLength + 2, wchar);
+            MemCopy(doubled, folder, folderLength * sizeof(wchar));
+            doubled[folderLength++] = L'\\';
+            folder = doubled;
+        }
         wchar *extra = option.length ? P__FileStringWideRaw(scratch.arena, option) : NULL;
         u64 room = length + folderLength + (extra ? wcslen(extra) : 0) + 32;
         wchar *line = ArenaPushArray(scratch.arena, room, wchar);

@@ -18,6 +18,7 @@ struct P_Audio {
     u32 channels;
     u32 next;     // the buffer being filled
     u32 filled;   // its frames so far
+    b32 gone;     // the device took a buffer no more, as a headset unplugged
 };
 
 function P_Audio *P_AudioOpen(Arena *arena, u32 rate, u32 channels)
@@ -42,21 +43,33 @@ function P_Audio *P_AudioOpen(Arena *arena, u32 rate, u32 channels)
     return audio;
 }
 
+// Waits for a buffer to be heard, a few seconds at most, far longer than one lasts, as one written to a device just gone may never be.
+// One that never is, as on a device that stopped without saying so, is taken back from it with the rest, so that it is free to fill.
+function void P__AudioWait(P_Audio *audio, WAVEHDR *header)
+{
+    for (u32 waited = 0; !(header->dwFlags & WHDR_DONE) && waited < 30; ++waited) WaitForSingleObject(audio->done, 100);
+    if (!(header->dwFlags & WHDR_DONE)) {
+        waveOutReset(audio->device);
+        for (u32 i = 0; i < P__AudioBuffers; ++i) audio->headers[i].dwFlags |= WHDR_DONE;
+    }
+}
+
 // Queues the buffer being filled, as much of it as there is, and waits for the next to be free.
 function void P__AudioQueue(P_Audio *audio)
 {
     WAVEHDR *header = &audio->headers[audio->next];
     header->dwBufferLength = audio->filled * audio->channels * 2;
     header->dwFlags &= ~(DWORD)WHDR_DONE;
-    waveOutWrite(audio->device, header, sizeof(WAVEHDR));
+    // A device gone, as a headset unplugged, takes no more, and its buffer is free again rather than waited for.
+    if (waveOutWrite(audio->device, header, sizeof(WAVEHDR)) != MMSYSERR_NOERROR) header->dwFlags |= WHDR_DONE, audio->gone = true;
     audio->next = (audio->next + 1) % P__AudioBuffers;
     audio->filled = 0;
-    while (!(audio->headers[audio->next].dwFlags & WHDR_DONE)) WaitForSingleObject(audio->done, 100);
+    P__AudioWait(audio, &audio->headers[audio->next]);
 }
 
 function u64 P_AudioWrite(P_Audio *audio, const i16 *samples, u32 frames)
 {
-    while (frames) {
+    while (frames && !audio->gone) {
         u32 take = Min(frames, P__AudioBufferFrames - audio->filled);
         MemCopy(audio->samples[audio->next] + audio->filled * audio->channels, samples, take * audio->channels * sizeof(i16));
         audio->filled += take;
@@ -64,6 +77,7 @@ function u64 P_AudioWrite(P_Audio *audio, const i16 *samples, u32 frames)
         frames -= take;
         if (audio->filled == P__AudioBufferFrames) P__AudioQueue(audio);
     }
+    if (audio->gone) return UINT64_MAX;
     MMTIME played = { .wType = TIME_SAMPLES };
     waveOutGetPosition(audio->device, &played, sizeof(played));
     return played.wType == TIME_SAMPLES ? played.u.sample : 0;
@@ -75,7 +89,7 @@ function void P_AudioClose(P_Audio *audio, b32 drain)
     if (drain && audio->filled) P__AudioQueue(audio);
     if (!drain) waveOutReset(audio->device);
     for (u32 i = 0; i < P__AudioBuffers; ++i) {
-        while (!(audio->headers[i].dwFlags & WHDR_DONE)) WaitForSingleObject(audio->done, 100);
+        P__AudioWait(audio, &audio->headers[i]);
         waveOutUnprepareHeader(audio->device, &audio->headers[i], sizeof(WAVEHDR));
     }
     waveOutClose(audio->device);

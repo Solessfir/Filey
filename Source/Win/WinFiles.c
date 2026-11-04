@@ -991,6 +991,9 @@ function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const St
         if (target) MemCopy(to, target, size * sizeof(wchar));
     }
     if (!error && count) {
+        // Which targets were there before, which a merge into a folder or a skipped item leaves there with no new name, and which Undo must not then take as made.
+        b8 *existed = placed ? ArenaPushArray(scratch.arena, count, b8) : NULL, *mapped = placed ? ArenaPushArray(scratch.arena, count, b8) : NULL;
+        for (u64 i = 0; placed && i < count; ++i) existed[i] = (b8)P_PathExists(P__PlacedPath(scratch.arena, directory, paths[i]));
         SHFILEOPSTRUCTW op = { .hwnd = owner, .wFunc = operation, .pFrom = from, .pTo = to, .fFlags = (FILEOP_FLAGS)(flags | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR | (placed ? FOF_WANTMAPPINGHANDLE : 0)) };
         i32 result = SHFileOperationW(&op);
         error = result ? (u32)result : op.fAnyOperationsAborted ? ERROR_CANCELLED : 0;
@@ -1013,9 +1016,15 @@ function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const St
                     String fresh = P__FileStringWide(arena, mapping->pszNewPath, mapping->cchNewPath);
                     for (u64 c = 0; c < fresh.length; ++c) if (fresh.value[c] == '\\') ((char *)fresh.value)[c] = '/';
                     placed[i] = fresh;
+                    mapped[i] = true;
                 }
             }
             SHFreeNameMappings(op.hNameMappings);
+        }
+        // A file moved over one there before, as Replace does, is gone from where it was and kept, so that Undo moves it back.
+        for (u64 i = 0; placed && i < count; ++i) {
+            b32 replaced = operation == FO_MOVE && !P_PathExists(paths[i]) && !P_IsDirectory(placed[i]);
+            if (existed[i] && !mapped[i] && !replaced) placed[i] = (String){0};
         }
     }
     P_FileError failure = !error ? (P_FileError){0} : shell ? P__OperationError(arena, operation, wide, paths, count, error) : P__FileError(arena, error);
@@ -1556,6 +1565,37 @@ function void P__PauseCommand(HANDLE group, HANDLE process, b32 pause)
     }
 }
 
+// The command line for `arguments`, quoted as the C runtime splits it again: one with a space, a tab or a quote goes in quotes, its quotes and the backslashes before them or before its end doubled, as an archive's entry names or a pasted address can hold them.
+function String P__CommandLine(Arena *arena, const String *arguments, u32 count)
+{
+    StrBuilder line = {0};
+    for (u32 i = 0; i < count; ++i) {
+        String argument = arguments[i];
+        if (i) StrBuildStr(arena, &line, S(" "));
+        b32 quote = !argument.length;
+        for (u64 k = 0; k < argument.length && !quote; ++k) quote = argument.value[k] == ' ' || argument.value[k] == '\t' || argument.value[k] == '"';
+        if (!quote) {
+            StrBuildStr(arena, &line, argument);
+            continue;
+        }
+        StrBuildStr(arena, &line, S("\""));
+        u64 slashes = 0;
+        for (u64 k = 0; k < argument.length; ++k) {
+            char c = argument.value[k];
+            if (c == '\\') {
+                ++slashes;
+                continue;
+            }
+            for (u64 s = 0; s < (c == '"' ? 2 * slashes + 1 : slashes); ++s) StrBuildStr(arena, &line, S("\\"));
+            slashes = 0;
+            StrBuildStr(arena, &line, StrMake(&argument.value[k], 1));
+        }
+        for (u64 s = 0; s < 2 * slashes; ++s) StrBuildStr(arena, &line, S("\\"));
+        StrBuildStr(arena, &line, S("\""));
+    }
+    return line.buffer;
+}
+
 // The programs a command runs are kept in a job object, so that pausing or stopping it does the same to what it started, as yt-dlp's ffmpeg.
 // With `together` they also end when it does, or when Filey does.
 // Without, as for git's status, helpers such as its file system monitor outlive a command that finished.
@@ -1564,15 +1604,10 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
 {
     if (!count) return false;
     Scratch scratch = GetScratchEx(conflict);
-    // The command line quotes the arguments that hold spaces, as the C runtime splits it again; these never hold quotes.
-    StrBuilder line = {0};
-    for (u32 i = 0; i < count; ++i) {
-        b32 quote = !arguments[i].length || StrIndexChar(arguments[i], ' ', SSF_None).exists;
-        StrBuildF(scratch.arena, &line, i ? (quote ? " \"%S\"" : " %S") : (quote ? "\"%S\"" : "%S"), arguments[i]);
-    }
-    i32 length = MultiByteToWideChar(CP_UTF8, 0, line.buffer.value, (i32)line.buffer.length, NULL, 0);
+    String commandLine = P__CommandLine(scratch.arena, arguments, count);
+    i32 length = MultiByteToWideChar(CP_UTF8, 0, commandLine.value, (i32)commandLine.length, NULL, 0);
     wchar *wide = ArenaPushArray(scratch.arena, (u64)length + 1, wchar);
-    MultiByteToWideChar(CP_UTF8, 0, line.buffer.value, (i32)line.buffer.length, wide, length);
+    MultiByteToWideChar(CP_UTF8, 0, commandLine.value, (i32)commandLine.length, wide, length);
     wchar *folder = P__FilePathWide(scratch.arena, directory);
     // The program's own environment with `environment` over it, each "NAME=value" ended by a zero, the whole ended by another.
     wchar *block = NULL;

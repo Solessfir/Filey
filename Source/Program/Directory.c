@@ -3144,7 +3144,7 @@ function void Prog__DirectoryJob(P_Job *job)
             if (!foundAll && !error->code) *error = (P_FileError){ 1, TrMark("They are no longer in the bin") };
         } else if (undo->kind == Prog_UndoKind_Move) {
             for (u64 i = 0; i < undo->count && !error->code; ++i) {
-                if (!undo->to[i].length || StrIsEqual(undo->to[i], undo->from[i])) continue;
+                if (!undo->to[i].length || !undo->from[i].length || StrIsEqual(undo->to[i], undo->from[i])) continue;
                 String folder = Prog_ParentPath(undo->from[i]);
                 ArrayStr placed = {0};
                 *error = P_TransferItems(&job->arena, &undo->to[i], 1, folder, true, NULL, &placed, &job->cancelToken);
@@ -5291,7 +5291,8 @@ function void Prog__SetUserGroups(Prog_State *state, const Prog_UserGroup *group
 // Where `path` is after the items `from` moved to `to`: in the place of the one it was or was inside, else where it was.
 function String Prog__MovedPath(Arena *arena, String path, const String *from, const String *to, u64 count)
 {
-    for (u64 m = 0; m < count; ++m) if (Prog__IsUnder(path, from[m])) return StrFormat(arena, "%S%S", to[m], StrFrom(path, from[m].length));
+    // An item merged into one already there has no place of its own, and what was under it is left as it was.
+    for (u64 m = 0; m < count; ++m) if (to[m].length && Prog__IsUnder(path, from[m])) return StrFormat(arena, "%S%S", to[m], StrFrom(path, from[m].length));
     return path;
 }
 
@@ -6569,7 +6570,12 @@ function void Prog__PushStep(Arena *arena, Prog_ArrayUndo *stack, Prog_UndoKind 
 // A new operation ends what Redo could make again.
 function void Prog_PushUndo(Prog_State *state, Prog_UndoKind kind, const String *from, const String *to, u64 count)
 {
-    if (!count) return;
+    // A step that made nothing, as a copy merged whole into folders already there, is none.
+    b32 made = false;
+    for (u64 i = 0; i < count && !made; ++i) made = to[i].length != 0;
+    if (!made) return;
+    // Presses of Undo waiting on one under way were for the steps before this one.
+    state->undoMore = 0;
     ArenaClear(&state->redoArena);
     state->redo = (Prog_ArrayUndo){0};
     Prog__PushStep(&state->undoArena, &state->undo, kind, from, to, count);
@@ -8636,9 +8642,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 // A new archive is selected and renamed once the listing shows it, as a new folder is, its name before .zip ready to be typed over.
                 String packed = input->transferOp == Prog_TransferOp_Pack && result->placed.header.count == 1 ? Prog_EntryLeaf(result->placed.v[0]) : (String){0};
                 if (packed.length) packed = Prog__ListedName(&state->frameArena, state, input->path, packed);
+                // The first item placed, past any merged into one already there, which has no place of its own.
+                u64 shown = 0;
+                while (shown < result->placed.header.count && !result->placed.v[shown].length) ++shown;
                 if (packed.length && Prog_SelectNext(state, packed)) {
                     state->selectRename = true;
-                } else if (result->placed.header.count && Prog__ListedName(&state->frameArena, state, input->path, Prog__FolderName(result->placed.v[0])).length &&
+                } else if (shown < result->placed.header.count && Prog__ListedName(&state->frameArena, state, input->path, Prog__FolderName(result->placed.v[shown])).length &&
                            !Prog__WentOn(state, &state->frameArena, input->focusedAtStart)) {
                     // Not while the user has gone on to another item since it started, which they keep.
                     // What was pasted into the folder shown is selected once its listing shows it, all of it; a torrent fetched for its
@@ -8647,6 +8656,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     ArenaClear(&state->pickArena);
                     state->pickNames = (ArrayStr){0};
                     for (u64 i = 0; i < result->placed.header.count; ++i) {
+                        if (!result->placed.v[i].length) continue;
                         String name = Prog__ListedName(&state->frameArena, state, input->path, Prog__FolderName(result->placed.v[i]));
                         ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, name));
                     }

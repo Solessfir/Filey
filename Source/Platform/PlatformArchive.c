@@ -587,6 +587,19 @@ function P_FileError P__SevenZipExtract(Arena *arena, String program, String arc
     return result.code && !result.message.value ? P__FileError(arena, result.code) : result;
 }
 
+// Whether two names in a folder name the same item, whatever their ASCII letters' case where the system ignores it.
+function b32 P__SameName(String a, String b)
+{
+    if (a.length != b.length) return false;
+    for (u64 i = 0; i < a.length; ++i) {
+        u8 x = (u8)a.value[i], y = (u8)b.value[i];
+        if (P_PathsIgnoreCase() && x >= 'A' && x <= 'Z') x += 32;
+        if (P_PathsIgnoreCase() && y >= 'A' && y <= 'Z') y += 32;
+        if (x != y) return false;
+    }
+    return true;
+}
+
 function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner, const String *names, u64 count, String directory, P_Progress *progress,
                                       const P_CancelToken *cancel)
 {
@@ -598,7 +611,10 @@ function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner
     for (u64 k = 0; k < count; ++k) {
         for (u32 n = 1; n < 10000; ++n) {
             placed[k] = P__NumberedString(scratch.arena, names[k], false, n);
-            if (!P_PathExists(StrFormat(scratch.arena, "%S/%S", directory, placed[k]))) break;
+            // Nor one an item before took, as "report" and "report (2)" with a "report" already there would both be "report (2)".
+            b32 taken = false;
+            for (u64 j = 0; j < k && !taken; ++j) taken = P__SameName(placed[j], placed[k]);
+            if (!taken && !P_PathExists(StrFormat(scratch.arena, "%S/%S", directory, placed[k]))) break;
         }
     }
     String program = {0};

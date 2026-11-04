@@ -2424,7 +2424,7 @@ function void Prog_ResumeTorrents(Prog_State *state);
 function u32 Prog_TorrentSlot(const Prog_State *state, String path);
 function u64 Prog_TorrentWaiting(const Prog_State *state, String path);
 function void Prog_GitPull(Prog_State *state);
-function b32 Prog_PlayAudio(Arena *arena, String path, u64 start, const atomic_uint *volume, P_Progress *progress, const P_CancelToken *cancel);
+function b32 Prog_PlayAudio(Arena *arena, String path, u64 start, const atomic_uint *volume, P_Progress *progress, P_CancelToken *cancel);
 function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op);
 function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, b32 playlist, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
 function P_FileError Prog_CompressVideo(Arena *arena, String path, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel, String *output);

@@ -756,6 +756,14 @@ function void P__DropKeepFolders(IDataObject *data)
     ReleaseStgMedium(&medium);
 }
 
+// The items a drag's file group describes, no more than its memory holds, as another program's count may claim more.
+function u32 P__GroupItems(const FILEGROUPDESCRIPTORW *group, HGLOBAL memory)
+{
+    u64 size = group ? (u64)GlobalSize(memory) : 0;
+    if (size < sizeof(UINT)) return 0;
+    return (u32)Min((u64)group->cItems, (u64)((size - sizeof(UINT)) / sizeof(FILEDESCRIPTORW)));
+}
+
 // Writes the files a drag out of another program only describes, as a browser's picture or an archiver's files, into a new folder in this
 // run's own, and keeps the top level of them for P_TakeDroppedFiles, as the files of a drop into a folder inside an archive. A name that
 // would climb out of that folder is left out.
@@ -771,9 +779,9 @@ function void P__DropKeepDescribed(IDataObject *data)
     String folder = run.length && !P_CreateItem(scratch.arena, run, S("Dropped"), true, &created).code ? StrFormat(scratch.arena, "%S/%S", run, created) : (String){0};
     CLIPFORMAT contents = (CLIPFORMAT)RegisterClipboardFormatW(L"FileContents");
     u8 *buffer = ArenaPushArrayNoZero(scratch.arena, 1 << 16, u8);
-    for (u32 i = 0; group && folder.length && i < group->cItems; ++i) {
+    for (u32 i = 0, items = P__GroupItems(group, medium.hGlobal); folder.length && i < items; ++i) {
         const FILEDESCRIPTORW *described = &group->fgd[i];
-        String name = P__FileStringWide(scratch.arena, described->cFileName, lstrlenW(described->cFileName));
+        String name = P__FileStringWide(scratch.arena, described->cFileName, (i32)wcsnlen(described->cFileName, MAX_PATH));
         for (u64 at = 0; at < name.length; ++at) if (name.value[at] == '\\') ((char *)name.value)[at] = '/';
         b32 safe = name.length && name.value[0] != '/' && !StrIndexChar(name, ':', SSF_None).exists;
         for (u64 at = 0; safe && at + 1 < name.length; ++at) {
@@ -900,10 +908,10 @@ function void P__DropKeepNames(IDataObject *data)
     STGMEDIUM medium = {0};
     if (FAILED(data->lpVtbl->GetData(data, &format, &medium))) return;
     const FILEGROUPDESCRIPTORW *group = GlobalLock(medium.hGlobal);
-    for (u32 i = 0; group && i < group->cItems; ++i) {
+    for (u32 i = 0, items = P__GroupItems(group, medium.hGlobal); i < items; ++i) {
         const wchar *path = group->fgd[i].cFileName;
         i32 length = 0;
-        while (path[length] && path[length] != L'\\' && path[length] != L'/') ++length;
+        while (length < MAX_PATH && path[length] && path[length] != L'\\' && path[length] != L'/') ++length;
         if (!length) continue;
         String name = P__FileStringWide(&P__drop.landedArena, path, length);
         b32 seen = false;
@@ -1993,7 +2001,11 @@ function u32 P__SetUserPath(Arena *arena, const wchar *folder, b32 on)
     Scratch scratch = GetScratchEx(arena);
     DWORD type;
     wchar *path = P__UserPath(scratch.arena, key, &type);
-    if (on != P__PathHas(path, folder)) {
+    // A PATH there but not read, of another type or grown while read, is left as it is rather than written over with Filey's folder alone.
+    DWORD size = 0;
+    LSTATUS missing = path ? ERROR_FILE_NOT_FOUND : RegQueryValueExW(key, L"Path", NULL, NULL, NULL, &size);
+    if (missing != ERROR_FILE_NOT_FOUND) error = missing == ERROR_SUCCESS ? ERROR_INVALID_DATA : (u32)missing;
+    else if (on != P__PathHas(path, folder)) {
         wchar *changed = P__EditPath(scratch.arena, path, folder, on);
         error = (u32)RegSetValueExW(key, L"Path", 0, type, (const u8 *)changed, (DWORD)(((u64)lstrlenW(changed) + 1) * sizeof(wchar)));
         if (error == ERROR_SUCCESS) SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"Environment", SMTO_ABORTIFHUNG, 1000, NULL);

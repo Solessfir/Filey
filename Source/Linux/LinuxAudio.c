@@ -44,7 +44,8 @@ function u64 P_AudioWrite(P_Audio *audio, const i16 *samples, u32 frames)
     *(void **)&write = P__PulseSymbol("pa_simple_write");
     *(void **)&latency = P__PulseSymbol("pa_simple_get_latency");
     i32 error = 0;
-    if (write && frames) write(audio->stream, samples, (u64)frames * audio->channels * 2, &error);
+    // A server gone takes no more.
+    if (write && frames && write(audio->stream, samples, (u64)frames * audio->channels * 2, &error) < 0) return UINT64_MAX;
     audio->written += frames;
     u64 queued = latency ? latency(audio->stream, &error) * audio->rate / 1000000 : 0;
     return audio->written > queued ? audio->written - queued : 0;

@@ -918,6 +918,7 @@ typedef struct Prog__Player {
     P_Audio *audio;
     const atomic_uint *volume;
     u64 start;    // milliseconds in
+    P_CancelToken *stop;  // the job's, requested once the sound device is gone, which stops the decoding too
     u8 carry[4];  // a frame the last piece cut in two
     u32 carried;
 } Prog__Player;
@@ -955,6 +956,10 @@ function void Prog__PlayerOutput(void *user, String text)
     for (u64 at = 0; at < frames; at += 1536) {
         u32 slice = (u32)Min(frames - at, (u64)1536);
         u64 heard = P_AudioWrite(player->audio, samples + at * 2, slice);
+        if (heard == UINT64_MAX) {
+            P_RequestCancel(player->stop);
+            break;
+        }
         if (player->progress) atomic_store(&player->progress->doneBytes, player->start + heard * 1000 / Prog_PlayerRate);
     }
     ReleaseScratch(scratch);
@@ -963,12 +968,12 @@ function void Prog__PlayerOutput(void *user, String text)
 // Plays the audio file at `path` from `start` milliseconds in, decoded by ffmpeg and played by the system's sound at `volume`, 0 to 100,
 // read as it plays, keeping `progress`'s done count at the milliseconds heard; pausing `progress` pauses it, and a cancel stops it at once.
 // False when ffmpeg is not there or cannot decode it, or there is no sound to play it on.
-function b32 Prog_PlayAudio(Arena *arena, String path, u64 start, const atomic_uint *volume, P_Progress *progress, const P_CancelToken *cancel)
+function b32 Prog_PlayAudio(Arena *arena, String path, u64 start, const atomic_uint *volume, P_Progress *progress, P_CancelToken *cancel)
 {
     Scratch scratch = GetScratchEx(arena);
     String arguments[] = { S("ffmpeg"), S("-hide_banner"), S("-loglevel"), S("error"), S("-nostdin"), S("-ss"), StrFormat(scratch.arena, "%.3f", (f64)start / 1000),
                            S("-i"), path, S("-vn"), S("-f"), S("s16le"), S("-ac"), S("2"), S("-ar"), StrFormat(scratch.arena, "%u", Prog_PlayerRate), S("-") };
-    Prog__Player player = { .progress = progress, .audio = P_AudioOpen(arena, Prog_PlayerRate, 2), .volume = volume, .start = start };
+    Prog__Player player = { .progress = progress, .audio = P_AudioOpen(arena, Prog_PlayerRate, 2), .volume = volume, .start = start, .stop = cancel };
     b32 result = player.audio && P_RunCommandStream(Prog_ParentPath(path), arguments, CArrayCount(arguments), false, Prog__PlayerOutput, &player, cancel, progress);
     // To its end, what is queued is heard first.
     P_AudioClose(player.audio, result && !P_IsCancelled(cancel));
