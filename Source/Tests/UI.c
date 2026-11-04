@@ -789,6 +789,29 @@ function void TestThumbnailSlots(void)
     Prog__ThumbnailSlot(&state, 512);
     Prog__ThumbnailSlot(&state, 384);
     Check(Prog__ThumbnailSlot(&state, 768)->atlas.size == 768 && !Prog__ThumbnailElsewhere(&state, NULL, S("kept")));
+    // Four panels at four tiers: the fourth takes a slot once, and the tier it took it from borrows the nearest from then on, so that none starts over every frame.
+    for (u64 frame = 6; frame < 10; ++frame) {
+        state.ui.frameIndex = frame;
+        Prog_ThumbnailSlot *slots[4] = { Prog__ThumbnailSlot(&state, 384), Prog__ThumbnailSlot(&state, 512), Prog__ThumbnailSlot(&state, 768), Prog__ThumbnailSlot(&state, 192) };
+        u32 own = (slots[0]->atlas.size == 384) + (slots[1]->atlas.size == 512) + (slots[2]->atlas.size == 768);
+        if (frame == 7) MapsPut(&slots[3]->arena, slots[3]->map, S("fourth"), ((Prog_Icon){ .state = Prog_IconState_Loaded }));
+        if (frame > 6) Check(slots[3]->atlas.size == 192 && own == 2);
+        if (frame > 7) Check(MapsGetPtrNull(slots[3]->map, S("fourth")) != NULL);
+    }
+    // Three panels, one of which zooms to a new tier: within a few frames each has its own again.
+    for (u64 frame = 10; frame < 16; ++frame) {
+        state.ui.frameIndex = frame;
+        Prog_ThumbnailSlot *a = Prog__ThumbnailSlot(&state, 128), *b = Prog__ThumbnailSlot(&state, 256), *c = Prog__ThumbnailSlot(&state, frame < 12 ? 512 : 1024);
+        if (frame > 13) Check(a->atlas.size == 128 && b->atlas.size == 256 && c->atlas.size == 1024);
+    }
+    // A tier that borrowed long ago, coming back, takes a slot of its own rather than borrowing again.
+    state.ui.frameIndex = 16;
+    Prog__ThumbnailSlot(&state, 128), Prog__ThumbnailSlot(&state, 256), Prog__ThumbnailSlot(&state, 1024);
+    Check(Prog__ThumbnailSlot(&state, 192)->atlas.size == 192);
+    // The list icons' size is not a tier of its own.
+    state.ui.frameIndex = 20;
+    state.iconSize = 64;
+    Check(Prog__ThumbnailSlot(&state, 64)->atlas.size == 96);
     for (u32 i = 0; i < Prog_ThumbnailSlots; ++i) ArenaRelease(&state.thumbnailSlots[i].arena);
     // A picture fitted to its cell's width is measured by the rows it covers; an icon short of the sides, or a picture filling the
     // cell, is drawn square.

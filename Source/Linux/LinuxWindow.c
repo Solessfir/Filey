@@ -1448,7 +1448,8 @@ function b32 PlatformInstanceClaim(String key, ArrayStr paths)
         }
         handed = true;
         for (u64 at = 0; handed && at < text.buffer.length;) {
-            ssize_t wrote = write(fd, text.buffer.value + at, text.buffer.length - at);
+            // This runs before SIGPIPE is ignored, so a window closing as it reads fails the send rather than ending this run.
+            ssize_t wrote = send(fd, text.buffer.value + at, text.buffer.length - at, MSG_NOSIGNAL);
             if (wrote < 0 && errno == EINTR) continue;
             handed = wrote > 0;
             at += wrote > 0 ? (u64)wrote : 0;

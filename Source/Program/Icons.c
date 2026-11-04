@@ -238,19 +238,48 @@ function i32 Prog__ThumbnailTier(i32 size)
 }
 
 // The slot holding `tier`'s thumbnails, marked drawn this frame: its own, or else the one drawn from longest ago, started over for it.
+// A tier whose slot was taken while it showed, as with more panels at other tiers than there are slots, is served by the nearest tier's slot while every slot is drawn, rather than taking one from a panel every frame.
+// A tier new on screen, as a panel's zoom brings, takes a slot of its own.
 function Prog_ThumbnailSlot *Prog__ThumbnailSlot(Prog_State *state, i32 tier)
 {
+    // Requests of the list icons' size are told from thumbnails by it.
+    if (tier == state->iconSize) tier = Prog__ThumbnailTier(tier + 1);
     Prog_ThumbnailSlot *result = NULL, *oldest = &state->thumbnailSlots[0];
     for (u32 i = 0; i < Prog_ThumbnailSlots && !result; ++i) {
         Prog_ThumbnailSlot *slot = &state->thumbnailSlots[i];
         if (slot->atlas.size == tier) result = slot;
         else if (!slot->atlas.size || (oldest->atlas.size && slot->drawn < oldest->drawn)) oldest = slot;
     }
+    u64 frame = state->ui.frameIndex;
+    b32 busy = oldest->atlas.size && oldest->drawn + 1 >= frame, displaced = false;
+    for (u32 i = 0; i < CArrayCount(state->thumbnailDisplaced); ++i) {
+        if (state->thumbnailDisplacedAt[i] + 1 < frame) state->thumbnailDisplaced[i] = 0;
+        if (state->thumbnailDisplaced[i] != tier) continue;
+        displaced = true;
+        state->thumbnailDisplacedAt[i] = frame;
+    }
+    if (!result && busy && displaced) {
+        // The smallest tier above, else the largest below.
+        for (u32 i = 0; i < Prog_ThumbnailSlots; ++i) {
+            Prog_ThumbnailSlot *slot = &state->thumbnailSlots[i];
+            b32 above = slot->atlas.size > tier, better = !result || (above ? result->atlas.size < tier || slot->atlas.size < result->atlas.size
+                                                                              : result->atlas.size < tier && slot->atlas.size > result->atlas.size);
+            if (better) result = slot;
+        }
+    }
     if (!result) {
+        // The tier given up while still showing borrows from now on, in the place of this one, which no longer needs to.
+        u32 at = UINT32_MAX, count = CArrayCount(state->thumbnailDisplaced);
+        for (u32 i = 0; i < count && at == UINT32_MAX; ++i) if (state->thumbnailDisplaced[i] == tier) at = i;
+        for (u32 i = 0; i < count && at == UINT32_MAX; ++i) if (!state->thumbnailDisplaced[i]) at = i;
+        at = at == UINT32_MAX ? count - 1 : at;
+        state->thumbnailDisplaced[at] = busy ? oldest->atlas.size : 0;
+        state->thumbnailDisplacedAt[at] = frame;
         result = oldest;
         Prog__ResetThumbnails(result, tier);
     }
-    result->drawn = state->ui.frameIndex;
+    // A borrowed slot is not marked, so that it lasts only while its own tier shows.
+    if (result->atlas.size == tier) result->drawn = state->ui.frameIndex;
     return result;
 }
 
@@ -275,6 +304,8 @@ function void Prog__ResetIcons(Prog_State *state, i32 size)
     state->spinnerSize = 0;
     ArenaClear(&state->iconArena);
     for (u32 i = 0; i < Prog_ThumbnailSlots; ++i) Prog__ResetThumbnails(&state->thumbnailSlots[i], 0);
+    MemZero(state->thumbnailDisplaced, sizeof(state->thumbnailDisplaced));
+    MemZero(state->thumbnailDisplacedAt, sizeof(state->thumbnailDisplacedAt));
     state->folderPictures = (Prog_IconMap){0};
     ArenaClear(&state->folderPictureArena);
     state->folderPictureAtlas.size = 0;

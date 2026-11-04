@@ -345,6 +345,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Mount,        // connects to the server at `name`, whose folder the panel then shows
     Prog_JobKind_Usage,        // the disk usage of the folder `path`, for the inspector
     Prog_JobKind_TorrentProgress,  // how far the torrent's files `paths`, `sizes` long, are, by aria2c's control file `path`, for the inspector showing `name`
+    Prog_JobKind_Programs,     // whether ffmpeg and aria2c are on the PATH, a b8 each
     Prog_JobKind_Count,
 } Prog_JobKind;
 
@@ -1689,6 +1690,9 @@ typedef struct Prog_State {
     // Each tier in use has a slot of its own, so that panels zoomed apart keep theirs; a new tier takes the slot drawn from longest ago, and until its thumbnails come another slot's are drawn.
     // A full atlas gives a new thumbnail the cell of the one drawn longest ago, and drops its slot's thumbnails only when every one was drawn in the last frame.
     Prog_ThumbnailSlot thumbnailSlots[Prog_ThumbnailSlots];
+    // The tiers whose slots were taken while they showed, which borrow the nearest while every slot is drawn, and the frame each was last asked for in; one not asked for since the frame before is forgotten.
+    i32 thumbnailDisplaced[Prog_MaxPanels];
+    u64 thumbnailDisplacedAt[Prog_MaxPanels];
     // The tab list's folder pictures, at their one size.
     Arena folderPictureArena;
     Prog_IconMap folderPictures;
@@ -1852,6 +1856,11 @@ typedef struct Prog_State {
     u8 schemesOpen;
     u32 schemesHighlight;
     u64 settingsHash;           // Settings.conf and the scheme files as last applied
+    // Whether ffmpeg and aria2c are on the PATH, looked for once a run in a job, as the first that needs one asks.
+    b8 programsAsked, hasFfmpeg, hasAria2c;
+    // The settings lines set this run without a config folder, which stand in for Settings.conf.
+    Arena runSettingsArena;
+    String runSettings;
     // The color picker while open: the option of the color it changes, and that color as hue, saturation and brightness from 0 to 1.
     b32 colorPicking;
     enum8(Prog_Option) colorOption;
@@ -2025,8 +2034,12 @@ typedef struct Prog_State {
     Arena redoArena;
     Prog_ArrayUndo redo;
     P_Job *undoJob;  // the step being reversed, until which Undo and Redo wait
-    u32 undoMore;    // the presses that came meanwhile, of Redo when undoMoreRedo, which go on once it is done
+    b32 undoJobRedo; // whether it is a Redo, kept here as the job's input is the worker's
+    u32 undoMore;   // the presses that came meanwhile, of Redo when undoMoreRedo, which go on once it is done
     b32 undoMoreRedo;
+    // A new step was made while undoJob ran, when the undo stack held undoOvertakenAt steps.
+    b32 undoOvertaken;
+    u64 undoOvertakenAt;
     // Saved layouts, kept in Layouts.conf: their names, and their texts, a window line before a session's.
     Arena layoutsArena;
     ArrayStr layoutNames, layoutTexts;
@@ -2593,6 +2606,7 @@ function b32 Prog_IsCharacterKey(Key key, KeyMods mods);
 function void Prog_ApplySettings(Prog_State *state, String text);
 function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state);
 function void Prog_ReloadSettingsFile(Prog_State *state);
+function void Prog_LookUpPrograms(Prog_State *state);
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out);
 function u32 Prog_TabMatches(const Prog_State *state, u32 *out);
 #define Prog_MaxGoToFound 500

@@ -965,16 +965,29 @@ function u32 P__ArchiveMakeFolders(String path)
 }
 
 // Written beside its place and moved there once complete, so that a file cut short never takes the name.
+// The hidden name it is written under is a new file, so that an item of the archive already out under that name is left alone.
 function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel)
 {
     P__Archive *a = &P__archive;
     Scratch scratch = GetScratch();
-    String part = StrFormat(scratch.arena, "%S.part", path);
     Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
     u32 error = slash.exists && slash.value ? P__ArchiveMakeFolders(StrFromTo(path, 0, (i64)slash.value)) : 0;
-    char *native = P__FilePathCString(scratch.arena, part);
-    i32 file = !error && native ? open(native, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666) : -1;
-    if (!error && file < 0) error = native ? (u32)errno : EINVAL;
+    String folder = slash.exists ? StrFromTo(path, 0, (i64)slash.value + 1) : (String){0}, leaf = slash.exists ? StrFrom(path, slash.value + 1) : path;
+    // A name close to NAME_MAX is cut for the hidden name's dot and ending, at a character's start.
+    u64 kept = Min(leaf.length, (u64)NAME_MAX - 16);
+    while (kept < leaf.length && kept && ((u8)leaf.value[kept] & 0xC0) == 0x80) --kept;
+    leaf = StrFromTo(leaf, 0, (i64)kept);
+    char *native = NULL;
+    i32 file = -1;
+    for (u32 n = 1; !error && file < 0 && n < 100; ++n) {
+        String part = n == 1 ? StrFormat(scratch.arena, "%S.%S.part", folder, leaf) : StrFormat(scratch.arena, "%S.%S.%u.part", folder, leaf, n);
+        native = P__FilePathCString(scratch.arena, part);
+        if (!native) error = EINVAL;
+        else if ((file = open(native, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666)) < 0 && errno != EEXIST) error = (u32)errno;
+    }
+    if (!error && file < 0) error = EEXIST;
+    if (error) native = NULL;
+    String part = native ? StrFromCStr(native) : (String){0};
     const void *block = NULL;
     u64 size = 0;
     i64 offset = 0;

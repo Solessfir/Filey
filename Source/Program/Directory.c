@@ -3104,7 +3104,7 @@ function void Prog__DirectoryJob(P_Job *job)
     if (input->kind == Prog_JobKind_Undo) {
         // Each step is reversed with the operations that made it; a moved item that went under another name gets its old one back.
         P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
-        const Prog_Undo *undo = &input->undo;
+        Prog_Undo *undo = &input->undo;
         if (undo->kind == Prog_UndoKind_Rename && undo->count == 1) {
             *error = P_RenamePath(&job->arena, Prog_ParentPath(undo->to[0]), Prog_EntryLeaf(undo->to[0]), Prog_EntryLeaf(undo->from[0]));
         } else if ((undo->kind == Prog_UndoKind_Create || undo->kind == Prog_UndoKind_Copy) && !input->redo) {
@@ -3119,13 +3119,16 @@ function void Prog__DirectoryJob(P_Job *job)
             // That is what was trashed, on undo, and on redo what was made or copied, which undoing it sent there, as Explorer's Redo makes them again.
             // On Linux an item from another file system went to the trash at the top of its mount, so each bin is read and restored from in turn.
             String *bins = ArenaPushArray(&job->arena, Max(undo->count, (u64)1), String);
-            for (u64 i = 0; i < undo->count; ++i) bins[i] = P_TrashFolderOf(&job->arena, undo->to[i]);
+            // An item merged into a folder there before has no path, nor a bin to read.
+            for (u64 i = 0; i < undo->count; ++i) bins[i] = undo->to[i].length ? P_TrashFolderOf(&job->arena, undo->to[i]) : (String){0};
             String *names = ArenaPushArray(&job->arena, Max(undo->count, (u64)1), String);
+            b8 *back = ArenaPushArray(&job->arena, Max(undo->count, (u64)1), b8);
+            u64 *which = ArenaPushArray(&job->arena, Max(undo->count, (u64)1), u64);
             u64 foundAll = 0;
             for (u64 first = 0; first < undo->count && !error->code; ++first) {
                 b32 seen = false;
                 for (u64 j = 0; j < first && !seen; ++j) seen = StrIsEqual(bins[j], bins[first]);
-                if (seen) continue;
+                if (seen || !bins[first].length) continue;
                 P_ArrayTrashed binned = P_ListTrash(&job->arena, bins[first], &job->cancelToken);
                 u64 found = 0;
                 for (u64 i = first; i < undo->count; ++i) {
@@ -3136,12 +3139,17 @@ function void Prog__DirectoryJob(P_Job *job)
                         if (!Prog__SamePath(Prog_JoinPath(&job->arena, item->original, item->name), undo->to[i])) continue;
                         if (!best || item->deletedTimeUnix > best->deletedTimeUnix) best = item;
                     }
-                    if (best) names[found++] = best->file.name;
+                    if (best) which[found] = i, names[found++] = best->file.name;
                 }
                 if (found) *error = P_RestoreTrash(&job->arena, bins[first], names, found);
+                for (u64 k = 0; k < found && !error->code; ++k) back[which[k]] = true;
                 foundAll += found;
             }
             if (!foundAll && !error->code) *error = (P_FileError){ 1, TrMark("They are no longer in the bin") };
+            // Only what came back goes on the other stack, as the rest is not there to send to the bin again, from the bins before one that failed too.
+            u64 kept = 0;
+            for (u64 i = 0; i < undo->count; ++i) if (back[i]) undo->to[kept++] = undo->to[i];
+            undo->count = kept;
         } else if (undo->kind == Prog_UndoKind_Move) {
             for (u64 i = 0; i < undo->count && !error->code; ++i) {
                 if (!undo->to[i].length || !undo->from[i].length || StrIsEqual(undo->to[i], undo->from[i])) continue;
@@ -3647,6 +3655,13 @@ function void Prog__DirectoryJob(P_Job *job)
     }
     if (input->kind == Prog_JobKind_Play) {
         Prog_PlayAudio(&job->arena, input->path, input->offset, input->volume, input->progress, &job->cancelToken);
+        return;
+    }
+    if (input->kind == Prog_JobKind_Programs) {
+        b8 *found = ArenaPushArray(&job->arena, 2, b8);
+        found[0] = P_ProgramFound(S("ffmpeg")) > 0;
+        found[1] = P_ProgramFound(S("aria2c")) > 0;
+        job->result = found;
         return;
     }
     if (input->kind == Prog_JobKind_TorrentProgress) {
@@ -4158,6 +4173,8 @@ function void Prog_RequestTextWindow(Prog_State *state, u64 offset, u64 line, u8
     job->input = input;
     state->textWindowJob = job;
     state->textWindowFrom = offset;
+    state->textWindowLine = line;
+    state->textWindowOpen = open;
     state->textJump = jump;
     P_JobSubmit(job);
 }
@@ -5206,11 +5223,13 @@ function u64 Prog__SettingsHash(Prog_State *state, String *settings, Arena *aren
 }
 
 // Settings.conf, or the defaults without it, with the custom schemes it can name read again first.
+// Without a settings folder, the lines set for this run stand in for the file.
 function void Prog_ReloadSettingsFile(Prog_State *state)
 {
     Scratch scratch = GetScratch();
     String text = {0};
     state->settingsHash = Prog__SettingsHash(state, &text, scratch.arena);
+    if (!state->configDirectory.length) text = state->runSettings;
     Prog_LoadSchemes(state);
     Prog_ApplySettings(state, text);
     ReleaseScratch(scratch);
@@ -6576,9 +6595,32 @@ function void Prog_PushUndo(Prog_State *state, Prog_UndoKind kind, const String 
     if (!made) return;
     // Presses of Undo waiting on one under way were for the steps before this one.
     state->undoMore = 0;
+    if (state->undoJob && !state->undoOvertaken) state->undoOvertaken = true, state->undoOvertakenAt = state->undo.header.count;
     ArenaClear(&state->redoArena);
     state->redo = (Prog_ArrayUndo){0};
+    u64 before = state->undo.header.count;
     Prog__PushStep(&state->undoArena, &state->undo, kind, from, to, count);
+    // A full stack drops its oldest step, which moves the place the running redo's goes down by one.
+    if (state->undo.header.count == before && state->undoOvertakenAt) --state->undoOvertakenAt;
+}
+
+// Puts the way back of a step an undo or a redo reversed on the other stack.
+// With a new step made while it ran, an undo's is dropped, as Redo was cleared for it, and a redo's goes under the new steps.
+function void Prog__PushReversed(Prog_State *state, b32 redo, b32 overtaken, u64 at, Prog_UndoKind kind, const String *from, const String *to, u64 count)
+{
+    if (!redo) {
+        if (!overtaken) Prog__PushStep(&state->redoArena, &state->redo, kind, from, to, count);
+        return;
+    }
+    u64 before = state->undo.header.count;
+    Prog__PushStep(&state->undoArena, &state->undo, kind, from, to, count);
+    if (!overtaken || !count || !state->undo.header.count) return;
+    if (state->undo.header.count == before && at) --at;
+    u64 last = state->undo.header.count - 1;
+    at = Min(at, last);
+    Prog_Undo top = state->undo.v[last];
+    for (u64 i = last; i > at; --i) state->undo.v[i] = state->undo.v[i - 1];
+    state->undo.v[at] = top;
 }
 
 // Whether `a` and `b` name the same place, whichever separators they use, and ignoring case where the system does.
@@ -6605,7 +6647,7 @@ function void Prog__ReverseLast(Prog_State *state, b32 redo)
     state->error = (String){0};
     Prog_ArrayUndo *stack = redo ? &state->redo : &state->undo;
     // The step running the other way goes on this stack as it ends, and a press waiting the other way is taken back.
-    b32 coming = state->undoJob && (((const Prog_JobInput *)state->undoJob->input)->redo != redo || (state->undoMore && state->undoMoreRedo != redo));
+    b32 coming = state->undoJob && (state->undoJobRedo != redo || (state->undoMore && state->undoMoreRedo != redo));
     if (!stack->header.count && !coming) {
         Prog_Notify(state, Prog_NoticeKind_Info, S("undo.nothing"), redo ? Tr("Nothing to redo") : Tr("Nothing to undo"), (String){0});
         return;
@@ -6634,6 +6676,7 @@ function void Prog__ReverseLast(Prog_State *state, b32 redo)
     }
     job->input = input;
     state->undoJob = job;
+    state->undoJobRedo = redo;
     P_JobSubmit(job);
 }
 
@@ -7742,12 +7785,7 @@ function void Prog_SelectTab(Prog_State *state, u32 index)
     for (u32 i = 0; i < CArrayCount(textJobs); ++i) if (textJobs[i]) P_RequestCancel(&textJobs[i]->cancelToken);
     // The filter's look through the whole file, the window on its way and the hex view's find are asked for again once the tab shows.
     if (state->textFindJob) state->textFindAsked = UINT32_MAX;
-    if (state->textWindowJob) {
-        const Prog_JobInput *asked = state->textWindowJob->input;
-        state->textWindowLine = asked->line;
-        state->textWindowOpen = asked->open;
-        state->textWindowAgain = true;
-    }
+    state->textWindowAgain = state->textWindowJob != NULL;
     state->hexFindAgain = state->hexFindJob != NULL;
     state->textWindowJob = state->textFindJob = state->hexFindJob = NULL;
     Prog__SwapTab(state, &state->tabs[state->activeTab]);
@@ -7999,6 +8037,18 @@ function void Prog__PollTorrentProgress(Prog_State *state)
     if (running) Prog_WakeAt(state, now + 2000000);
 }
 
+// Looks for ffmpeg and aria2c on the PATH, once a run, off the UI thread; they count as missing until the answer comes.
+function void Prog_LookUpPrograms(Prog_State *state)
+{
+    if (state->programsAsked || !state->jobs.initialized) return;
+    state->programsAsked = true;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_Programs;
+    job->input = input;
+    P_JobSubmit(job);
+}
+
 function b32 Prog_TakeCompletions(Prog_State *state)
 {
     b32 changed = false;
@@ -8185,7 +8235,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         if (state->torrentProgressJob == job) state->torrentProgressJob = NULL;
         // Undo and Redo pressed while it ran are taken along, and dropped with its panel.
         u32 moreUndo = 0;
-        if (state->undoJob == job) state->undoJob = NULL, moreUndo = state->undoMore, state->undoMore = 0;
+        b32 overtaken = false;
+        u64 overtakenAt = 0;
+        if (state->undoJob == job) {
+            state->undoJob = NULL, moreUndo = state->undoMore, state->undoMore = 0;
+            overtaken = state->undoOvertaken, overtakenAt = state->undoOvertakenAt, state->undoOvertaken = false;
+        }
         if (state->gitPullJob == job) pulled = state->gitPullHash, pulledRoot = StrCopy(&state->frameArena, input->name), state->gitPullJob = NULL;
         if (state->gitFetchJob == job) fetched = state->gitFetchHash, fetchedRoot = StrCopy(&state->frameArena, input->path), state->gitFetchJob = NULL;
         if (owner == UINT32_MAX) {
@@ -8690,10 +8745,14 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             changed = true;
             if (error && error->code) {
                 Prog_Notify(state, Prog_NoticeKind_Error, input->redo ? S("redo.failed") : S("undo.failed"), input->redo ? Tr("Redo failed") : Tr("Undo failed"), error->message);
+                // What came out of a bin before another failed can still go back in; the job kept only those.
+                const Prog_Undo *done = &input->undo;
+                b32 restored = done->kind == Prog_UndoKind_Trash ? !input->redo : (done->kind == Prog_UndoKind_Create || done->kind == Prog_UndoKind_Copy) && input->redo;
+                if (restored && done->count) Prog__PushReversed(state, input->redo, overtaken, overtakenAt, (Prog_UndoKind)done->kind, NULL, done->to, done->count);
             } else if (input->undo.kind == Prog_UndoKind_Trash) {
                 // Back out of the bin, or into it again, which the other stack then reverses; what came back is selected where it shows.
                 const Prog_Undo *done = &input->undo;
-                Prog__PushStep(input->redo ? &state->undoArena : &state->redoArena, input->redo ? &state->undo : &state->redo, Prog_UndoKind_Trash, NULL, done->to, done->count);
+                Prog__PushReversed(state, input->redo, overtaken, overtakenAt, Prog_UndoKind_Trash, NULL, done->to, done->count);
                 Prog_ReloadFolderIcon(state, P_TrashFolder(&state->frameArena));
                 if (!input->redo) {
                     ArenaClear(&state->pickArena);
@@ -8705,7 +8764,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             } else if (input->undo.kind == Prog_UndoKind_Create || input->undo.kind == Prog_UndoKind_Copy) {
                 // New items and copies went to the bin, or came back out of it, which the other stack then reverses; what came back is selected where it shows.
                 const Prog_Undo *done = &input->undo;
-                Prog__PushStep(input->redo ? &state->undoArena : &state->redoArena, input->redo ? &state->undo : &state->redo, (Prog_UndoKind)done->kind, NULL, done->to, done->count);
+                Prog__PushReversed(state, input->redo, overtaken, overtakenAt, (Prog_UndoKind)done->kind, NULL, done->to, done->count);
                 Prog_ReloadFolderIcon(state, P_TrashFolder(&state->frameArena));
                 if (input->redo) {
                     ArenaClear(&state->pickArena);
@@ -8718,8 +8777,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 // The items are back at `from`, so the way back to `to` is the same step the other way round.
                 const Prog_Undo *done = &input->undo;
                 Prog__FollowMoved(state, done->to, done->from, done->count);
-                if (input->redo) Prog__PushStep(&state->undoArena, &state->undo, (Prog_UndoKind)done->kind, done->to, done->from, done->count);
-                else Prog__PushStep(&state->redoArena, &state->redo, (Prog_UndoKind)done->kind, done->to, done->from, done->count);
+                Prog__PushReversed(state, input->redo, overtaken, overtakenAt, (Prog_UndoKind)done->kind, done->to, done->from, done->count);
             }
             Prog_Reload(state);
             // The presses that came while it ran go on, a step each, unless this one failed.
@@ -8990,6 +9048,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
         } else if (input->kind == Prog_JobKind_Play) {
             if (job == state->playerJob) state->playerJob = NULL;
+        } else if (input->kind == Prog_JobKind_Programs) {
+            const b8 *found = job->result;
+            if (found) state->hasFfmpeg = found[0], state->hasAria2c = found[1], changed = true;
         } else if (input->kind == Prog_JobKind_TorrentProgress) {
             // For the torrent the inspector still shows: by the control file, else whole where its files are there, of those ticked, which a
             // finished download leaves pieces of unticked ones beside; unknown while none of them is.
@@ -9532,6 +9593,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->placesOrderArena);
     ArenaRelease(&state->userGroupsArena);
     ArenaRelease(&state->settingsArena);
+    ArenaRelease(&state->runSettingsArena);
     ArenaRelease(&state->bookmarkArena);
     ArenaRelease(&state->recentArena);
     ArenaRelease(&state->undoArena);

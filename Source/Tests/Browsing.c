@@ -1419,6 +1419,19 @@ function void TestFileIcons(TestFileFixture *fixture)
         out = Prog_JoinPath(&arena, fixture->path, S("Out"));
         Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, out, NULL, NULL).code);
         Check(P_ReadFile(&arena, Prog_JoinPath(&arena, out, S("a.txt")), &contents) && StrIsEqual(contents, S("hi")));
+        // A file already named as an extracted file's would be while it is written is left as it is.
+        {
+            String again = {0};
+            Check(!P_CreateItem(&arena, fixture->path, S("OutPart"), true, &again).code);
+            again = Prog_JoinPath(&arena, fixture->path, S("OutPart"));
+            String hidden = Prog_JoinPath(&arena, again, S(".a.txt.part")), beside = Prog_JoinPath(&arena, again, S("a.txt.part"));
+            Check(!P_WriteFile(&arena, hidden, S("keep")).code && !P_WriteFile(&arena, beside, S("keep")).code);
+            Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, again, NULL, NULL).code);
+            Check(P_ReadFile(&arena, Prog_JoinPath(&arena, again, S("a.txt")), &contents) && StrIsEqual(contents, S("hi")));
+            Check(P_ReadFile(&arena, hidden, &contents) && StrIsEqual(contents, S("keep")) && P_ReadFile(&arena, beside, &contents) && StrIsEqual(contents, S("keep")));
+            Check(P__TestRemovePath(fixture, S("OutPart/a.txt"), false) && P__TestRemovePath(fixture, S("OutPart/.a.txt.part"), false));
+            Check(P__TestRemovePath(fixture, S("OutPart/a.txt.part"), false) && P__TestRemovePath(fixture, S("OutPart"), true));
+        }
 #if defined(_WIN32)
         // A device's path keeps its form, has no Win32 one for the file APIs, and one of no device is not there.
         {
@@ -4397,6 +4410,19 @@ function void TestTabs(TestFileFixture *fixture)
         state.inspectorLayout = Prog_InspectorLayout_Right;
         Prog_SetOption(&state, Prog_Option_Animations, 1);
         Check(state.inspectorLayout == Prog_InspectorLayout_Right && !state.animationsOff && state.uiScale > 1.1f);
+        // Without a config folder they hold for the run, each keeping the others too.
+        {
+            String folder = state.configDirectory;
+            state.configDirectory = (String){0};
+            Prog_SetOption(&state, Prog_Option_Animations, 0);
+            Prog_SetOption(&state, Prog_Option_PopupBlur, 40);
+            Check(state.animationsOff && Prog_OptionValue(&state, Prog_Option_PopupBlur) == 40);
+            // A reload, as the system's light and dark mode changing brings, keeps them.
+            Prog_ReloadSettingsFile(&state);
+            Check(state.animationsOff && Prog_OptionValue(&state, Prog_Option_PopupBlur) == 40);
+            state.configDirectory = folder;
+            Prog_ReloadSettingsFile(&state);
+        }
         // Options are a mode of the palette, found by their words.
         TestBrowsingCommand(&state, Prog_CommandKind_OpenOptions, 0);
         Prog__EditReplace(&state.palette, (const u8 *)"anim", 4);
@@ -5248,7 +5274,8 @@ function void TestSidebar(TestFileFixture *fixture)
     Check(StrIsEqual(P__ShortSize(&arena, UINT64_C(3960000000000)), S("3.6 TB")) && StrIsEqual(P__ShortSize(&arena, 512), S("512.0 B")));
     Check(!P__NamedByUuid(&arena, S("not-a-uuid"), S("/dev/sda1")) && !P__DiskModel(&arena, S("/dev/not-a-disk")).length);
     // Options of Windows alone are not offered: files are never marked as the system's own here.
-    Check(!Prog_OptionApplies(Prog_Option_ShowSystemFiles) && Prog_OptionApplies(Prog_Option_FontSize));
+    Prog_State none = {0};
+    Check(!Prog_OptionApplies(&none, Prog_Option_ShowSystemFiles) && Prog_OptionApplies(&none, Prog_Option_FontSize));
     // Nor the palette's command for them, and the bin is named as here: the Trash.
     Check(!Prog_CommandApplies(Prog_CommandKind_ToggleSystemFiles) && Prog_CommandApplies(Prog_CommandKind_EmptyTrash));
     Check(StrIsEqual(Prog_CommandLabel(Prog_CommandKind_EmptyTrash), S("Empty Trash")) && TestEndsWith(Prog_CommandTooltip(Prog_CommandKind_EmptyTrash), S("in the Trash.")));
@@ -5403,18 +5430,75 @@ function void TestApps(TestFileFixture *fixture)
         for (u64 start = PlatformNowMicroseconds(); !(TestHasFile(&extras, fixture, S("Extras"), S("marked")) && P_ReadFile(&extras, Prog_JoinPath(&extras, work, S("recorded")), &recorded) && recorded.length) &&
                                                     PlatformNowMicroseconds() - start < Millions(5);) P__TestPause();
         Check(TestHasFile(&extras, fixture, S("Extras"), S("marked")) && StrIsEqual(recorded, StrFormat(&extras, "%S\n", Prog_JoinPath(&extras, work, S("note.txt")))));
-        // A file's name inside the command's own quotes is escaped for them, so that the shell takes it as it is rather than running what it holds.
-        String quoting = Prog_JoinPath(&extras, actions, S("e.nemo_action")), odd[] = { Prog_JoinPath(&extras, work, S("a\"$(x)'b.txt")) };
-        Check(!P_WriteFile(&extras, quoting, S("[Nemo Action]\nName=Q\nExec=sh -c \"echo %f\" '%f' %f \"%f.bak\"\nSelection=s\nExtensions=any;\n")).code);
-        P__Action quoted = {0};
-        Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &quoted));
-        Check(StrIsEqual(quoted.command, S("sh -c \"echo 'a\\\"\\$(x)'\\\\''b.txt'\" 'a\"$(x)'\\''b.txt' 'a\"$(x)'\\''b.txt' \"a\\\"\\$(x)'b.txt.bak\"")));
-        // A -c of a program that is not a shell is only an option of its own.
-        Check(!P_WriteFile(&extras, quoting, S("[Nemo Action]\nName=Q\nExec=gzip -c \"%f\"\nSelection=s\nExtensions=any;\n")).code);
-        Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &quoted) && StrIsEqual(quoted.command, S("gzip -c \"a\\\"\\$(x)'b.txt\"")));
-        // A shell found past its own options, with the name in single quotes of its command, escaped for those.
-        Check(!P_WriteFile(&extras, quoting, S("[Nemo Action]\nName=Q\nExec=bash -l -c \"cat '%f'\"\nSelection=s\nExtensions=any;\n")).code);
-        Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &quoted) && StrIsEqual(quoted.command, S("bash -l -c \"cat 'a\\\"\\$(x)'\\\\''b.txt'\"")));
+        // A file's name goes into the command quoted for the shell, and for the quotes it is in, a shell's command inside them too.
+        // Each command prints what it was given; a name taken as code would run its $(x), or end its quotes or split at its space and print something else.
+        String quoting = Prog_JoinPath(&extras, actions, S("e.nemo_action")), odd[] = { Prog_JoinPath(&extras, work, S("a \"$(x)' b.txt")) };
+        String oddName = S("a \"$(x)' b.txt"), printed = Prog_JoinPath(&extras, work, S("printed"));
+        Check(!P_WriteFile(&extras, Prog_JoinPath(&extras, work, S("show.sh")), S("printf %s \"$1\" > printed\n")).code);
+        struct { String exec, printed; } runs[] = {
+            { S("sh -c \"printf %%s %f > printed\""), oddName },
+            { S("sh -c \"printf %%s \\\"%f\\\" > printed\""), oddName },
+            { S("sh -c 'printf %%s \"%f\" > printed'"), oddName },
+            { S("bash -l -c \"printf %%s '%f' > printed\""), oddName },
+            { S("bash -o pipefail -c \"printf %%s %f > printed\""), oddName },
+            { S("sh -c -e \"printf %%s %f > printed\""), oddName },
+            { S("env sh -c \"printf %%s %f > printed\""), oddName },
+            { S("true;sh -c \"printf %%s %f > printed\""), oddName },
+            // A shell started with no command, as one that keeps a terminal open, reads none of it.
+            { S("sh -c \"printf %%s %f > printed; true || exec bash\""), oddName },
+            { S("printf %%s %f > printed || bash"), oddName },
+            // A shell running a script file takes the name as an argument, as any program does.
+            { S("sh ./show.sh %f"), oddName },
+            { S("bash -e ./show.sh %f"), oddName },
+            // A shell's command with the name as its argument, and a command substituted with a shell's command in it, whose quotes start anew.
+            { S("sh -c 'printf %%s \"$1\" > printed; echo \"$(date)\" > /dev/null' sh %f"), oddName },
+            { S("printf %%s \"$(sh -c 'printf %%s %f')\" > printed"), oddName },
+            // A subshell inside a substitution does not end it.
+            { S("printf %%s \"$( (true); printf %%s %f)\" > printed"), oddName },
+            { S("sh -c \"printf %%s \"\\'%f\\'\" > printed\""), oddName },
+            { S("printf %%s \"%f.bak\" > printed"), StrFormat(&extras, "%S.bak", oddName) },
+            { S("printf %%s '%f' \\%f > printed"), StrFormat(&extras, "%S%S", oddName, oddName) },
+            { S("printf %%s \"$(basename %f)\" > printed"), oddName },
+            // A -c of a program that is not a shell is only an option of its own.
+            { S("printf -c 2>/dev/null; printf %%s \"%f\" > printed"), oddName },
+        };
+        for (u32 r = 0; r < CArrayCount(runs); ++r) {
+            P__Action quoted = {0};
+            Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", runs[r].exec)).code);
+            Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &quoted));
+            P__TestRemovePath(fixture, S("Extras/printed"), false);
+            char *args[] = { "/bin/sh", "-c", P__FilePathCString(&extras, quoted.command), NULL };
+            Check(!P__SpawnWith(args[0], args, P__FilePathCString(&extras, work), true, NULL));
+            String got = {0};
+            for (u64 start = PlatformNowMicroseconds(); !(P_ReadFile(&extras, printed, &got) && got.length) && PlatformNowMicroseconds() - start < Millions(5);) P__TestPause();
+            Check(StrIsEqual(got, runs[r].printed));
+            if (!StrIsEqual(got, runs[r].printed)) fprintf(stderr, "action %u: %.*s -> %.*s\n", r, (int)quoted.command.length, quoted.command.value, (int)got.length, got.value);
+        }
+        // A command that would hand a value on to a shell the quoting cannot follow, through a shell in a shell's command, eval, a command substituted with a shell in it,
+        // a shell's command line for another program, a program that runs its arguments in a shell or a backtick, is not offered.
+        String refusedExecs[] = {
+            S("sh -c \"sh -c 'printf %%s %f'\""), S("eval printf %%s %f"), S("env -S \"sh -c 'printf %%s %f'\""), S("env -S \"printf %%s %f\""),
+            S("sh -c '$SHELL -c \"printf %%s %f\"'"), S("watch -g \"true %f\""), S("printf %%s \"`basename %f`\""), S("printf %%s %f | sh"),
+            S("printf %%s \"${x:-\"%f\"}\""), S("printf %%s $'it\\'s' %f"), S("printf %%s \"$(case x in x) printf %%s %f;; esac)\""),
+            S("printf %%s %f | exec sh"), S("printf %%s %f |& bash"), S("printf %%s %f | (sh)"),
+            // A shell inside a group a pipe feeds, a shell given a file to read, and a program that sources a file, all run what the value was written into.
+            S("printf %%s %f | { true; sh; }"), S("printf %%s %f | if true; then sh; fi"), S("printf %%s %f > y; sh y"), S("printf %%s %f > y; . ./y"), S("printf %%s %f | sh -s x"), S("printf %%s %f | bash - x"),
+            // A shell inside a substitution inside a shell's command is nested, even past a quoted ).
+            S("sh -c \"x=$(echo ')'; sh -c 'true %f')\""),
+        };
+        for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
+            P__Action refused = {0};
+            Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", refusedExecs[r])).code);
+            Check(!P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &refused));
+        }
+        // A script beside the action runs from the actions folder, quoted for the shell, its % no field code.
+        {
+            P__Action beside = {0};
+            String oddFolder = S("/no where/it's %f");
+            Check(!P_WriteFile(&extras, quoting, S("[Nemo Action]\nName=Q\nExec=<printf %%s %f>\nSelection=s\nExtensions=any;\n")).code);
+            Check(P__ReadAction(&extras, quoting, oddFolder, work, odd, 1, (String){0}, &beside));
+            Check(StrIsEqual(beside.command, StrFormat(&extras, "%S/printf %%s %S", P__ShellQuote(&extras, oddFolder), P__ShellQuote(&extras, oddName))));
+        }
         TestRemoveTree(&extras, fixture, S("ExtrasData"));
         TestRemoveTree(&extras, fixture, S("Extras"));
         ArenaRelease(&extras);
@@ -5527,13 +5611,30 @@ function void TestApps(TestFileFixture *fixture)
         used = P__ExpandExec(&arena, test, paths, 2, &args);
         Check(used == 2 && args.header.count == 6 && StrIsEqual(args.v[1], S("--flag")) && StrIsEqual(args.v[2], S("two words")) && StrIsEqual(args.v[3], S("100%")));
         Check(StrIsEqual(args.v[4], paths[0]) && StrIsEqual(args.v[5], paths[1]));
-        // A path in quotes goes in as it is, but for a shell's command, which takes it quoted for that shell.
+        // A path in quotes goes in as it is, but in a shell's command quoted for that shell, for the quotes of that command it is in.
         P__App quoting = { .exec = S("app --open=\"%f\" sh -c \"cat %f\"") };
         P__ExpandExec(&arena, &quoting, paths, 1, &args);
         Check(args.header.count == 5 && StrIsEqual(args.v[1], StrFormat(&arena, "--open=%S", paths[0])) && StrIsEqual(args.v[4], StrFormat(&arena, "cat %S", P__ShellQuote(&arena, paths[0]))));
-        quoting.exec = S("env bash -l -c \"cat %f '%f'\"");
+        quoting.exec = S("env bash -l -c \"cat %f '%f' \\\"%f\\\"\"");
         P__ExpandExec(&arena, &quoting, paths, 1, &args);
-        Check(args.header.count == 5 && StrIsEqual(args.v[4], StrFormat(&arena, "cat %S '%S'", P__ShellQuote(&arena, paths[0]), paths[0])));
+        Check(args.header.count == 5 && StrIsEqual(args.v[4], StrFormat(&arena, "cat %S '%S' \"%S\"", P__ShellQuote(&arena, paths[0]), paths[0], P__ShellQuoteInside(&arena, paths[0], '"'))));
+        // Shell options with values of their own, and -c among others, still leave the next word the shell's command; one without quotes too, and %F stands for the first file.
+        quoting.exec = S("bash -o pipefail -c -e %F");
+        P__ExpandExec(&arena, &quoting, paths, 2, &args);
+        Check(args.header.count == 6 && StrIsEqual(args.v[5], P__ShellQuote(&arena, paths[0])));
+        // The shell's own arguments after its command go in as they are, and a shell started with no command reads none of it.
+        quoting.exec = S("sh -c \"cat \\\"$1\\\"; exec bash\" sh %f");
+        P__ExpandExec(&arena, &quoting, paths, 1, &args);
+        Check(args.header.count == 5 && StrIsEqual(args.v[2], S("cat \"$1\"; exec bash")) && StrIsEqual(args.v[4], paths[0]));
+        // One that would hand the value on to a shell the quoting cannot follow is not run.
+        String refusedExecs[] = {
+            S("sh -c \"sh -c 'cat %f'\""), S("env -S \"sh -c 'cat %f'\""), S("env -S \"cat %f\""), S("sh -c \"cat $(dirname %f)\""), S("watch \"cat %f\""), S("sh -c \"cat ${x:-%f}\""), S("sh -c \"cat %f | exec sh\""),
+        };
+        for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
+            quoting.exec = refusedExecs[r];
+            P__ExpandExec(&arena, &quoting, paths, 1, &args);
+            Check(!args.header.count);
+        }
         Check(!P__LaunchApp(&arena, test, paths, 2, root).code);
         String opened = TestWaitText(&arena, fixture, S("Apps/opened"));
         Check(StrIsEqual(opened, StrFormat(&arena, "%S\n--flag|two words|100%%|%S|%S|\n", root, paths[0], paths[1])));

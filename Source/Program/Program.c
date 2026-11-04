@@ -1335,18 +1335,17 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
 // The options whose name or description holds what is typed into the popup, in their order, into `found`; returns how many.
 // Whether `option` sets anything on this system: the backdrop, VSync and system files are Windows' alone.
 // Without a backdrop to choose, as on Linux, the window's opacity is set instead.
-function b32 Prog_OptionApplies(Prog_Option option)
+function b32 Prog_OptionApplies(Prog_State *state, Prog_Option option)
 {
     if (option == Prog_Option_Backdrop) return PlatformHasBackdrops();
     if (option == Prog_Option_WindowOpacity) return !PlatformHasBackdrops();
     if (option == Prog_Option_VSync) return PlatformHasVSync();
     if (option == Prog_Option_ShowSystemFiles) return P_HasSystemFiles();
     if (option == Prog_Option_LongPaths) return P_HasPathLimit();
-    // Torrents download with aria2c, looked for once a run.
+    // Torrents download with aria2c.
     if (option == Prog_Option_DeleteFinishedTorrents) {
-        local_persist i32 aria = -1;
-        if (aria < 0) aria = P_ProgramFound(S("aria2c"));
-        return aria > 0;
+        Prog_LookUpPrograms(state);
+        return state->hasAria2c;
     }
     return true;
 }
@@ -1383,7 +1382,7 @@ function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
     String typed = Prog_EditText(&state->palette), other = Prog_OtherLayout(&state->frameArena, typed);
     u32 count = 0, section = UINT32_MAX;
     for (u32 i = 0; i < Prog_Option_Count; ++i) {
-        if (!Prog_OptionApplies((Prog_Option)i)) continue;
+        if (!Prog_OptionApplies(state, (Prog_Option)i)) continue;
         // One scheme to choose, which starts as the system's mode's.
         if (i == Prog_Option_SystemScheme || i == Prog_Option_LightScheme || i == Prog_Option_DarkScheme) continue;
         // The options that narrow the one above them only while it is on.
@@ -1497,13 +1496,14 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
 }
 
 // Sets `name = value` in Settings.conf, over the line that sets it or that names it commented out, else at its end, and applies the file.
+// Without a config folder the lines set this run stand in for the file, so that each keeps the ones before it.
 function void Prog__WriteSetting(Prog_State *state, String name, String value)
 {
-    if (!state->configDirectory.length) return;
     Scratch scratch = GetScratch();
-    String path = Prog_JoinPath(scratch.arena, state->configDirectory, S("Settings.conf"));
-    String text = {0};
-    if (!P_ReadFile(scratch.arena, path, &text)) text = Prog_SettingsTemplate(scratch.arena, state);
+    b32 file = state->configDirectory.length != 0;
+    String path = file ? Prog_JoinPath(scratch.arena, state->configDirectory, S("Settings.conf")) : (String){0};
+    String text = state->runSettings;
+    if (file && !P_ReadFile(scratch.arena, path, &text)) text = Prog_SettingsTemplate(scratch.arena, state);
     ArrayStr lines = StrSplit(scratch.arena, text, '\n');
     u64 set = UINT64_MAX, commented = UINT64_MAX;
     for (u64 i = 0; i < lines.header.count; ++i) {
@@ -1531,9 +1531,15 @@ function void Prog__WriteSetting(Prog_State *state, String name, String value)
         StrBuildStr(scratch.arena, &out, entry);
         StrBuildChar(scratch.arena, &out, '\n');
     }
-    P_WriteFile(scratch.arena, path, out.buffer);
+    if (file) {
+        P_WriteFile(scratch.arena, path, out.buffer);
+        Prog_ReloadSettingsFile(state);
+    } else {
+        ArenaClear(&state->runSettingsArena);
+        state->runSettings = StrCopy(&state->runSettingsArena, out.buffer);
+        Prog_ApplySettings(state, state->runSettings);
+    }
     ReleaseScratch(scratch);
-    Prog_ReloadSettingsFile(state);
 }
 
 // Sets `option` to `value`, kept within what it takes, in Settings.conf; without a config folder only for this run.
@@ -1934,10 +1940,7 @@ function void Prog_SetOptionText(Prog_State *state, Prog_Option option, String t
 {
     if (option >= Prog_Option_Count) return;
     const Prog_OptionDesc *desc = &Prog_Options[option];
-    Scratch scratch = GetScratch();
-    if (state->configDirectory.length) Prog__WriteSetting(state, desc->setting, text);
-    else Prog_ApplySettings(state, StrFormat(scratch.arena, "%S = %S", desc->setting, text));
-    ReleaseScratch(scratch);
+    Prog__WriteSetting(state, desc->setting, text);
 }
 
 function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
@@ -1955,12 +1958,7 @@ function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
     i32 least = choices ? 0 : desc->least, most = choices ? (i32)choiceCount - 1 : desc->most;
     value = Min(Max(value, least), most);
     String text = choices ? choices[value] : option == Prog_Option_FontSize ? StrFormat(scratch.arena, "%.4f", (f64)value / 9.0) : StrFormat(scratch.arena, "%d", value);
-    if (state->configDirectory.length) {
-        Prog__WriteSetting(state, desc->setting, text);
-    } else {
-        String line = StrFormat(scratch.arena, "%S = %S", desc->setting, text);
-        Prog_ApplySettings(state, line);
-    }
+    Prog__WriteSetting(state, desc->setting, text);
     ReleaseScratch(scratch);
     // What the folder lists, marks or measures changes with these, so it is listed again; applying the hidden files' does that itself.
     if (option == Prog_Option_ShowSystemFiles || option == Prog_Option_ShowRecents || option == Prog_Option_SortRecents ||
@@ -2032,8 +2030,7 @@ function void Prog_SetHotkeys(Prog_State *state, Prog_CommandKind kind, const Pr
 {
     Scratch scratch = GetScratch();
     String name = StrFormat(scratch.arena, "hotkey.%S", Prog_Commands[kind].name), value = Prog_HotkeyListSetting(scratch.arena, hotkeys, count);
-    if (state->configDirectory.length) Prog__WriteSetting(state, name, value);
-    else Prog_ApplySettings(state, StrFormat(scratch.arena, "%S = %S", name, value));
+    Prog__WriteSetting(state, name, value);
     ReleaseScratch(scratch);
 }
 
@@ -12575,12 +12572,11 @@ function void Prog__InspectorTorrent(Prog_State *state, const Prog_Entry *entry,
     Prog__ScrollBar(list, row, S("TorrentFiles"), 1, m);
 }
 
-// Audio plays through ffmpeg, looked for once a run.
-function b32 Prog__HasFfmpeg(void)
+// Audio plays through ffmpeg.
+function b32 Prog__HasFfmpeg(Prog_State *state)
 {
-    local_persist i32 found = -1;
-    if (found < 0) found = P_ProgramFound(S("ffmpeg"));
-    return found > 0;
+    Prog_LookUpPrograms(state);
+    return state->hasFfmpeg;
 }
 
 // The inspector toolbar's tools for an audio file, a video or a torrent: playing it with how far it is; the codec and quality of Compress
@@ -13123,7 +13119,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 if (grid.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorToggleImageGrid, 0, 0, grid.clickOrder);
                 Prog__ToolbarButton(state, S("InspectorMinimap"), state->imageHideMinimap ? Icon_LocateOff : Icon_Locate, Prog_CommandKind_InspectorToggleImageMinimap, true, m);
             }
-            if (entry && ((Prog_IsAudio(entry->file.name) && Prog__HasFfmpeg()) || Prog_IsVideo(entry->file.name) || Prog_IsTorrent(entry->file.name))) {
+            if (entry && ((Prog_IsAudio(entry->file.name) && Prog__HasFfmpeg(state)) || Prog_IsVideo(entry->file.name) || Prog_IsTorrent(entry->file.name))) {
                 Prog__InspectorTools(state, entry, tight, m);
             }
             if (text) {

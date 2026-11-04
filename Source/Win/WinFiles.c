@@ -181,16 +181,28 @@ function u32 P__ArchiveMakeFolders(String path)
 }
 
 // Written beside its place and moved there once complete, so that a file cut short never takes the name.
+// The name it is written under is a new file, so that an item of the archive already out under that name is left alone.
 function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel)
 {
     P__Archive *a = &P__archive;
     Scratch scratch = GetScratch();
-    String part = StrFormat(scratch.arena, "%S.part", path);
     Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
     u32 error = slash.exists && slash.value ? P__ArchiveMakeFolders(StrFromTo(path, 0, (i64)slash.value)) : 0;
-    wchar *wide = P__FilePathWide(scratch.arena, part);
-    HANDLE file = !error && wide ? CreateFileW(wide, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL) : INVALID_HANDLE_VALUE;
-    if (!error && file == INVALID_HANDLE_VALUE) error = wide ? GetLastError() : ERROR_INVALID_NAME;
+    String folder = slash.exists ? StrFromTo(path, 0, (i64)slash.value + 1) : (String){0}, leaf = slash.exists ? StrFrom(path, slash.value + 1) : path, part = {0};
+    // A name close to the 255 characters a name can have is cut for the hidden name's dot and ending, at a character's start; UTF-8 has at least as many bytes as UTF-16 has units.
+    u64 kept = Min(leaf.length, (u64)255 - 16);
+    while (kept < leaf.length && kept && ((u8)leaf.value[kept] & 0xC0) == 0x80) --kept;
+    leaf = StrFromTo(leaf, 0, (i64)kept);
+    wchar *wide = NULL;
+    HANDLE file = INVALID_HANDLE_VALUE;
+    for (u32 n = 1; !error && file == INVALID_HANDLE_VALUE && n < 100; ++n) {
+        part = n == 1 ? StrFormat(scratch.arena, "%S.%S.part", folder, leaf) : StrFormat(scratch.arena, "%S.%S.%u.part", folder, leaf, n);
+        wide = P__FilePathWide(scratch.arena, part);
+        if (!wide) error = ERROR_INVALID_NAME;
+        else if ((file = CreateFileW(wide, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE && GetLastError() != ERROR_FILE_EXISTS) error = GetLastError();
+    }
+    if (!error && file == INVALID_HANDLE_VALUE) error = ERROR_FILE_EXISTS;
+    if (error) wide = NULL;
     const void *block = NULL;
     u64 size = 0;
     i64 offset = 0;
@@ -851,6 +863,20 @@ function String P__PlacedPath(Arena *arena, String directory, String path)
 // Set by WinWindow.c; dialogs that verbs open are owned by it.
 global HWND P__shellOwner;
 
+// A file's size and last write time in one, which tell a file moved over it, as Replace does, from the one left there, as Keep Both does; 0 for a folder, a device's item or none.
+function u64 P__FileStamp(String path)
+{
+    if (P__IsDevicePath(path)) return 0;
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FileExtendedPath(scratch.arena, path);
+    WIN32_FILE_ATTRIBUTE_DATA data = {0};
+    b32 found = wide && GetFileAttributesExW(wide, GetFileExInfoStandard, &data) && !(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+    ReleaseScratch(scratch);
+    if (!found) return 0;
+    u64 size = ((u64)data.nFileSizeHigh << 32) | data.nFileSizeLow, time = ((u64)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime;
+    return ((size * UINT64_C(1099511628211)) ^ time) | 1;
+}
+
 // The same through the shell's file operation on the items, for a copy, move or delete with a device's items in it, which have no paths for the string form to name.
 function P_FileError P__ShellItemOperation(Arena *arena, u32 operation, const String *paths, u64 count, String directory, u16 flags, HWND owner, String *placed)
 {
@@ -870,6 +896,14 @@ function P_FileError P__ShellItemOperation(Arena *arena, u32 operation, const St
     if (!error && FAILED(SHCreateShellItemArrayFromIDLists((UINT)count, (PCIDLIST_ABSOLUTE_ARRAY)lists, &items))) error = ERROR_PATH_NOT_FOUND;
     if (!error && target && FAILED(SHCreateItemFromIDList(target, &P__IID_IShellItem, (void **)&into))) error = ERROR_PATH_NOT_FOUND;
     if (!error && FAILED(CoCreateInstance(&P__CLSID_FileOperation, NULL, CLSCTX_ALL, &P__IID_IFileOperation, (void **)&op))) error = ERROR_NOT_SUPPORTED;
+    // As with the string form, a target there before, merged into or skipped, is not taken as made for Undo.
+    b8 *existed = placed ? ArenaPushArray(scratch.arena, Max(count, (u64)1), b8) : NULL;
+    u64 *stamps = placed ? ArenaPushArray(scratch.arena, Max(count, (u64)1), u64) : NULL;
+    for (u64 i = 0; placed && i < count; ++i) {
+        String target = P__PlacedPath(scratch.arena, directory, paths[i]);
+        existed[i] = (b8)P_PathExists(target);
+        stamps[i] = existed[i] ? P__FileStamp(target) : 0;
+    }
     if (!error) {
         op->lpVtbl->SetOperationFlags(op, (DWORD)flags | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR);
         if (owner) op->lpVtbl->SetOwnerWindow(op, owner);
@@ -881,7 +915,12 @@ function P_FileError P__ShellItemOperation(Arena *arena, u32 operation, const St
         op->lpVtbl->GetAnyOperationsAborted(op, &aborted);
         error = aborted ? ERROR_CANCELLED : FAILED(done) ? (HRESULT_FACILITY(done) == FACILITY_WIN32 ? (u32)HRESULT_CODE(done) : ERROR_GEN_FAILURE) : 0;
     }
-    for (u64 i = 0; placed && i < count; ++i) placed[i] = P__PlacedPath(arena, directory, paths[i]);
+    for (u64 i = 0; placed && i < count; ++i) {
+        placed[i] = P__PlacedPath(arena, directory, paths[i]);
+        // The item form gets no new names, so a file kept beside the one there before, as Keep Both does, leaves that one as it was.
+        b32 replaced = operation == FO_MOVE && stamps[i] && !P_PathExists(paths[i]) && P__FileStamp(placed[i]) != stamps[i];
+        if (existed[i] && !replaced) placed[i] = (String){0};
+    }
     if (op) op->lpVtbl->Release(op);
     if (into) into->lpVtbl->Release(into);
     if (items) items->lpVtbl->Release(items);
@@ -993,7 +1032,12 @@ function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const St
     if (!error && count) {
         // Which targets were there before, which a merge into a folder or a skipped item leaves there with no new name, and which Undo must not then take as made.
         b8 *existed = placed ? ArenaPushArray(scratch.arena, count, b8) : NULL, *mapped = placed ? ArenaPushArray(scratch.arena, count, b8) : NULL;
-        for (u64 i = 0; placed && i < count; ++i) existed[i] = (b8)P_PathExists(P__PlacedPath(scratch.arena, directory, paths[i]));
+        u64 *stamps = placed ? ArenaPushArray(scratch.arena, count, u64) : NULL;
+        for (u64 i = 0; placed && i < count; ++i) {
+            String target = P__PlacedPath(scratch.arena, directory, paths[i]);
+            existed[i] = (b8)P_PathExists(target);
+            stamps[i] = existed[i] ? P__FileStamp(target) : 0;
+        }
         SHFILEOPSTRUCTW op = { .hwnd = owner, .wFunc = operation, .pFrom = from, .pTo = to, .fFlags = (FILEOP_FLAGS)(flags | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR | (placed ? FOF_WANTMAPPINGHANDLE : 0)) };
         i32 result = SHFileOperationW(&op);
         error = result ? (u32)result : op.fAnyOperationsAborted ? ERROR_CANCELLED : 0;
@@ -1021,9 +1065,9 @@ function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const St
             }
             SHFreeNameMappings(op.hNameMappings);
         }
-        // A file moved over one there before, as Replace does, is gone from where it was and kept, so that Undo moves it back.
+        // A file moved over one there before, as Replace does, is gone from where it was and kept, so that Undo moves it back; the file there changed tells it from one kept beside it with no name the shell told.
         for (u64 i = 0; placed && i < count; ++i) {
-            b32 replaced = operation == FO_MOVE && !P_PathExists(paths[i]) && !P_IsDirectory(placed[i]);
+            b32 replaced = operation == FO_MOVE && stamps[i] && !P_PathExists(paths[i]) && P__FileStamp(placed[i]) != stamps[i];
             if (existed[i] && !mapped[i] && !replaced) placed[i] = (String){0};
         }
     }
