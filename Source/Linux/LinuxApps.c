@@ -232,6 +232,24 @@ function String P__MimeForName(String name, b32 folder)
     return result.length ? result : S("application/octet-stream");
 }
 
+function String P__ShellQuote(Arena *arena, String text);
+
+function String P__ShellQuoteInside(Arena *arena, String text, char quote);
+// Whether the arguments `words` end in a shell's -c, which makes the next argument a command for it: "sh -c", "bash -lc", "bash -l -c" or "env sh -c", the shell before any options of its own.
+function b32 P__ShellCommandBefore(const String *words, u64 count)
+{
+    String flag = count ? words[count - 1] : (String){0};
+    if (flag.length < 2 || flag.value[0] != '-' || flag.value[1] == '-' || flag.value[flag.length - 1] != 'c') return false;
+    u64 at = count - 1;
+    while (at && words[at - 1].length && words[at - 1].value[0] == '-') --at;
+    if (!at) return false;
+    String program = words[at - 1], leaf = StrFrom(program, StrIndexChar(program, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value);
+    local_persist const String shells[] = { SInit("sh"), SInit("bash"), SInit("dash"), SInit("zsh"), SInit("fish"), SInit("ksh"), SInit("mksh") };
+    b32 shell = false;
+    for (u32 i = 0; i < CArrayCount(shells) && !shell; ++i) shell = StrIsEqual(leaf, shells[i]);
+    return shell;
+}
+
 // Splits a desktop entry's Exec line into arguments, replacing the field codes with `paths`: %f and %u take one, %F and %U all of them.
 // Returns how many paths the command took, so that a %f or %u command is run once for each of several files.
 function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths, u64 count, ArrayStr *args)
@@ -243,10 +261,12 @@ function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths,
         while (at < exec.length && exec.value[at] == ' ') ++at;
         if (at >= exec.length) break;
         StrBuilder argument = {0};
-        b32 quoted = false, codeOnly = true, any = false;
+        // `inner`: within single quotes inside the double quotes, which a shell's command keeps for that shell.
+        b32 quoted = false, codeOnly = true, any = false, inner = false;
         for (; at < exec.length && (quoted || exec.value[at] != ' '); ++at) {
             char c = exec.value[at];
-            if (c == '"') { quoted = !quoted; codeOnly = false; continue; }
+            if (quoted && c == '\'') inner = !inner;
+            if (c == '"') { quoted = !quoted; inner = false; codeOnly = false; continue; }
             if (quoted && c == '\\' && at + 1 < exec.length) { StrBuildChar(arena, &argument, exec.value[++at]); codeOnly = false; any = true; continue; }
             if (c == '%' && at + 1 < exec.length) {
                 char code = exec.value[++at];
@@ -256,7 +276,10 @@ function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths,
                     for (u64 i = 0; i < count; ++i) ArrayPush(arena, *args, code == 'U' ? P__FileUri(arena, paths[i]) : paths[i]);
                     used = count;
                 } else if ((code == 'f' || code == 'u' || code == 'F' || code == 'U') && count) {
-                    StrBuildStr(arena, &argument, code == 'u' || code == 'U' ? P__FileUri(arena, paths[0]) : paths[0]);
+                    String value = code == 'u' || code == 'U' ? P__FileUri(arena, paths[0]) : paths[0];
+                    // Inside a shell's quoted command, as "sh -c \"foo %f\"", which the spec forbids but some write, the value goes in quoted for that shell, as GLib does; any other argument takes it as it is.
+                    b32 script = quoted && P__ShellCommandBefore(args->v, args->header.count);
+                    StrBuildStr(arena, &argument, !script ? value : inner ? P__ShellQuoteInside(arena, value, '\'') : P__ShellQuote(arena, value));
                     used = Max(used, (u64)1);
                     any = true;
                 } else if (code == 'c') { StrBuildStr(arena, &argument, app->name); any = true; }
@@ -635,6 +658,21 @@ function String P__ShellQuote(Arena *arena, String text)
     return out.buffer;
 }
 
+// `text` for inside the quotes `quote` of a shell command line, which takes it as it is: in double quotes `\`, `"`, `$` and the backtick escaped, in single quotes each `'` closing them, escaped and opening them again.
+function String P__ShellQuoteInside(Arena *arena, String text, char quote)
+{
+    StrBuilder out = {0};
+    for (u64 i = 0; i < text.length; ++i) {
+        char c = text.value[i];
+        if (quote == '\'' && c == '\'') StrBuildStr(arena, &out, S("'\\''"));
+        else {
+            if (quote == '"' && (c == '\\' || c == '"' || c == '$' || c == '`')) StrBuildChar(arena, &out, '\\');
+            StrBuildChar(arena, &out, c);
+        }
+    }
+    return out.buffer;
+}
+
 // A Nemo action that applies to `paths` (`count` of them, or none for the folder's background) inside `directory`: its name and the shell
 // command its Exec line makes, by the action file format Nemo documents. Actions with Conditions are left out, as those Nemo ships need
 // Cinnamon's desktop or its D-Bus services, and so are those whose Dependencies are not met.
@@ -714,23 +752,46 @@ function b32 P__ReadAction(Arena *arena, String file, String folder, String dire
             text = StrFormat(scratch.arena, "%S/%S", folder, inside);
         }
         StrBuilder out = {0};
+        // The quotes the command line has open, so that a value inside them is escaped for them rather than ending them.
+        char open = 0;
+        // Whether those quotes follow a shell's -c, which makes what they hold a command for that shell in turn.
+        // And `inner`: within single quotes inside them, which that shell keeps.
+        b32 script = false, inner = false;
         for (u64 at = 0; at < text.length; ++at) {
             char c = text.value[at], code = at + 1 < text.length ? text.value[at + 1] : 0;
-            if (c != '%' || !code) { StrBuildChar(scratch.arena, &out, c); continue; }
-            ++at;
-            // In the name the values go in as they are; in the command each is quoted for the shell, unless the line quotes it itself.
-            b32 quoted = at >= 2 && (text.value[at - 2] == '"' || text.value[at - 2] == '\'');
-            b32 plain = !part || quoted;
-            switch (code) {
-                case 'F': StrBuildStr(scratch.arena, &out, plain && count ? paths[0] : pathList.buffer); break;
-                case 'U': StrBuildStr(scratch.arena, &out, plain && count ? P__FileUri(scratch.arena, paths[0]) : uriList.buffer); break;
-                case 'P': StrBuildStr(scratch.arena, &out, plain ? directory : P__ShellQuote(scratch.arena, directory)); break;
-                case 'f': case 'N': StrBuildStr(scratch.arena, &out, plain ? first : P__ShellQuote(scratch.arena, first)); break;
-                case 'p': StrBuildStr(scratch.arena, &out, plain ? parentName : P__ShellQuote(scratch.arena, parentName)); break;
-                case 'e': StrBuildStr(scratch.arena, &out, plain ? stem : P__ShellQuote(scratch.arena, stem)); break;
-                case '%': StrBuildChar(scratch.arena, &out, '%'); break;
-                default: break;
+            if (c != '%' || !code) {
+                StrBuildChar(scratch.arena, &out, c);
+                if (part && c == '\\' && open != '\'' && code) StrBuildChar(scratch.arena, &out, text.value[++at]);
+                else if (part && (c == '"' || c == '\'') && (!open || open == c)) {
+                    open = open ? 0 : c;
+                    inner = false;
+                    ArrayStr words = {0};
+                    if (open) {
+                        ArrayStr pieces = StrSplit(scratch.arena, StrFromTo(text, 0, (i64)at), ' ');
+                        for (u64 i = 0; i < pieces.header.count; ++i) if (pieces.v[i].length) ArrayPush(scratch.arena, words, pieces.v[i]);
+                    }
+                    script = open && P__ShellCommandBefore(words.v, words.header.count);
+                } else if (part && c == '\'' && open == '"' && script) inner = !inner;
+                continue;
             }
+            ++at;
+            // In the name the values go in as they are; in the command each is quoted for the shell, or escaped for the quotes it is in, where the files' list stands for the first file alone.
+            String value = {0};
+            switch (code) {
+                case 'F': value = (open || !part) && count ? paths[0] : pathList.buffer; break;
+                case 'U': value = (open || !part) && count ? P__FileUri(scratch.arena, paths[0]) : uriList.buffer; break;
+                case 'P': value = directory; break;
+                case 'f': case 'N': value = first; break;
+                case 'p': value = parentName; break;
+                case 'e': value = stem; break;
+                case '%': StrBuildChar(scratch.arena, &out, '%'); continue;
+                default: continue;
+            }
+            b32 listed = (code == 'F' || code == 'U') && !open && part;
+            // In a shell's command, as in sh -c "echo %f", the value goes in quoted for that shell too.
+            if (script) value = inner ? P__ShellQuoteInside(scratch.arena, value, '\'') : P__ShellQuote(scratch.arena, value);
+            if (!part || listed) StrBuildStr(scratch.arena, &out, value);
+            else StrBuildStr(scratch.arena, &out, open ? P__ShellQuoteInside(scratch.arena, value, open) : P__ShellQuote(scratch.arena, value));
         }
         if (part) action->command = StrCopy(arena, out.buffer);
         else action->name = StrCopy(arena, out.buffer);
@@ -1053,14 +1114,17 @@ function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 
                 StrBuildStr(scratch.arena, &uris, StrFormat(scratch.arena, "%S\n", P__FileUri(scratch.arena, data->paths[i])));
                 args[i + 1] = P__FilePathCString(scratch.arena, StrFrom(data->paths[i], StrIndexChar(data->paths[i], '/', SSF_SearchBackwards | SSF_IndexPlusOne).value));
             }
-            // The child takes the environment as it is when it starts.
-            setenv("NEMO_SCRIPT_SELECTED_FILE_PATHS", P__FilePathCString(scratch.arena, selected.buffer), 1);
-            setenv("NEMO_SCRIPT_SELECTED_URIS", P__FilePathCString(scratch.arena, uris.buffer), 1);
-            setenv("NEMO_SCRIPT_CURRENT_URI", P__FilePathCString(scratch.arena, P__FileUri(scratch.arena, data->directory)), 1);
-            error = P__Spawn(args[0], args, folder);
-            unsetenv("NEMO_SCRIPT_SELECTED_FILE_PATHS");
-            unsetenv("NEMO_SCRIPT_SELECTED_URIS");
-            unsetenv("NEMO_SCRIPT_CURRENT_URI");
+            // The script's own environment is Filey's with Nemo's variables, rather than Filey's changed while other threads read it.
+            u64 own = 0;
+            while (environ[own]) ++own;
+            char **variables = ArenaPushArray(scratch.arena, own + 4, char *);
+            u64 kept = 0;
+            variables[kept++] = P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "NEMO_SCRIPT_SELECTED_FILE_PATHS=%S", selected.buffer));
+            variables[kept++] = P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "NEMO_SCRIPT_SELECTED_URIS=%S", uris.buffer));
+            variables[kept++] = P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "NEMO_SCRIPT_CURRENT_URI=%S", P__FileUri(scratch.arena, data->directory)));
+            for (u64 i = 0; i < own; ++i) if (strncmp(environ[i], "NEMO_SCRIPT_", 12) != 0) variables[kept++] = environ[i];
+            variables[kept] = NULL;
+            error = P__SpawnWith(args[0], args, folder, false, variables);
         } else {
             const char *run[2] = {0};
             char *terminal = data->inTerminal[index] ? P__FindTerminal(scratch.arena, run) : NULL;

@@ -327,7 +327,7 @@ function char *P__FindExecutable(Arena *arena, String name, u32 *error)
 
 // Starts `executable` with `args` in `directory` (the current one when NULL), detached from Filey, with `quiet` its input and outputs no one's.
 // Returns the error of starting it, which includes a failed exec.
-function u32 P__SpawnWith(const char *executable, char **args, const char *directory, b32 quiet)
+function u32 P__SpawnWith(const char *executable, char **args, const char *directory, b32 quiet, char **variables)
 {
     u32 error = 0;
     i32 pipeEnds[2] = {0};
@@ -340,9 +340,10 @@ function u32 P__SpawnWith(const char *executable, char **args, const char *direc
             pid_t launcher = _Fork();
             if (launcher == 0) {
                 setsid();
+                signal(SIGPIPE, SIG_DFL);
                 i32 none = quiet ? open("/dev/null", O_RDWR) : -1;
                 if (none >= 0) dup2(none, STDIN_FILENO), dup2(none, STDOUT_FILENO), dup2(none, STDERR_FILENO);
-                if (!directory || chdir(directory) == 0) execve(executable, args, environ);
+                if (!directory || chdir(directory) == 0) execve(executable, args, variables ? variables : environ);
             }
             if (launcher <= 0) {
                 u32 launchError = (u32)errno;
@@ -374,7 +375,7 @@ function u32 P__SpawnWith(const char *executable, char **args, const char *direc
     return error;
 }
 
-function u32 P__Spawn(const char *executable, char **args, const char *directory) { return P__SpawnWith(executable, args, directory, false); }
+function u32 P__Spawn(const char *executable, char **args, const char *directory) { return P__SpawnWith(executable, args, directory, false, NULL); }
 
 function String P_ExecutablePath(Arena *arena)
 {
@@ -1868,7 +1869,7 @@ function b32 P_StartSelf(void)
     executable[length] = 0;
     char *args[] = {executable, NULL};
     // Its input and outputs no one's, as the MCP server's, which starts it, are the agent's pipes, which it would hold open and write into.
-    return P__SpawnWith(executable, args, NULL, true) == 0;
+    return P__SpawnWith(executable, args, NULL, true, NULL) == 0;
 }
 
 function b32 P_StartupFlag(String flag)
@@ -2521,6 +2522,7 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
         pid_t child = _Fork();
         if (child == 0) {
             setpgid(0, 0);
+            signal(SIGPIPE, SIG_DFL);
             i32 quiet = open("/dev/null", O_RDWR);
             dup2(ends[1], 1);
             if (errors) dup2(ends[1], 2);
@@ -2535,7 +2537,7 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
         close(ends[1]);
         if (reads[0] >= 0) {
             close(reads[0]);
-            // A program that quits before reading it would otherwise end Filey with SIGPIPE.
+            // A program that quits before reading it would otherwise end Filey with SIGPIPE, which the window ignores already but the tests do not.
             signal(SIGPIPE, SIG_IGN);
             if (child > 0) for (u64 at = 0; at < input.length;) {
                 ssize_t wrote = write(reads[1], input.value + at, input.length - at);
@@ -2584,6 +2586,10 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
             result = !stopped && WIFEXITED(status) && WEXITSTATUS(status) == 0;
         }
         close(ends[0]);
+    } else if (reads[0] >= 0) {
+        // Nothing started to read the input.
+        close(reads[0]);
+        close(reads[1]);
     }
     ReleaseScratch(scratch);
     return result;
@@ -2707,25 +2713,49 @@ function b32 P_ReadFileAt(Arena *arena, String path, u64 offset, u64 limit, Stri
     return length >= 0;
 }
 
+// Writes `contents` to `path`, the native `native`, through a temporary file beside it moved over it once whole.
+function u32 P__WriteFileAt(Arena *scratch, String path, const char *native, String contents)
+{
+    char *temporary = P__FilePathCString(scratch, StrFormat(scratch, "%S.tmp", path));
+    if (!native || !temporary) return EINVAL;
+    i32 fd = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    u32 code = fd < 0 ? (u32)errno : 0;
+    for (u64 at = 0; !code && at < contents.length;) {
+        ssize_t written = write(fd, contents.value + at, contents.length - at);
+        if (written < 0 && errno != EINTR) code = (u32)errno;
+        else if (written > 0) at += (u64)written;
+    }
+    if (!code && fsync(fd) != 0) code = (u32)errno;
+    if (fd >= 0) close(fd);
+    if (!code && rename(temporary, native) != 0) code = (u32)errno;
+    if (code) unlink(temporary);
+    return code;
+}
+
 function P_FileError P_WriteFile(Arena *arena, String path, String contents)
 {
     Scratch scratch = GetScratchEx(arena);
     char *native = P__FilePathCString(scratch.arena, path);
-    char *temporary = P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "%S.tmp", path));
-    u32 code = EINVAL;
-    if (native && temporary) {
-        i32 fd = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
-        code = fd < 0 ? (u32)errno : 0;
-        for (u64 at = 0; !code && at < contents.length;) {
-            ssize_t written = write(fd, contents.value + at, contents.length - at);
-            if (written < 0 && errno != EINTR) code = (u32)errno;
-            else if (written > 0) at += (u64)written;
-        }
-        if (!code && fsync(fd) != 0) code = (u32)errno;
-        if (fd >= 0) close(fd);
-        if (!code && rename(temporary, native) != 0) code = (u32)errno;
-        if (code) unlink(temporary);
+    // A link, as dotfiles kept elsewhere are, has the file it points to written rather than being replaced by a file of its own.
+    // One into a folder that cannot be written, as a read-only store of generated dotfiles, is replaced instead.
+    struct stat link;
+    b32 linked = native && lstat(native, &link) == 0 && S_ISLNK(link.st_mode);
+    char *resolved = linked ? realpath(native, NULL) : NULL;
+    u32 code = EROFS;
+    String target = {0};
+    if (resolved) {
+        target = StrCopy(scratch.arena, StrFromCStr(resolved));
+        free(resolved);
+    } else if (linked && errno == ENOENT) {
+        // A link to a file not made yet makes it, beside the link when the link is relative.
+        char pointed[PATH_MAX];
+        ssize_t length = readlink(native, pointed, sizeof(pointed) - 1);
+        String to = length > 0 ? StrCopy(scratch.arena, StrMake(pointed, (u64)length)) : (String){0};
+        Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
+        target = !to.length || to.value[0] == '/' || !slash.exists ? to : StrFormat(scratch.arena, "%S/%S", StrFromTo(path, 0, (i64)slash.value), to);
     }
+    if (target.length) code = P__WriteFileAt(scratch.arena, target, P__FilePathCString(scratch.arena, target), contents);
+    if (code == EROFS || code == EACCES || code == EPERM) code = P__WriteFileAt(scratch.arena, path, native, contents);
     ReleaseScratch(scratch);
     return code ? P__FileError(arena, code) : (P_FileError){0};
 }

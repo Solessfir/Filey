@@ -798,8 +798,17 @@ function b32 P__RunAndWait(char *const *args, u32 seconds, const P_CancelToken *
     if (posix_spawn_file_actions_init(&actions) != 0) return false;
     posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
     posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
+    // The thumbnailer gets SIGPIPE's default back, which Filey ignores.
+    posix_spawnattr_t attributes;
+    posix_spawnattr_init(&attributes);
+    sigset_t pipes;
+    sigemptyset(&pipes);
+    sigaddset(&pipes, SIGPIPE);
+    posix_spawnattr_setsigdefault(&attributes, &pipes);
+    posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETSIGDEF);
     pid_t child = 0;
-    b32 started = posix_spawn(&child, args[0], &actions, NULL, args, environ) == 0, result = false;
+    b32 started = posix_spawn(&child, args[0], &actions, &attributes, args, environ) == 0, result = false;
+    posix_spawnattr_destroy(&attributes);
     posix_spawn_file_actions_destroy(&actions);
     for (u64 waited = 0; started;) {
         i32 status = 0;

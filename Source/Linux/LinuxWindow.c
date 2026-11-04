@@ -339,8 +339,10 @@ function void KeyboardModifiers(void *data, struct wl_keyboard *keyboard, u32 se
 
 function void KeyboardRepeatInfo(void *data, struct wl_keyboard *keyboard, i32 rate, i32 delay)
 {
-    Wl.repeatRate = rate;
+    // A rate of 0 turns repeating off, which a held key then stops doing; one past a thousand a second is as fast as frames can take.
+    Wl.repeatRate = Min(rate, 1000);
     Wl.repeatDelay = delay;
+    if (rate <= 0) Wl.repeating = false;
 }
 
 global const struct wl_keyboard_listener KeyboardListener = {
@@ -773,9 +775,15 @@ function void DataSourceSend(void *data, struct wl_data_source *source, const ch
             if (strcmp(mime, Wl.clipboardMimes[i]) == 0) text = Wl.clipboardData[i];
         }
     }
+    // A reader that stops reading, or reads slowly, gives up the rest after two seconds rather than holding the window.
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+    u64 until = PlatformNowMicroseconds() + Millions(2);
     for (u64 at = 0; at < text.length;) {
         ssize_t written = write(fd, text.value + at, text.length - at);
         if (written < 0 && errno == EINTR) continue;
+        struct pollfd ready = { .fd = fd, .events = POLLOUT };
+        u64 now = PlatformNowMicroseconds();
+        if (written < 0 && errno == EAGAIN && now < until && poll(&ready, 1, (i32)((until - now) / 1000) + 1) > 0) continue;
         if (written <= 0) break;
         at += (u64)written;
     }
@@ -1101,6 +1109,8 @@ function f32 LinuxHyprlandRounding(void)
 
 function b32 PlatformWindowOpen(PlatformWindowDesc desc)
 {
+    // A pipe whose reader went, as a paste's reader that took enough, or a program given input that quit, fails its write rather than ending Filey; the programs Filey starts get the default back.
+    signal(SIGPIPE, SIG_IGN);
     Wl.display = wl_display_connect(NULL);
     if (Wl.display == NULL) {
         return false;
@@ -1268,6 +1278,14 @@ function void P_WakeWindow(void)
     while (write(Wl.wakeFd, &count, sizeof(count)) < 0 && errno == EINTR) {}
 }
 
+// Whether the other end of a Unix socket runs as this user, as an abstract socket's name, unlike a file's, keeps no one else from it.
+function b32 LinuxPeerIsUs(i32 fd)
+{
+    struct ucred peer = {0};
+    socklen_t size = sizeof(peer);
+    return getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) == 0 && peer.uid == getuid();
+}
+
 // One window for each settings folder: the run that has it listens on an abstract socket named after the folder, for its user, and a
 // later run connects to hand it the activation token its launcher gave it, on the first line, and its folders on the next ones.
 function b32 LinuxInstanceAddress(String key, struct sockaddr_un *address, socklen_t *size)
@@ -1419,7 +1437,7 @@ function b32 PlatformInstanceClaim(String key, ArrayStr paths)
         return true;
     }
     b32 handed = false;
-    if (connect(fd, (struct sockaddr *)&address, size) == 0) {
+    if (connect(fd, (struct sockaddr *)&address, size) == 0 && LinuxPeerIsUs(fd)) {
         Scratch scratch = GetScratch();
         StrBuilder text = {0};
         const char *token = getenv("XDG_ACTIVATION_TOKEN");
@@ -1619,6 +1637,10 @@ function void LinuxTakeInstanceMessage(void)
 {
     i32 client = accept4(Wl.instanceFd, NULL, NULL, SOCK_CLOEXEC);
     if (client < 0) return;
+    if (!LinuxPeerIsUs(client)) {
+        close(client);
+        return;
+    }
     Scratch scratch = GetScratch();
     StrBuilder text = {0};
     char buffer[4096];
@@ -1821,19 +1843,23 @@ function String LinuxReceive(Arena *arena, struct wl_data_offer *offer, const ch
     wl_data_offer_receive(offer, mime, fds[1]);
     close(fds[1]);
     wl_display_flush(Wl.display);
-    // ponytail: a fixed 1 MiB cap and a one second wait per read; text fields never need more.
-    u64 capacity = Millions(1);
-    char *bytes = ArenaPushArrayNoZero(arena, capacity, char);
-    u64 length = 0;
+    // ponytail: a 64 MiB cap, a few hundred thousand paths, and ten seconds in all, waiting up to five for each read, which a slow sender such as an X11 program through XWayland can need.
+    StrBuilder out = {0};
+    char chunk[65536];
     struct pollfd fd = { .fd = fds[0], .events = POLLIN };
-    while (length < capacity && poll(&fd, 1, 1000) > 0) {
-        ssize_t count = read(fds[0], bytes + length, capacity - length);
+    b32 ended = false;
+    u64 until = PlatformNowMicroseconds() + Millions(10);
+    for (u64 now = PlatformNowMicroseconds(); out.buffer.length <= Millions(64) && now < until && poll(&fd, 1, (i32)Min((until - now) / 1000 + 1, (u64)5000)) > 0;
+         now = PlatformNowMicroseconds()) {
+        ssize_t count = read(fds[0], chunk, sizeof(chunk));
         if (count < 0 && errno == EINTR) continue;
+        ended = count == 0;
         if (count <= 0) break;
-        length += (u64)count;
+        StrBuildStr(arena, &out, StrMake(chunk, (u64)count));
     }
     close(fds[0]);
-    return StrMake(bytes, length);
+    // Only what came whole, as a list of files cut short would end on a path that is only part of one, which may name another item.
+    return ended ? out.buffer : (String){0};
 }
 
 function String LinuxClipboardReceive(Arena *arena, const char *mime)

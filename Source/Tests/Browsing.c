@@ -2584,6 +2584,18 @@ function void TestContainingPath(TestFileFixture *fixture)
         Check(working != UINT64_MAX && !Prog_EntryBrokenLink(&listed.directory.entries[working]) && StrIsEqual(listed.directory.entries[working].type, S("Link")));
         Prog_Release(&listed);
     }
+    // A file written through a link, its target made when it is not there yet, keeps the link.
+    {
+        String made = {0}, contents = {0};
+        Check(!P_CreateItem(&arena, fixture->path, S("LinkWrite"), true, &made).code);
+        String written = Prog_JoinPath(&arena, fixture->path, S("LinkWrite/a.conf")), target = Prog_JoinPath(&arena, fixture->path, S("LinkWrite/target.conf"));
+        Check(symlink("target.conf", P__FilePathCString(&arena, written)) == 0);
+        Check(!P_WriteFile(&arena, written, S("x")).code && P_ReadFile(&arena, target, &contents) && StrIsEqual(contents, S("x")));
+        Check(!P_WriteFile(&arena, written, S("y")).code && P_ReadFile(&arena, target, &contents) && StrIsEqual(contents, S("y")));
+        struct stat still;
+        Check(lstat(P__FilePathCString(&arena, written), &still) == 0 && S_ISLNK(still.st_mode));
+        Check(P__TestRemovePath(fixture, S("LinkWrite/a.conf"), false) && P__TestRemovePath(fixture, S("LinkWrite/target.conf"), false) && P__TestRemovePath(fixture, S("LinkWrite"), true));
+    }
     // A link that loops is broken too; one into a folder it may not read is not, its target being there.
     String loop = Prog_JoinPath(&arena, fixture->path, S("loop-link")), closed = Prog_JoinPath(&arena, fixture->path, S("closed")), made = {0};
     String shut = Prog_JoinPath(&arena, fixture->path, S("shut-link"));
@@ -5391,6 +5403,18 @@ function void TestApps(TestFileFixture *fixture)
         for (u64 start = PlatformNowMicroseconds(); !(TestHasFile(&extras, fixture, S("Extras"), S("marked")) && P_ReadFile(&extras, Prog_JoinPath(&extras, work, S("recorded")), &recorded) && recorded.length) &&
                                                     PlatformNowMicroseconds() - start < Millions(5);) P__TestPause();
         Check(TestHasFile(&extras, fixture, S("Extras"), S("marked")) && StrIsEqual(recorded, StrFormat(&extras, "%S\n", Prog_JoinPath(&extras, work, S("note.txt")))));
+        // A file's name inside the command's own quotes is escaped for them, so that the shell takes it as it is rather than running what it holds.
+        String quoting = Prog_JoinPath(&extras, actions, S("e.nemo_action")), odd[] = { Prog_JoinPath(&extras, work, S("a\"$(x)'b.txt")) };
+        Check(!P_WriteFile(&extras, quoting, S("[Nemo Action]\nName=Q\nExec=sh -c \"echo %f\" '%f' %f \"%f.bak\"\nSelection=s\nExtensions=any;\n")).code);
+        P__Action quoted = {0};
+        Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &quoted));
+        Check(StrIsEqual(quoted.command, S("sh -c \"echo 'a\\\"\\$(x)'\\\\''b.txt'\" 'a\"$(x)'\\''b.txt' 'a\"$(x)'\\''b.txt' \"a\\\"\\$(x)'b.txt.bak\"")));
+        // A -c of a program that is not a shell is only an option of its own.
+        Check(!P_WriteFile(&extras, quoting, S("[Nemo Action]\nName=Q\nExec=gzip -c \"%f\"\nSelection=s\nExtensions=any;\n")).code);
+        Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &quoted) && StrIsEqual(quoted.command, S("gzip -c \"a\\\"\\$(x)'b.txt\"")));
+        // A shell found past its own options, with the name in single quotes of its command, escaped for those.
+        Check(!P_WriteFile(&extras, quoting, S("[Nemo Action]\nName=Q\nExec=bash -l -c \"cat '%f'\"\nSelection=s\nExtensions=any;\n")).code);
+        Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &quoted) && StrIsEqual(quoted.command, S("bash -l -c \"cat 'a\\\"\\$(x)'\\\\''b.txt'\"")));
         TestRemoveTree(&extras, fixture, S("ExtrasData"));
         TestRemoveTree(&extras, fixture, S("Extras"));
         ArenaRelease(&extras);
@@ -5503,6 +5527,13 @@ function void TestApps(TestFileFixture *fixture)
         used = P__ExpandExec(&arena, test, paths, 2, &args);
         Check(used == 2 && args.header.count == 6 && StrIsEqual(args.v[1], S("--flag")) && StrIsEqual(args.v[2], S("two words")) && StrIsEqual(args.v[3], S("100%")));
         Check(StrIsEqual(args.v[4], paths[0]) && StrIsEqual(args.v[5], paths[1]));
+        // A path in quotes goes in as it is, but for a shell's command, which takes it quoted for that shell.
+        P__App quoting = { .exec = S("app --open=\"%f\" sh -c \"cat %f\"") };
+        P__ExpandExec(&arena, &quoting, paths, 1, &args);
+        Check(args.header.count == 5 && StrIsEqual(args.v[1], StrFormat(&arena, "--open=%S", paths[0])) && StrIsEqual(args.v[4], StrFormat(&arena, "cat %S", P__ShellQuote(&arena, paths[0]))));
+        quoting.exec = S("env bash -l -c \"cat %f '%f'\"");
+        P__ExpandExec(&arena, &quoting, paths, 1, &args);
+        Check(args.header.count == 5 && StrIsEqual(args.v[4], StrFormat(&arena, "cat %S '%S'", P__ShellQuote(&arena, paths[0]), paths[0])));
         Check(!P__LaunchApp(&arena, test, paths, 2, root).code);
         String opened = TestWaitText(&arena, fixture, S("Apps/opened"));
         Check(StrIsEqual(opened, StrFormat(&arena, "%S\n--flag|two words|100%%|%S|%S|\n", root, paths[0], paths[1])));
