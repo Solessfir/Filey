@@ -5610,14 +5610,16 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Group/%S", title));
-    b32 hot = UI->hotKey == key || state->groupDrag == (u32)group + 1 || Prog__SidebarKeyed(state, (u32)group, true, 0);
+    b32 keyed = Prog__SidebarKeyed(state, (u32)group, true, 0);
+    b32 hot = UI->hotKey == key || state->groupDrag == (u32)group + 1 || keyed;
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
     UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * m->scale + 0.5f), 0, floorf(10.4f * m->scale + 0.5f), 0 });
     UI_SetNextCornerRadius(m->radius);
-    UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
+    // The keyboard's row is lit as the items' are.
+    UI_SetNextColors((UI_Colors){ .background = keyed ? theme->selection : theme->alternateRow });
     UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable | (hot ? UI_Flag_DrawBackground : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(row);
     Prog__SidebarStop(state, (Prog_SidebarStop){ .group = (u32)group, .title = true, .node = UINT32_MAX }, row, m);
