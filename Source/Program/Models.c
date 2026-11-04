@@ -2121,6 +2121,7 @@ function void Prog__BlendFrameLane(void *user, u32 lane)
     if (setjmp(failed)) {
         atomic_store(&frames->failed, true);
         free_dictionary(dict);
+        zstd_error_jump = NULL;
         return;
     }
     for (u64 i; !atomic_load(&frames->failed) && (i = atomic_fetch_add(&frames->next, 1)) < frames->count;) {
@@ -2128,6 +2129,7 @@ function void Prog__BlendFrameLane(void *user, u32 lane)
         if (ZSTD_decompress_with_dict(frames->out + frames->to[i], unpacked, frames->in + frames->from[i], frames->from[i + 1] - frames->from[i], dict) != unpacked) atomic_store(&frames->failed, true);
     }
     free_dictionary(dict);
+    zstd_error_jump = NULL;
 }
 
 // A zstd frame's size from its header, 0 for a header too broken to read.
@@ -2135,8 +2137,13 @@ function u64 Prog__ZstdFrameSize(String data)
 {
     jmp_buf failed;
     zstd_error_jump = &failed;
-    if (setjmp(failed)) return 0;
-    return ZSTD_get_decompressed_size(data.value, data.length);
+    if (setjmp(failed)) {
+        zstd_error_jump = NULL;
+        return 0;
+    }
+    u64 size = ZSTD_get_decompressed_size(data.value, data.length);
+    zstd_error_jump = NULL;
+    return size;
 }
 
 // The decompressed file: zstd frames laid out by the seek table at their end, as Blender writes them, or one frame; gzip; or as it is.

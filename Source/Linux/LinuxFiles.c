@@ -188,6 +188,7 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
             if (statx(dirfd(stream), entry->d_name, AT_SYMLINK_NOFOLLOW, wanted, &metadata) == 0) {
                 file.symbolicLink = S_ISLNK(metadata.stx_mode);
                 file.metadataValid = !file.symbolicLink || statx(dirfd(stream), entry->d_name, 0, wanted, &metadata) == 0;
+                file.linkBroken = !file.metadataValid && (errno == ENOENT || errno == ELOOP || errno == ENOTDIR);
                 if (file.metadataValid) {
                     file.kind = S_ISDIR(metadata.stx_mode) ? P_FileKind_Directory : S_ISREG(metadata.stx_mode) ? P_FileKind_File : P_FileKind_Other;
                     file.size = metadata.stx_size;

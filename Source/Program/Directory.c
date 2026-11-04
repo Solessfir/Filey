@@ -230,7 +230,6 @@ function u8 Prog__FoldAscii(u8 c)
     return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c;
 }
 
-// The last component of an entry's name, which in an expanded listing is a path.
 // Why `name` cannot be an item's new name on any system, or nothing: a separator, a name of dots alone, or one of spaces alone, which
 // is all but invisible in a list; what else the system refuses, P_NameError says.
 function String Prog_NameProblem(String name)
@@ -264,9 +263,10 @@ function b32 Prog__WentOn(const Prog_State *state, Arena *arena, String focusedA
 
 function b32 Prog_EntryBrokenLink(const Prog_Entry *entry)
 {
-    return entry->file.symbolicLink && !entry->file.metadataValid;
+    return entry->file.symbolicLink && entry->file.linkBroken;
 }
 
+// The last component of an entry's name, which in an expanded listing is a path.
 function String Prog_EntryLeaf(String name)
 {
     Index slash = StrIndexChar(name, '/', SSF_SearchBackwards);
@@ -2833,10 +2833,11 @@ function void Prog__DirectoryJob(P_Job *job)
         P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
         // A file inside an archive opens from its copy taken out.
         String copy = input->kind == Prog_JobKind_Open ? Prog_ArchiveCopy(&job->arena, input->path, input->progress, &job->cancelToken) : (String){0};
+        String problem = input->kind == Prog_JobKind_Rename ? Prog_NameProblem(input->newName) : (String){0};
         if (!P_IsCancelled(&job->cancelToken)) {
             *error = input->explorer ? P_OpenFileExplorer(&job->arena, input->path)
                    : input->kind == Prog_JobKind_Open ? P_OpenPath(&job->arena, copy.length ? copy : input->path, (P_FileOrder){ input->sort, (b8)input->descending })
-                                                      : Prog_NameProblem(input->newName).length ? (P_FileError){ 1, Prog_NameProblem(input->newName) }
+                                                      : problem.length ? (P_FileError){ 1, problem }
                                                       : P_NameError(&job->arena, input->newName).code ? P_NameError(&job->arena, input->newName)
                                                       : P_RenamePath(&job->arena, input->path, input->name, input->newName);
         }

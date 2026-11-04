@@ -24,6 +24,7 @@ typedef struct P_File {
     b8 system;          // marked as the system's own, on Windows
     b8 metadataValid;
     b8 symbolicLink;
+    b8 linkBroken;      // a link whose target is gone, or loops back to itself; one only kept from being read is not
     b8 online;          // its contents are only in the cloud, as a synced drive's placeholders are, and reading them downloads them
     b8 ownIcon;         // a folder that may choose its own icon, as a read-only or system one with a desktop.ini does on Windows
     u16 mode;           // the permission bits where the system has them, as on Linux (owner, group, others: read, write, run); 0 elsewhere
