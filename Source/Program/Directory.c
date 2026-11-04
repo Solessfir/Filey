@@ -4532,8 +4532,11 @@ function String Prog__ListedName(Arena *arena, const Prog_State *state, String f
 
 function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHistory, u64 historyAt)
 {
-    // A partition not mounted is listed by its device, and opening it mounts it, then goes to where it was mounted.
-    if (P_MountsRemote() && StrIsEqual(StrFromTo(path, 0, 5), S("/dev/"))) {
+    // A partition not mounted is listed among the drives by its device, and opening it mounts it, then goes to where it was mounted; other
+    // folders in /dev, such as /dev/shm, are listed.
+    b32 device = false;
+    for (u64 i = 0; i < state->drives.header.count && !device; ++i) device = StrIsEqual(state->drives.v[i].path, path);
+    if (P_MountsRemote() && device && StrIsEqual(StrFromTo(path, 0, 5), S("/dev/"))) {
         P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
         input->kind = Prog_JobKind_Mount;
