@@ -2707,6 +2707,15 @@ No temporary folder to take the items out into
 They are no longer in the bin
 = Ils ne sont plus dans la Corbeille
 
+A name can't be only spaces
+= Un nom ne peut pas être composé uniquement d'espaces
+
+A name can't contain /
+= Un nom ne peut pas contenir /
+
+A name can't be . or ..
+= Un nom ne peut pas être . ou ..
+
 Broken link
 = Lien rompu
 

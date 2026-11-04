@@ -2706,6 +2706,15 @@ No temporary folder to take the items out into
 They are no longer in the bin
 = Sie sind nicht mehr im Papierkorb
 
+A name can't be only spaces
+= Ein Name darf nicht nur aus Leerzeichen bestehen
+
+A name can't contain /
+= Ein Name darf kein / enthalten
+
+A name can't be . or ..
+= Ein Name darf nicht . oder .. sein
+
 Broken link
 = Defekte Verknüpfung
 

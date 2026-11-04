@@ -2707,6 +2707,15 @@ No temporary folder to take the items out into
 They are no longer in the bin
 = Nie ma ich już w Koszu
 
+A name can't be only spaces
+= Nazwa nie może składać się tylko ze spacji
+
+A name can't contain /
+= Nazwa nie może zawierać /
+
+A name can't be . or ..
+= Nazwa nie może być . ani ..
+
 Broken link
 = Uszkodzone łącze
 

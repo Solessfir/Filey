@@ -1771,6 +1771,9 @@ function void TestRename(TestFileFixture *fixture)
     Check(StrIsEqual(Prog_EditText(&state.rename), S("txt")));
     TestRenameKey(&state, Key_Escape, 0);
     Check(!state.renaming && TestEntryIndex(&state, S("plain.txt")) != UINT64_MAX);
+    // A name of spaces alone, with a separator, or of dots alone is refused before it reaches the system; spaces around a name are its own.
+    Check(Prog_NameProblem(S(" ")).length && Prog_NameProblem(S("   ")).length && Prog_NameProblem(S("a/b")).length && Prog_NameProblem(S("..")).length);
+    Check(!Prog_NameProblem(S(" a ")).length && !Prog_NameProblem(S("...")).length && !Prog_NameProblem(S("a.txt")).length);
     // The mouse's back button cancels it too, on its way back, which with no folder before goes up.
     Prog_BeginRename(&state, TestEntryIndex(&state, S("plain.txt")));
     TestRenameType(&state, S("gone"));

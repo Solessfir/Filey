@@ -2706,6 +2706,15 @@ No temporary folder to take the items out into
 They are no longer in the bin
 = Ya no están en la Papelera de reciclaje
 
+A name can't be only spaces
+= Un nombre no puede tener solo espacios
+
+A name can't contain /
+= Un nombre no puede contener /
+
+A name can't be . or ..
+= Un nombre no puede ser . o ..
+
 Broken link
 = Vínculo roto
 

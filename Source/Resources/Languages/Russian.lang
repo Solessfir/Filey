@@ -2705,6 +2705,15 @@ No temporary folder to take the items out into
 They are no longer in the bin
 = Их уже нет в корзине
 
+A name can't be only spaces
+= Имя не может состоять только из пробелов
+
+A name can't contain /
+= Имя не может содержать /
+
+A name can't be . or ..
+= Имя не может быть . или ..
+
 Broken link
 = Битая ссылка
 

@@ -2707,6 +2707,15 @@ No temporary folder to take the items out into
 They are no longer in the bin
 = Eles não estão mais na Lixeira
 
+A name can't be only spaces
+= Um nome não pode ter apenas espaços
+
+A name can't contain /
+= Um nome não pode conter /
+
+A name can't be . or ..
+= Um nome não pode ser . ou ..
+
 Broken link
 = Link quebrado
 

@@ -2706,6 +2706,15 @@ No temporary folder to take the items out into
 They are no longer in the bin
 = 它们已不在回收站中
 
+A name can't be only spaces
+= 名称不能只包含空格
+
+A name can't contain /
+= 名称不能包含 /
+
+A name can't be . or ..
+= 名称不能是 . 或 ..
+
 Broken link
 = 失效的链接
 
