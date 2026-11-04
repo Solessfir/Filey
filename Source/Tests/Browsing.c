@@ -2275,7 +2275,8 @@ function void TestPullable(TestFileFixture *fixture)
     ready = ready && P_RunCommand(&arena, mine, add, CArrayCount(add), 10000, &output, false) && P_RunCommand(&arena, mine, commit, CArrayCount(commit), 10000, &output, false) &&
             P_RunCommand(&arena, mine, push, CArrayCount(push), 10000, &output, false) && P_RunCommand(&arena, repos, cloneTheirs, CArrayCount(cloneTheirs), 10000, &output, false);
     // Another clone changes a.txt upstream, which this one then knows of.
-    ready = ready && !P_WriteFile(&arena, Prog_JoinPath(&arena, theirs, S("a.txt")), S("theirs")).code && P_RunCommand(&arena, theirs, add, CArrayCount(add), 10000, &output, false) &&
+    ready = ready && !P_WriteFile(&arena, Prog_JoinPath(&arena, theirs, S("a.txt")), S("theirs")).code && !P_CreateItem(&arena, theirs, S("build"), true, &made).code &&
+            !P_WriteFile(&arena, Prog_JoinPath(&arena, theirs, S("build/config.h")), S("theirs")).code && P_RunCommand(&arena, theirs, add, CArrayCount(add), 10000, &output, false) &&
             P_RunCommand(&arena, theirs, commit, CArrayCount(commit), 10000, &output, false) && P_RunCommand(&arena, theirs, push, CArrayCount(push), 10000, &output, false) &&
             P_RunCommand(&arena, mine, fetch, CArrayCount(fetch), 10000, &output, false);
     Check(ready);
@@ -2285,6 +2286,12 @@ function void TestPullable(TestFileFixture *fixture)
         // A change of its own to another file leaves it pullable; one to the file the pull changes does not.
         Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, mine, S("b.txt")), S("mine")).code);
         Check(Prog_FindGitStatus(&arena, mine).pullable);
+        // An untracked folder of its own where the pull brings a file, which status shows as one entry, stops it only with that file in it.
+        String build = Prog_JoinPath(&arena, mine, S("build"));
+        Check(!P_CreateItem(&arena, mine, S("build"), true, &made).code && !P_WriteFile(&arena, Prog_JoinPath(&arena, build, S("notes.txt")), S("mine")).code);
+        Check(Prog_FindGitStatus(&arena, mine).pullable);
+        Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, build, S("config.h")), S("mine")).code && !Prog_FindGitStatus(&arena, mine).pullable);
+        Check(!P_DeleteItems(&arena, &build, 1, false, NULL).code && Prog_FindGitStatus(&arena, mine).pullable);
         Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, mine, S("a.txt")), S("mine")).code);
         Check(!Prog_FindGitStatus(&arena, mine).pullable);
         // Ahead too, it could only merge.

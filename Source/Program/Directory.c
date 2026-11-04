@@ -2425,7 +2425,26 @@ function b32 Prog__PullClashes(Arena *arena, String folder, String changes)
         String entry = StrFromTo(rest, 0, (i64)end.value);
         b32 moved = entry.value[0] == 'R' || entry.value[0] == 'C' || entry.value[1] == 'R' || entry.value[1] == 'C';
         rest = StrFrom(rest, Min(end.value + 1, rest.length));
-        if (entry.length > 3 && MapsGet(incoming, b32, StrFrom(entry, 3))) return true;
+        String path = entry.length > 3 ? StrFrom(entry, 3) : (String){0};
+        if (path.length && MapsGet(incoming, b32, path)) return true;
+        // An untracked folder comes whole, as "dir/"; when the pull brings files into it, its own files are asked for, which clash where
+        // the same.
+        b32 into = false;
+        for (u64 i = 0; path.length && path.value[path.length - 1] == '/' && i < incoming.header.count && !into; ++i) {
+            into = incoming.v[i].key.length > path.length && StrIsEqual(StrFromTo(incoming.v[i].key, 0, (i64)path.length), path);
+        }
+        if (into) {
+            String root = {0}, top[] = { S("git"), S("rev-parse"), S("--show-toplevel") };
+            if (!P_RunCommand(arena, folder, top, CArrayCount(top), 3000, &root, false)) return true;
+            while (root.length && (root.value[root.length - 1] == '\n' || root.value[root.length - 1] == '\r')) --root.length;
+            String listed[] = { S("git"), S("ls-files"), S("--others"), S("--exclude-standard"), S("--full-name"), S("-z"), S("--"), path }, own = {0};
+            if (!P_RunCommand(arena, root, listed, CArrayCount(listed), 5000, &own, false)) return true;
+            for (String files = own; files.length;) {
+                Index fileEnd = StrIndexChar(files, '\0', SSF_CountOnFail);
+                if (MapsGet(incoming, b32, StrFromTo(files, 0, (i64)fileEnd.value))) return true;
+                files = StrFrom(files, Min(fileEnd.value + 1, files.length));
+            }
+        }
         if (moved) {
             Index from = StrIndexChar(rest, '\0', SSF_CountOnFail);
             if (MapsGet(incoming, b32, StrFromTo(rest, 0, (i64)from.value))) return true;
