@@ -2398,12 +2398,24 @@ function String P__AppDirectory(Arena *arena, const char *variable, const char *
 function String P_ConfigDirectory(Arena *arena) { return P__AppDirectory(arena, "XDG_CONFIG_HOME", ".config"); }
 function String P_CacheDirectory(Arena *arena) { return P__AppDirectory(arena, "XDG_CACHE_HOME", ".cache"); }
 
+// A file's contents are read only from a regular file: opening a pipe would wait for a writer, and a device such as /dev/zero has no end.
+function i32 P__OpenRegular(const char *native)
+{
+    i32 fd = native ? open(native, O_RDONLY | O_CLOEXEC | O_NONBLOCK) : -1;
+    struct stat info;
+    if (fd >= 0 && (fstat(fd, &info) != 0 || !S_ISREG(info.st_mode))) {
+        close(fd);
+        fd = -1;
+    }
+    return fd;
+}
+
 function b32 P_ReadFile(Arena *arena, String path, String *contents)
 {
     *contents = (String){0};
     Scratch scratch = GetScratchEx(arena);
     char *native = P__FilePathCString(scratch.arena, path);
-    i32 fd = native ? open(native, O_RDONLY | O_CLOEXEC) : -1;
+    i32 fd = P__OpenRegular(native);
     ReleaseScratch(scratch);
     if (fd < 0) return false;
     // /proc files report no size, so the file is read until its end.
@@ -2635,7 +2647,7 @@ function b32 P_ReadFileAt(Arena *arena, String path, u64 offset, u64 limit, Stri
     *contents = (String){0};
     Scratch scratch = GetScratchEx(arena);
     char *native = P__FilePathCString(scratch.arena, path);
-    i32 fd = native ? open(native, O_RDONLY | O_CLOEXEC) : -1;
+    i32 fd = P__OpenRegular(native);
     ReleaseScratch(scratch);
     if (fd < 0) return false;
     char *bytes = ArenaPushArrayNoZero(arena, limit + 1, char);
