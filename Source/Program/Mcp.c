@@ -355,12 +355,12 @@ function String Prog_McpRespond(Arena *arena, String configDirectory, String mes
         result = S("{\"tools\":" Prog_McpTools "}");
     } else if (StrIsEqual(method, S("tools/call"))) {
         if (!params || params->kind != '{') return StrFormat(arena, "{\"jsonrpc\":\"2.0\",\"id\":%S,\"error\":{\"code\":-32602,\"message\":\"tools/call needs params\"}}", id);
-        // A relative path is the agent's, which the window, in a folder of its own, would take as another; it goes as absolute.
+        // A relative path, ~ or a variable is the agent's, which the window, in a folder of its own, would take as another; it goes expanded and absolute.
         String request = params->raw;
         const Prog__Json *arguments = Prog__JsonGet(params, S("arguments")), *pathNode = Prog__JsonGet(arguments, S("path"));
         String given = Prog_JsonText(arena, pathNode);
         if (given.length && !StrIsEqual(given, Prog_ThisPC)) {
-            String absolute = P_NativePath(arena, P_AbsolutePath(arena, given));
+            String absolute = P_NativePath(arena, P_AbsolutePath(arena, P_ExpandVariables(arena, given, true)));
             u64 from = (u64)(pathNode->raw.value - request.value);
             request = StrFormat(arena, "%S%S%S", StrFromTo(request, 0, (i64)from), Prog_JsonQuote(arena, absolute), StrFrom(request, from + pathNode->raw.length));
         }
