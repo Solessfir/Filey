@@ -702,6 +702,7 @@ typedef struct Prog_Repo {
     String branch;
     i32 changes;
     i32 ahead, behind;  // the commits to push and to pull, -1 while not known or without an upstream
+    b32 again;          // fetched or pulled since its status, which is asked again while the counts it had still show
 } Prog_Repo;
 
 typedef struct Prog_Repos {
@@ -1905,8 +1906,9 @@ typedef struct Prog_State {
     b32 mcp;         // the settings' mcp: agents reach the window through `filey --mcp`, on the control channel
     b32 mcpWanted;   // and whether the channel listens, as it was asked to
     u64 mcpRetryAt;  // when a listen that failed, as another window held the channel, is tried again
-    // ponytail: the last 64 repositories only, a Git column's included; one pushed out of them is fetched again on its next visit.
-    struct { u64 hash, time; } gitFetched[64];
+    // ponytail: the last 1024 repositories only, the Git columns' included; one pushed out of them is fetched again on its next visit.
+    struct { u64 hash, time; } gitFetched[1024];
+    b32 gitFetchWas;  // git.fetch as the last completions saw it, so that turning it on starts the Git columns' fetches
     P_Job *gitFetchJob;
     u64 gitFetchHash;         // the hash of the folder of the repository being fetched
     P_Job *gitPullJob;

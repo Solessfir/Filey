@@ -3184,7 +3184,7 @@ function void Prog__DirectoryJob(P_Job *job)
         for (u64 i = 0; i < input->rowCount && !P_IsCancelled(&job->cancelToken); ++i) {
             String folder = Prog_JoinPath(&job->arena, input->path, input->names[i]), head = {0};
             if (!Prog__ReadGitHead(&job->arena, folder, &head)) continue;
-            Prog_Repo repo = { Prog_GitBranch(head), -1, -1, -1 };
+            Prog_Repo repo = { .branch = Prog_GitBranch(head), .changes = -1, .ahead = -1, .behind = -1 };
             String status[Prog_GitStatusMost], changes = {0};
             u32 statusCount = input->offset ? Prog__GitStatusCommand(&job->arena, folder, S("--untracked-files=no"), status) : 0;
             if (input->offset && P_RunCommand(&job->arena, folder, status, statusCount, 4000, &changes, false)) {
@@ -4250,7 +4250,9 @@ function void Prog__NextRepoStatus(Prog_State *state)
 {
     if (state->reposJob || state->directory.driveKind == P_DriveKind_Network) return;
     for (; state->reposNext < state->repos.header.count; ++state->reposNext) {
-        if (state->repos.v[state->reposNext].value.changes >= 0) continue;
+        if (state->repos.v[state->reposNext].value.changes >= 0 && !state->repos.v[state->reposNext].value.again) continue;
+        // Asked from now, so that a fetch done while it runs asks again.
+        state->repos.v[state->reposNext].value.again = false;
         Prog__RepoJob(state, &state->repos.v[state->reposNext].key, 1, true);
         return;
     }
@@ -4264,7 +4266,8 @@ function void Prog__NextRepoFetch(Prog_State *state)
     if (state->reposNext < state->repos.header.count) return;
     for (; state->reposFetchNext < state->repos.header.count; ++state->reposFetchNext) {
         if (state->repos.v[state->reposFetchNext].value.behind < 0) continue;
-        if (Prog__FetchGit(state, Prog_JoinPath(&state->frameArena, state->reposPath, state->repos.v[state->reposFetchNext].key))) {
+        String root = Prog_JoinPath(&state->frameArena, state->reposPath, state->repos.v[state->reposFetchNext].key);
+        if (Prog__FetchGit(state, root)) {
             ++state->reposFetchNext;
             return;
         }
@@ -4621,6 +4624,7 @@ function void Prog_GitPull(Prog_State *state)
     input->panel = Prog__PanelId(state);
     input->kind = Prog_JobKind_GitPull;
     input->path = StrCopy(&job->arena, state->directory.path);
+    input->name = StrCopy(&job->arena, state->git.root);
     job->input = input;
     state->gitPullJob = job;
     P_JobSubmit(job);
@@ -8117,6 +8121,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         }
     }
     u64 fetched = 0, pulled = 0;
+    String fetchedRoot = {0}, pulledRoot = {0};
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL || (job = P_JobTakeCompleted(&state->thumbnailJobs)) != NULL ||
                      (job = P_JobTakeCompleted(&state->toolJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
@@ -8134,8 +8139,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             Prog__StartWaitingTorrents(state);
         }
         if (state->torrentProgressJob == job) state->torrentProgressJob = NULL;
-        if (state->gitPullJob == job) pulled = state->gitPullHash, state->gitPullJob = NULL;
-        if (state->gitFetchJob == job) fetched = state->gitFetchHash, state->gitFetchJob = NULL;
+        if (state->gitPullJob == job) pulled = state->gitPullHash, pulledRoot = StrCopy(&state->frameArena, input->name), state->gitPullJob = NULL;
+        if (state->gitFetchJob == job) fetched = state->gitFetchHash, fetchedRoot = StrCopy(&state->frameArena, input->path), state->gitFetchJob = NULL;
         if (owner == UINT32_MAX) {
             if (state->branchesJob == job) state->branchesJob = NULL;
             Prog__ReleaseJob(job);
@@ -8389,11 +8394,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 for (u64 i = 0; found && StrIsEqual(input->path, state->directory.path) && i < found->header.count; ++i) {
                     Prog_Repo repo = found->v[i].value, *known = MapsGetPtrNull(state->repos, found->v[i].key);
                     if (known) {
-                        known->changes = input->offset && repo.changes < 0 ? 0 : repo.changes;
-                        known->ahead = repo.ahead;
-                        known->behind = repo.behind;
+                        // A status asked again that failed or timed out keeps the counts it had.
+                        b32 kept = input->offset && repo.behind < 0 && known->behind >= 0;
+                        known->changes = input->offset && repo.changes < 0 ? Max(known->changes, 0) : repo.changes;
+                        known->ahead = kept ? known->ahead : repo.ahead;
+                        known->behind = kept ? known->behind : repo.behind;
                     } else {
-                        MapsPut(&state->repoArena, state->repos, StrCopy(&state->repoArena, found->v[i].key), ((Prog_Repo){ StrCopy(&state->repoArena, repo.branch), -1, -1, -1 }));
+                        MapsPut(&state->repoArena, state->repos, StrCopy(&state->repoArena, found->v[i].key), ((Prog_Repo){ .branch = StrCopy(&state->repoArena, repo.branch), .changes = -1, .ahead = -1, .behind = -1 }));
                     }
                     changed = true;
                 }
@@ -9219,22 +9226,33 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     // to show what came, and another panel's repository is fetched in turn, as none was while it went on.
     for (u32 panel = 0; (fetched || pulled) && panel < state->panelCount; ++panel) {
         Prog__UsePanel(state, panel);
-        // A Git column's repository that was fetched has its status asked again.
-        for (u64 i = 0; Prog_ShowsGit(state) && i < state->repos.header.count; ++i) {
-            String repo = Prog_JoinPath(&state->frameArena, state->reposPath, state->repos.v[i].key);
-            u64 hash = MapHashBytes(repo.value, repo.length);
-            if (hash != fetched && hash != pulled) continue;
-            state->repos.v[i].value.changes = -1;
-            state->reposNext = Min(state->reposNext, i);
-            Prog__NextRepoStatus(state);
+        // A Git column's repository that was fetched or pulled has its status asked again.
+        String done[] = { fetchedRoot, pulledRoot };
+        b32 shows = Prog_ShowsGit(state);
+        for (u32 d = 0; shows && d < CArrayCount(done); ++d) {
+            String leaf = done[d].length ? Prog_EntryLeaf(done[d]) : (String){0};
+            if (!leaf.length || !StrIsEqual(Prog_JoinPath(&state->frameArena, state->reposPath, leaf), done[d])) continue;
+            for (u64 i = 0; i < state->repos.header.count; ++i) {
+                if (!StrIsEqual(state->repos.v[i].key, leaf)) continue;
+                state->repos.v[i].value.again = true;
+                state->reposNext = Min(state->reposNext, i);
+            }
         }
+        if (shows) Prog__NextRepoStatus(state);
         if (!state->git.branch.length) continue;
         u64 root = MapHashBytes(state->git.root.value, state->git.root.length);
         if (root == fetched || root == pulled) Prog_RequestGitStatus(state, state->directory.path);
         else if (state->git.behind >= 0) Prog__FetchGit(state, state->git.root);
     }
-    // The shown folders' own repositories go first; the Git columns' after.
-    for (u32 panel = 0; (fetched || pulled) && panel < state->panelCount; ++panel) {
+    // The shown folders' own repositories go first; the Git columns' after, and as git.fetch is turned on.
+    b32 turnedOn = state->gitFetch && !state->gitFetchWas;
+    state->gitFetchWas = state->gitFetch;
+    for (u32 panel = 0; turnedOn && panel < state->panelCount; ++panel) {
+        Prog__UsePanel(state, panel);
+        if (state->git.branch.length && state->git.behind >= 0) Prog__FetchGit(state, state->git.root);
+        state->reposFetchNext = 0;
+    }
+    for (u32 panel = 0; (fetched || pulled || turnedOn) && panel < state->panelCount; ++panel) {
         Prog__UsePanel(state, panel);
         Prog__NextRepoFetch(state);
     }

@@ -2320,10 +2320,14 @@ function void TestRepoFetch(TestFileFixture *fixture)
     if (ready) {
         Prog_State state = {0};
         Check(Prog_Init(&state, repos, NULL, NULL) && state.jobs.initialized && TestWaitDirectory(&state));
-        state.gitFetch = true;
         TestBrowsingCommand(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Git);
         Check(Prog_ShowsGit(&state));
         Prog_RequestRepos(&state);
+        // Every status known first, git.fetch turned on after starts the fetches all the same.
+        for (u64 start = PlatformNowMicroseconds(); PlatformNowMicroseconds() - start < Millions(20) && (state.reposJob || state.reposNext < state.repos.header.count); P__TestPause()) {
+            Prog_TakeCompletions(&state);
+        }
+        state.gitFetch = true;
         const Prog_Repo *mine = NULL;
         for (u64 start = PlatformNowMicroseconds(); PlatformNowMicroseconds() - start < Millions(30); P__TestPause()) {
             Prog_TakeCompletions(&state);
