@@ -1783,7 +1783,7 @@ function void TestRename(TestFileFixture *fixture)
 
     // Enter renames on a job, then the new name is selected.
     Prog_BeginRename(&state, TestEntryIndex(&state, S("plain.txt")));
-    TestRenameKey(&state, Key_A, KeyMod_Control | KeyMod_Shift);
+    TestRenameKey(&state, Key_A, KeyMod_Control);
     TestRenameType(&state, S("moved.txt"));
     TestRenameKey(&state, Key_Enter, 0);
     Check(!state.renaming);
@@ -1921,13 +1921,13 @@ function void TestFilter(TestFileFixture *fixture)
 
     TestRenameType(&state, S("nothing matches this"));
     Check(!state.viewCount && !state.hasFocus && !TestSelectionCount(&state));
-    TestRenameKey(&state, Key_A, KeyMod_Control | KeyMod_Shift);
+    TestRenameKey(&state, Key_A, KeyMod_Control);
     TestRenameType(&state, S("folder2"));
     Check(state.viewCount == 1 && state.hasFocus);
     // Under a filter the view is in the order of the matches, and each row still finds its place in it, so that several can be selected and
     // a delete takes those and no others.
     {
-        TestRenameKey(&state, Key_A, KeyMod_Control | KeyMod_Shift);
+        TestRenameKey(&state, Key_A, KeyMod_Control);
         TestRenameType(&state, S("txt"));
         Check(state.viewCount >= 3);
         for (u64 p = 0; p < state.viewCount; ++p) Check(Prog_ViewPosition(&state, state.view[p]) == p);
@@ -1939,13 +1939,13 @@ function void TestFilter(TestFileFixture *fixture)
         String *paths = NULL;
         u64 picked = Prog__SelectedPaths(&state, &state.frameArena, &paths);
         Check(state.selectedCount == 2 && picked == 2 && state.directory.entries[first].selected && state.directory.entries[third].selected);
-        TestRenameKey(&state, Key_A, KeyMod_Control | KeyMod_Shift);
+        TestRenameKey(&state, Key_A, KeyMod_Control);
         TestRenameType(&state, S("folder2"));
         Check(state.viewCount == 1 && state.hasFocus);
     }
 
     // The clipboard and clicks in the box.
-    TestRenameKey(&state, Key_A, KeyMod_Control | KeyMod_Shift);
+    TestRenameKey(&state, Key_A, KeyMod_Control);
     TestRenameKey(&state, Key_X, KeyMod_Control);
     Check(StrIsEqual(TestClipboard, S("folder2")) && !state.filter.length);
     PlatformClipboardSetText(S("fol\r\nder2"));
@@ -2475,16 +2475,16 @@ function void TestExpand(TestFileFixture *fixture)
     // The filter matches names, and the folders they are in for less.
     TestRenameType(&state, S("inside"));
     Check(state.viewCount == 1 && state.view[0] == inside && state.focusedRow == inside);
-    TestRenameKey(&state, Key_A, KeyMod_Control | KeyMod_Shift);
+    TestRenameKey(&state, Key_A, KeyMod_Control);
     TestRenameType(&state, S("folder2"));
     Check(state.viewCount == 2 && state.view[0] == folder && state.view[1] == inside);
-    TestRenameKey(&state, Key_A, KeyMod_Control | KeyMod_Shift);
+    TestRenameKey(&state, Key_A, KeyMod_Control);
     TestRenameType(&state, S("inside"));
 
     // Renaming a nested item edits its name and renames it in its own folder; the filter gives way to the new name.
     Prog_BeginRename(&state, inside);
     Check(state.renaming && StrIsEqual(Prog_EditText(&state.rename), S("inside.txt")));
-    TestRenameKey(&state, Key_A, KeyMod_Control | KeyMod_Shift);
+    TestRenameKey(&state, Key_A, KeyMod_Control);
     TestRenameType(&state, S("moved.txt"));
     TestRenameKey(&state, Key_Enter, 0);
     for (u64 start = PlatformNowMicroseconds(); !state.directoryJob && PlatformNowMicroseconds() - start < Millions(5);) {

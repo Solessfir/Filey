@@ -520,48 +520,34 @@ function void TestTextEditWords(void)
     PlatformEvent letter = { .kind = PlatformEventKind_KeyDown, .key = Key_J };
     Check(!Prog__EditKey(&state, &typed, &letter));
 
-    // The terminal's editing keys, from the caret in "copy of report.txt" after "of".
+    // The terminal's editing commands, from the caret in "copy of report.txt" after "of"; they have no keys of their own.
     Prog_TextEdit line = {0};
     Prog__EditReplace(&line, (const u8 *)"copy of report.txt", 18);
     line.cursor = line.anchor = 7;
-    PlatformEvent chord = { .kind = PlatformEventKind_KeyDown, .key = Key_W, .mods = KeyMod_Control };
-    Check(Prog__EditKey(&state, &line, &chord) && StrIsEqual(Prog_EditText(&line), S("copy  report.txt")) && line.cursor == 5);
-    chord.key = Key_A;
-    Check(Prog__EditKey(&state, &line, &chord) && line.cursor == 0 && line.anchor == 0);
-    chord.key = Key_E;
-    Check(Prog__EditKey(&state, &line, &chord) && line.cursor == line.length);
-    chord.key = Key_B;
-    Check(Prog__EditKey(&state, &line, &chord) && line.cursor == line.length - 1);
-    chord.key = Key_T;
-    Check(Prog__EditKey(&state, &line, &chord) && StrIsEqual(Prog_EditText(&line), S("copy  report.ttx")) && line.cursor == line.length);
-    chord.key = Key_H;
-    Check(Prog__EditKey(&state, &line, &chord) && StrIsEqual(Prog_EditText(&line), S("copy  report.tt")));
+    Check(Prog__EditCommand(&line, Prog_CommandKind_TextDeleteLeftToSpace) && StrIsEqual(Prog_EditText(&line), S("copy  report.txt")) && line.cursor == 5);
+    line.cursor = line.anchor = line.length;
+    Check(Prog__EditCommand(&line, Prog_CommandKind_TextMoveLeft) && line.cursor == line.length - 1);
+    Check(Prog__EditCommand(&line, Prog_CommandKind_TextSwapCharacters) && StrIsEqual(Prog_EditText(&line), S("copy  report.ttx")) && line.cursor == line.length);
     line.cursor = line.anchor = 6;
-    chord.key = Key_K;
-    Check(Prog__EditKey(&state, &line, &chord) && StrIsEqual(Prog_EditText(&line), S("copy  ")) && line.cursor == 6);
-    chord.key = Key_U;
-    Check(Prog__EditKey(&state, &line, &chord) && !line.length && line.cursor == 0);
-    // The filter leaves Ctrl+U and Ctrl+K to the list.
-    Check(!Prog__EditKeyOver(&state, &line, &chord, true));
+    Check(Prog__EditCommand(&line, Prog_CommandKind_TextDeleteToEnd) && StrIsEqual(Prog_EditText(&line), S("copy  ")) && line.cursor == 6);
+    Check(Prog__EditCommand(&line, Prog_CommandKind_TextDeleteToStart) && !line.length && line.cursor == 0);
     Prog__EditReplace(&line, (const u8 *)"big red ball", 12);
     line.cursor = line.anchor = 4;
-    PlatformEvent alt = { .kind = PlatformEventKind_KeyDown, .key = Key_T, .mods = KeyMod_Alt };
-    Check(Prog__EditKey(&state, &line, &alt) && StrIsEqual(Prog_EditText(&line), S("red big ball")) && line.cursor == 7);
-    // At a word's end, the case keys change the next one.
-    alt.key = Key_C;
-    Check(Prog__EditKey(&state, &line, &alt) && StrIsEqual(Prog_EditText(&line), S("red big Ball")) && line.cursor == 12);
+    Check(Prog__EditCommand(&line, Prog_CommandKind_TextSwapWords) && StrIsEqual(Prog_EditText(&line), S("red big ball")) && line.cursor == 7);
+    // At a word's end, the case commands change the next one.
+    Check(Prog__EditCommand(&line, Prog_CommandKind_TextCapitalizeWord) && StrIsEqual(Prog_EditText(&line), S("red big Ball")) && line.cursor == 12);
     line.cursor = line.anchor = 4;
-    alt.key = Key_U;
-    Check(Prog__EditKey(&state, &line, &alt) && StrIsEqual(Prog_EditText(&line), S("red BIG Ball")) && line.cursor == 7);
+    Check(Prog__EditCommand(&line, Prog_CommandKind_TextUppercaseWord) && StrIsEqual(Prog_EditText(&line), S("red BIG Ball")) && line.cursor == 7);
     line.cursor = line.anchor = 0;
-    alt.key = Key_D;
-    Check(Prog__EditKey(&state, &line, &alt) && StrIsEqual(Prog_EditText(&line), S(" BIG Ball")));
-    alt.key = Key_F;
-    Check(Prog__EditKey(&state, &line, &alt) && line.cursor == 4);
-    alt.key = Key_L;
-    Check(Prog__EditKey(&state, &line, &alt) && StrIsEqual(Prog_EditText(&line), S(" BIG ball")));
-    PlatformEvent selectAll = { .kind = PlatformEventKind_KeyDown, .key = Key_A, .mods = KeyMod_Control | KeyMod_Shift };
+    Check(Prog__EditCommand(&line, Prog_CommandKind_TextDeleteRightWord) && StrIsEqual(Prog_EditText(&line), S(" BIG Ball")));
+    Check(Prog__EditCommand(&line, Prog_CommandKind_TextMoveRightWord) && line.cursor == 4);
+    Check(Prog__EditCommand(&line, Prog_CommandKind_TextLowercaseWord) && StrIsEqual(Prog_EditText(&line), S(" BIG ball")));
+    // Ctrl+A selects all, and the Emacs keys go on to the browser, as Ctrl+B to the sidebar and Alt+F to its filter.
+    PlatformEvent selectAll = { .kind = PlatformEventKind_KeyDown, .key = Key_A, .mods = KeyMod_Control };
     Check(Prog__EditKey(&state, &line, &selectAll) && line.anchor == 0 && line.cursor == line.length);
+    PlatformEvent emacs[] = { { .kind = PlatformEventKind_KeyDown, .key = Key_B, .mods = KeyMod_Control }, { .kind = PlatformEventKind_KeyDown, .key = Key_F, .mods = KeyMod_Alt },
+                              { .kind = PlatformEventKind_KeyDown, .key = Key_T, .mods = KeyMod_Control }, { .kind = PlatformEventKind_KeyDown, .key = Key_E, .mods = KeyMod_Control } };
+    for (u32 i = 0; i < CArrayCount(emacs); ++i) Check(!Prog__EditKey(&state, &line, &emacs[i]));
 }
 
 #if defined(_WIN32)
