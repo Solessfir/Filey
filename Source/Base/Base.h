@@ -464,6 +464,13 @@ function ArrayStr StrSplit(Arena *arena, String s, char separator);
 // Decodes the codepoint at *pos and advances past it.
 // Malformed, overlong or truncated sequences give U+FFFD and advance one byte.
 function rune StrDecodeUtf8(String s, u64 *pos);
+// Characters that only steer text draw nothing when it is drawn without shaping: the zero-width space and joiner, the direction marks
+// and the variation selectors that choose an emoji's look.
+function b32  RuneInvisible(rune c);
+// A combining mark, as the accent of a letter written decomposed, which goes over the character before it.
+function b32  RuneCombining(rune c);
+// The cells a character takes in monospaced text, as a terminal counts them: two for CJK and emoji, none for marks and invisible ones.
+function u32  RuneCells(rune c);
 // `c` as UTF-8 in `out`, its byte count back; 0 for no character, a surrogate's half or past U+10FFFF, which UTF-8 cannot hold.
 function u32  StrEncodeUtf8(rune c, u8 out[4]);
 

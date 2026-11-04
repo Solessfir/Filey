@@ -350,6 +350,28 @@ function String StrFromTo(String s, u64 from, i64 to)
     return result;
 }
 
+function b32 RuneInvisible(rune c)
+{
+    return (c >= 0x200B && c <= 0x200F) || (c >= 0x202A && c <= 0x202E) || (c >= 0x2060 && c <= 0x206F) || (c >= 0xFE00 && c <= 0xFE0F) ||
+           (c >= 0xE0100 && c <= 0xE01EF) || c == 0xFEFF || c == 0x034F || c == 0x00AD;
+}
+
+function b32 RuneCombining(rune c)
+{
+    return (c >= 0x0300 && c <= 0x036F) || (c >= 0x0483 && c <= 0x0489) || (c >= 0x0591 && c <= 0x05BD) || (c >= 0x064B && c <= 0x065F) ||
+           c == 0x0670 || (c >= 0x1AB0 && c <= 0x1AFF) || (c >= 0x1DC0 && c <= 0x1DFF) || (c >= 0x20D0 && c <= 0x20FF) || (c >= 0xFE20 && c <= 0xFE2F);
+}
+
+function u32 RuneCells(rune c)
+{
+    if (RuneInvisible(c) || RuneCombining(c)) return 0;
+    b32 wide = (c >= 0x1100 && c <= 0x115F) || (c >= 0x2E80 && c <= 0x303E) || (c >= 0x3041 && c <= 0x33FF) || (c >= 0x3400 && c <= 0x4DBF) ||
+               (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0xA000 && c <= 0xA4CF) || (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0xF900 && c <= 0xFAFF) ||
+               (c >= 0xFE30 && c <= 0xFE4F) || (c >= 0xFF00 && c <= 0xFF60) || (c >= 0xFFE0 && c <= 0xFFE6) || (c >= 0x1F300 && c <= 0x1F64F) ||
+               (c >= 0x1F680 && c <= 0x1F6FF) || (c >= 0x1F900 && c <= 0x1FAFF) || (c >= 0x20000 && c <= 0x3FFFD);
+    return wide ? 2 : 1;
+}
+
 function rune StrDecodeUtf8(String s, u64 *pos)
 {
     Assert(*pos < s.length);

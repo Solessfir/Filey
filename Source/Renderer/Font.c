@@ -167,7 +167,9 @@ function f32 R_TextWidth(const R_Font *font, String text)
 {
     f32 width = 0.0f;
     for (u64 pos = 0; pos < text.length;) {
-        const R_Glyph *glyph = R_FontGlyph(font, StrDecodeUtf8(text, &pos));
+        rune c = StrDecodeUtf8(text, &pos);
+        if (RuneInvisible(c) || (RuneCombining(c) && width > 0)) continue;
+        const R_Glyph *glyph = R_FontGlyph(font, c);
         width += glyph != NULL ? glyph->advance : 0.0f;
     }
     return width;
@@ -176,19 +178,27 @@ function f32 R_TextWidth(const R_Font *font, String text)
 function void R_DrawText(const R_Font *font, f32 x, f32 y, R_Color color, String text)
 {
     // Glyph bitmaps are rasterized at whole pixels, so the pen stays on the grid.
-    f32 penX = floorf(x + 0.5f);
+    f32 penX = floorf(x + 0.5f), lastX = penX, lastAdvance = 0;
     f32 baseline = floorf(y + font->ascent + 0.5f) - font->capShift;
     for (u64 pos = 0; pos < text.length;) {
-        const R_Glyph *glyph = R_FontGlyph(font, StrDecodeUtf8(text, &pos));
+        rune c = StrDecodeUtf8(text, &pos);
+        if (RuneInvisible(c)) continue;
+        const R_Glyph *glyph = R_FontGlyph(font, c);
         if (glyph == NULL) {
             continue;
         }
+        // A mark is centered over the character before it and takes no room of its own.
+        b32 mark = RuneCombining(c) && lastAdvance > 0;
+        f32 at = mark ? floorf(lastX + (lastAdvance - glyph->box.x0 - glyph->box.x1) * 0.5f + 0.5f) : penX;
         if (glyph->box.x1 > glyph->box.x0) {
-            R_Rect rect = { penX + glyph->box.x0, baseline + glyph->box.y0, penX + glyph->box.x1, baseline + glyph->box.y1 };
+            R_Rect rect = { at + glyph->box.x0, baseline + glyph->box.y0, at + glyph->box.x1, baseline + glyph->box.y1 };
             // A color glyph keeps its own colors, and only the text's opacity.
             if (glyph->color) R_DrawImage(rect, glyph->uv, glyph->page, (R_Color){ 1, 1, 1, color.a });
             else R_DrawTexturedRect(rect, glyph->uv, glyph->page, color);
         }
+        if (mark) continue;
+        lastX = penX;
+        lastAdvance = glyph->advance;
         penX += glyph->advance;
     }
 }

@@ -11001,10 +11001,9 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
 function u32 Prog__TextCells(String text)
 {
     u32 cells = 0;
-    for (u64 i = 0; i < text.length; ++i) {
-        u8 c = (u8)text.value[i];
-        if (c == '\t') cells += 4 - cells % 4;
-        else if ((c & 0xC0) != 0x80) ++cells;
+    for (u64 i = 0; i < text.length;) {
+        rune c = StrDecodeUtf8(text, &i);
+        cells += c == '\t' ? 4 - cells % 4 : RuneCells(c);
     }
     return cells;
 }
@@ -11014,10 +11013,12 @@ function u64 Prog__OffsetAtCell(String text, f32 cell)
 {
     u32 cells = 0;
     for (u64 i = 0; i < text.length;) {
-        u32 width = text.value[i] == '\t' ? 4 - cells % 4 : 1;
-        if (cell < (f32)cells + (f32)width * 0.5f) return i;
+        u64 next = i;
+        rune c = StrDecodeUtf8(text, &next);
+        u32 width = c == '\t' ? 4 - cells % 4 : RuneCells(c);
+        if (width && cell < (f32)cells + (f32)width * 0.5f) return i;
         cells += width;
-        do ++i; while (i < text.length && ((u8)text.value[i] & 0xC0) == 0x80);
+        i = next;
     }
     return text.length;
 }
@@ -11037,16 +11038,16 @@ function u32 Prog__WrapLine(String line, u32 columns, u32 *starts, u32 room)
     if (starts && room) starts[0] = 0;
     for (u64 i = 0; i < line.length;) {
         u8 c = (u8)line.value[i];
-        u64 next = i + 1;
-        while (next < line.length && ((u8)line.value[next] & 0xC0) == 0x80) ++next;
-        u32 width = c == '\t' ? 4 - cells % 4 : 1;
+        u64 next = i;
+        rune character = StrDecodeUtf8(line, &next);
+        u32 width = c == '\t' ? 4 - cells % 4 : RuneCells(character);
         if (cells && cells + width > columns) {
             u64 at = c != ' ' && c != '	' && breakAt > rowStart ? breakAt : i;
             if (starts && rows < room) starts[rows] = (u32)at;
             ++rows;
             rowStart = breakAt = at;
             cells = Prog__TextCells(StrFromTo(line, at, (i64)i));
-            width = c == '\t' ? 4 - cells % 4 : 1;
+            width = c == '\t' ? 4 - cells % 4 : RuneCells(character);
         }
         cells += width;
         if (c == ' ' || c == '\t') breakAt = next;
