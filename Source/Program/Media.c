@@ -463,8 +463,11 @@ function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b
     }
     P_RunCommandStream(folder, arguments, count, true, Prog__FetchOutput, fetch, cancel, progress);
     // The part of a video that stopped short is removed; a finished one's is gone by then.
-    if (fetch->partLength) {
-        String part = Prog_JoinPath(scratch.arena, folder, StrMake(fetch->part, fetch->partLength));
+    // Only a part's file in the folder itself, as the name comes from the video's title, which a page could make look like a line of its own.
+    String leaf = StrMake(fetch->part, fetch->partLength);
+    b32 bare = !StrIndexChar(leaf, '/', SSF_None).exists && !StrIndexChar(leaf, '\\', SSF_None).exists;
+    if (bare && leaf.length > 5 && StrIsEqual(StrFrom(leaf, leaf.length - 5), S(".part"))) {
+        String part = Prog_JoinPath(scratch.arena, folder, leaf);
         if (P_PathExists(part)) P_DeleteItems(scratch.arena, &part, 1, false, NULL);
     }
     P_FileError result = {0};
@@ -684,6 +687,20 @@ function u64 Prog__BencodeFindText(String b, u64 at, String key, String utf8)
     return found ? found : Prog__BencodeFind(b, at, key);
 }
 
+// A name or a step of a file's path that stays inside the torrent's folder: none of ".", "..", nothing, or a slash.
+function b32 Prog__TorrentPart(String part)
+{
+    if (!part.length || StrIsEqual(part, S(".")) || StrIsEqual(part, S(".."))) return false;
+    // A backslash is a separator on Windows only; elsewhere it is a character of the name, as in "AC\DC".
+#if defined(_WIN32)
+    b32 backslash = true;
+#else
+    b32 backslash = false;
+#endif
+    for (u64 i = 0; i < part.length; ++i) if (part.value[i] == '/' || (backslash && part.value[i] == '\\')) return false;
+    return true;
+}
+
 function b32 Prog_ReadTorrent(Arena *arena, String bytes, Prog_TorrentInfo *info)
 {
     *info = (Prog_TorrentInfo){0};
@@ -692,6 +709,8 @@ function b32 Prog_ReadTorrent(Arena *arena, String bytes, Prog_TorrentInfo *info
     u64 at = Prog__BencodeFind(bytes, 0, S("info"));
     if (!at) return false;
     info->name = StrCopy(arena, Prog__BencodeString(bytes, Prog__BencodeFindText(bytes, at, S("name"), S("name.utf-8"))));
+    // Names that would step out of the download's folder, which removing a stopped download's files would follow, make no torrent.
+    if (!Prog__TorrentPart(info->name)) return false;
     u64 files = Prog__BencodeFind(bytes, at, S("files"));
     if (!files) {
         // One file, which the name names.
@@ -716,8 +735,10 @@ function b32 Prog_ReadTorrent(Arena *arena, String bytes, Prog_TorrentInfo *info
         u64 path = Prog__BencodeFindText(bytes, p, S("path"), S("path.utf-8"));
         StrBuilder joined = {0};
         for (u64 q = path + 1; path && bytes.value[path] == 'l' && bytes.value[q] != 'e'; q = Prog__BencodeEnd(bytes, q, 2)) {
+            String part = Prog__BencodeString(bytes, q);
+            if (!Prog__TorrentPart(part)) return false;
             if (joined.buffer.length) StrBuildStr(arena, &joined, S("/"));
-            StrBuildStr(arena, &joined, Prog__BencodeString(bytes, q));
+            StrBuildStr(arena, &joined, part);
         }
         file->path = joined.buffer;
         info->size += file->size;
@@ -832,7 +853,7 @@ function b32 Prog_TorrentControlDone(String control, const u64 *sizes, u64 count
 function String Prog__TorrentFileName(Arena *arena, String name)
 {
     u64 length = Min(name.length, (u64)200);
-    while (length < name.length && ((u8)name.value[length] & 0xC0) == 0x80) --length;
+    while (length && length < name.length && ((u8)name.value[length] & 0xC0) == 0x80) --length;
     u8 *text = ArenaPushArray(arena, length + 1, u8);
     for (u64 i = 0; i < length; ++i) {
         u8 c = (u8)name.value[i];

@@ -6598,8 +6598,16 @@ function void Prog__ReverseLast(Prog_State *state, b32 redo)
     ArenaClear(&state->errorArena);
     state->error = (String){0};
     Prog_ArrayUndo *stack = redo ? &state->redo : &state->undo;
-    if (!stack->header.count) {
+    // The step running the other way goes on this stack as it ends, and a press waiting the other way is taken back.
+    b32 coming = state->undoJob && (((const Prog_JobInput *)state->undoJob->input)->redo != redo || (state->undoMore && state->undoMoreRedo != redo));
+    if (!stack->header.count && !coming) {
         Prog_Notify(state, Prog_NoticeKind_Info, S("undo.nothing"), redo ? Tr("Nothing to redo") : Tr("Nothing to undo"), (String){0});
+        return;
+    }
+    // One step at a time, as the next may need the one before done, such as two renames of the same item; presses meanwhile follow it, one the other way round taking back one waiting.
+    if (state->undoJob) {
+        if (state->undoMore && state->undoMoreRedo != redo) --state->undoMore;
+        else state->undoMoreRedo = redo, ++state->undoMore;
         return;
     }
     Prog_Undo undo = stack->v[--stack->header.count];
@@ -6619,6 +6627,7 @@ function void Prog__ReverseLast(Prog_State *state, b32 redo)
         *stack = (Prog_ArrayUndo){0};
     }
     job->input = input;
+    state->undoJob = job;
     P_JobSubmit(job);
 }
 
@@ -7721,9 +7730,33 @@ function void Prog_SelectTab(Prog_State *state, u32 index)
     if (state->hexPageJob) P_RequestCancel(&state->hexPageJob->cancelToken);
     if (state->pdf.job) P_RequestCancel(&state->pdf.job->cancelToken);
     state->hexPageJob = state->pdf.job = NULL;
+    // The text's jobs too, which would otherwise end while the tab is hidden and leave it holding jobs given out again.
+    // The count of a big file's lines goes on, as starting it over would throw away what a long count has done; its completion finds it in the tab.
+    P_Job *textJobs[] = { state->textWindowJob, state->textFindJob, state->hexFindJob };
+    for (u32 i = 0; i < CArrayCount(textJobs); ++i) if (textJobs[i]) P_RequestCancel(&textJobs[i]->cancelToken);
+    // The filter's look through the whole file, the window on its way and the hex view's find are asked for again once the tab shows.
+    if (state->textFindJob) state->textFindAsked = UINT32_MAX;
+    if (state->textWindowJob) {
+        const Prog_JobInput *asked = state->textWindowJob->input;
+        state->textWindowLine = asked->line;
+        state->textWindowOpen = asked->open;
+        state->textWindowAgain = true;
+    }
+    state->hexFindAgain = state->hexFindJob != NULL;
+    state->textWindowJob = state->textFindJob = state->hexFindJob = NULL;
     Prog__SwapTab(state, &state->tabs[state->activeTab]);
     state->activeTab = index;
     Prog__SwapTab(state, &state->tabs[index]);
+    // The count of a big file's lines, when none is under way, as after the window changed.
+    if (state->previewWindowed && !state->textIndex.done && !state->textIndexJob && state->textReadPath.length) Prog__RequestTextIndex(state);
+    if (state->textWindowAgain) {
+        state->textWindowAgain = false;
+        Prog_RequestTextWindow(state, state->textWindowFrom, state->textWindowLine, state->textWindowOpen, state->textJump);
+    }
+    if (state->hexFindAgain) {
+        state->hexFindAgain = false;
+        Prog_FindHex(state);
+    }
     // The inspector's views share their blocks across a panel's tabs, so the tab's starts at its top; its folder list lists the tab's folder.
     state->inspectorResetScroll = true;
     if (!state->panels[state->currentPanel].inspectorOf) {
@@ -8144,6 +8177,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             Prog__StartWaitingTorrents(state);
         }
         if (state->torrentProgressJob == job) state->torrentProgressJob = NULL;
+        // Undo and Redo pressed while it ran are taken along, and dropped with its panel.
+        u32 moreUndo = 0;
+        if (state->undoJob == job) state->undoJob = NULL, moreUndo = state->undoMore, state->undoMore = 0;
         if (state->gitPullJob == job) pulled = state->gitPullHash, pulledRoot = StrCopy(&state->frameArena, input->name), state->gitPullJob = NULL;
         if (state->gitFetchJob == job) fetched = state->gitFetchHash, fetchedRoot = StrCopy(&state->frameArena, input->path), state->gitFetchJob = NULL;
         if (owner == UINT32_MAX) {
@@ -8461,9 +8497,19 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             if (state->textFindJob == job) state->textFindJob = NULL;
         } else if (input->kind == Prog_JobKind_TextIndex) {
+            // The count goes on while its tab is hidden, which then keeps it.
+            Prog_Tab *hidden = NULL;
             if (state->textIndexJob == job) state->textIndexJob = NULL;
+            for (u32 t = 0; t < state->tabCount && state->tabs && !hidden; ++t) {
+                if (t != state->activeTab && state->tabs[t].textIndexJob == job) hidden = &state->tabs[t], hidden->textIndexJob = NULL;
+            }
             const Prog_TextIndex *index = job->result;
-            if (index && index->done && state->previewWindowed && StrIsEqual(input->path, state->textReadPath)) {
+            if (hidden && index && index->done && hidden->previewWindowed && StrIsEqual(input->path, hidden->textReadPath)) {
+                ArenaRelease(&hidden->textIndexArena);
+                hidden->textIndexArena = job->arena;
+                job->arena = (Arena){0};
+                hidden->textIndex = *index;
+            } else if (!hidden && index && index->done && state->previewWindowed && StrIsEqual(input->path, state->textReadPath)) {
                 ArenaRelease(&state->textIndexArena);
                 state->textIndexArena = job->arena;
                 job->arena = (Arena){0};
@@ -8478,9 +8524,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             changed = true;
         } else if (input->kind == Prog_JobKind_HexFind) {
             // What it found is selected and gone to; nothing found says so.
-            if (state->hexFindJob == job) state->hexFindJob = NULL;
+            // One a tab switch stopped says nothing, as a stopped look finds nothing.
+            b32 latest = state->hexFindJob == job;
+            if (latest) state->hexFindJob = NULL;
             const u64 *found = job->result;
-            if (found && state->previewHex && StrIsEqual(input->path, state->previewPath)) {
+            if (latest && found && state->previewHex && StrIsEqual(input->path, state->previewPath)) {
                 if (*found != UINT64_MAX) {
                     state->previewAnchor = *found;
                     state->previewCaret = *found + input->name.length;
@@ -8664,6 +8712,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 else Prog__PushStep(&state->redoArena, &state->redo, (Prog_UndoKind)done->kind, done->to, done->from, done->count);
             }
             Prog_Reload(state);
+            // The presses that came while it ran go on, a step each, unless this one failed.
+            if (moreUndo && !(error && error->code)) {
+                Prog__ReverseLast(state, state->undoMoreRedo);
+                state->undoMore = state->undoJob ? moreUndo - 1 : 0;
+            }
         } else if (input->kind == Prog_JobKind_Index) {
             if (state->indexJob == job) state->indexJob = NULL;
             const Prog_Indexed *result = job->result;

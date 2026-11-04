@@ -1457,7 +1457,7 @@ typedef struct Prog_PdfView {
 //     picked for its version previewKeptVersion
 //   inspectorFind: the box finds instead, keeping every line; findMatches, findCount: where its matches start, found with the lines kept; findPick: the first match from the selection on is selected once they are found; findSteps: the matches Enter and Shift+Enter went on and back since, taken once they are; findJump: the view scrolls to it
 //   previewWindowed: previewText is the window of a text file too big to hold, previewSize bytes, read from textReadPath: its bytes from
-//     previewOffset, the lines from previewFirstLine, in textWindowArena; textWindowJob reads the next window, from textWindowFrom, and
+//     previewOffset, the lines from previewFirstLine, in textWindowArena; textWindowJob reads the next window, from textWindowFrom, the line textWindowLine, which starts inside textWindowOpen, asked for again with textWindowAgain as the tab shows after a switch stopped it, and
 //     with textKeepTop, once it is in place, the same line stays at the top, or with textJump it starts at its top, gone to from the scroll
 //     bar; textIndex, from textIndexJob, in textIndexArena, counts the whole file's lines; textTopLine and
 //     textTopPart: the line at the view's top and how far into it, which a new window keeps there, its rows wrapped or not
@@ -1470,7 +1470,7 @@ typedef struct Prog_PdfView {
     X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(i32, previewImageWidth) X(i32, previewImageHeight) \
     X(u32 *, previewPixels) \
     X(b32, previewFolder) X(b32, previewHex) X(u64, hexSize) X(u8 **, hexPages) X(u64, hexPageCount) X(P_Job *, hexPageJob) \
-    X(u8 **, hexSlots) X(u64 *, hexSlotPage) X(u64, hexBase) X(u64, hexPress) X(P_Job *, hexFindJob) X(u64, hexJumpTo) \
+    X(u8 **, hexSlots) X(u64 *, hexSlotPage) X(u64, hexBase) X(u64, hexPress) X(P_Job *, hexFindJob) X(b32, hexFindAgain) X(u64, hexJumpTo) \
     X(b32, previewArchive) X(b32, previewDocument) X(P_DirectoryTotals, previewArchiveTotals) X(b32, previewArchiveCounted) X(u64, previewStamp) \
     X(u64, previewSubmitted) \
     X(enum8(Prog_ImageScale), imageScaleMode) X(f32, imageScale) X(f32, imageFit) X(UI_Vec2, imagePan) X(UI_Vec2, imageDragFrom) \
@@ -1479,7 +1479,7 @@ typedef struct Prog_PdfView {
     X(b32, inspectorResetScroll) X(Prog_TextEdit, inspectorFilter) X(b32, inspectorFiltering) X(u32 *, previewKept) X(u32, previewKeptCount) \
     X(u32, previewKeptVersion) X(b32, inspectorFind) X(u64 *, findMatches) X(u32, findCount) X(b32, findPick) X(b32, findJump) X(i32, findSteps) X(Prog_TorrentInfo, torrent) X(b8 *, torrentSkip) X(u64 *, torrentDone) X(b32, torrentRead) \
     X(b32, previewWindowed) X(u64, previewSize) X(u64, previewOffset) X(u64, previewFirstLine) X(String, textReadPath) X(Arena, textWindowArena) \
-    X(P_Job *, textWindowJob) X(u64, textWindowFrom) X(b32, textKeepTop) X(b32, textJump) X(Prog_TextIndex, textIndex) X(P_Job *, textIndexJob) X(Arena, textIndexArena) \
+    X(P_Job *, textWindowJob) X(u64, textWindowFrom) X(u64, textWindowLine) X(u8, textWindowOpen) X(b32, textWindowAgain) X(b32, textKeepTop) X(b32, textJump) X(Prog_TextIndex, textIndex) X(P_Job *, textIndexJob) X(Arena, textIndexArena) \
     X(u64, textTopLine) X(f32, textTopPart) X(Prog_FoundLines, textFind) X(P_Job *, textFindJob) X(u32, textFindAsked) X(Arena, textFindArena) X(b32, textFound) \
     X(Prog_FoundLines, textSaved) X(f32, textSavedScroll) X(u64 *, previewNumbers)
 
@@ -2024,6 +2024,9 @@ typedef struct Prog_State {
     Prog_ArrayUndo undo;
     Arena redoArena;
     Prog_ArrayUndo redo;
+    P_Job *undoJob;  // the step being reversed, until which Undo and Redo wait
+    u32 undoMore;    // the presses that came meanwhile, of Redo when undoMoreRedo, which go on once it is done
+    b32 undoMoreRedo;
     // Saved layouts, kept in Layouts.conf: their names, and their texts, a window line before a session's.
     Arena layoutsArena;
     ArrayStr layoutNames, layoutTexts;

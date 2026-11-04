@@ -103,10 +103,10 @@ function b32 Prog_DecodeBlp(Arena *arena, String data, i32 maxSide, P_Image *out
         }
     } else if (paletted) {
         if (tables + 1024 > data.length) return false;
-        image = (P_Image){ ArenaPushArrayNoZero(arena, (u64)w * h, u32), (i32)w, (i32)h };
         const u8 *palette = d + tables;
         u64 pixels = (u64)w * h, alphaBytes = (pixels * alphaDepth + 7) / 8;
         if (size < pixels + (alphaDepth == 1 || alphaDepth == 4 || alphaDepth == 8 ? alphaBytes : 0)) return false;
+        image = (P_Image){ ArenaPushArrayNoZero(arena, pixels, u32), (i32)w, (i32)h };
         const u8 *alpha = mip + pixels;
         for (u64 i = 0; i < pixels; ++i) {
             u32 color = Prog__BlpSwap(Prog__BlpRead32(palette + 4 * (u64)mip[i])) & 0x00FFFFFFu, a = 255;

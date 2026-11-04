@@ -538,6 +538,13 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Prog_TorrentInfo single = {0};
             Check(Prog_ReadTorrent(&quiet.frameArena, S("d4:infod6:lengthi7e4:name5:a.isoee"), &single) && single.fileCount == 1 && StrIsEqual(single.files[0].path, S("a.iso")));
             Check(!Prog_ReadTorrent(&quiet.frameArena, S("d4:infod6:lengthi7e4:name5:a.is"), &single) && !Prog_ReadTorrent(&quiet.frameArena, S("i3e"), &single));
+            // Names that would step out of the download's folder make no torrent.
+            Check(!Prog_ReadTorrent(&quiet.frameArena, S("d4:infod6:lengthi7e4:name2:..ee"), &single));
+            Check(!Prog_ReadTorrent(&quiet.frameArena, S("d4:infod5:filesld6:lengthi1e4:pathl2:..1:xeee4:name1:aee"), &single));
+            // A name of nothing but a character's trailing bytes is cut to none, not below.
+            u8 trailing[201];
+            for (u32 i = 0; i < CArrayCount(trailing); ++i) trailing[i] = 0x80;
+            Check(StrIsEqual(Prog__TorrentFileName(&quiet.frameArena, StrMake((const char *)trailing, sizeof(trailing))), S("Torrent")));
             Prog_TorrentFile five[5] = {0};
             Prog_TorrentInfo ranges = { .files = five, .fileCount = 5 };
             b8 picked[5] = { 0, 0, 1, 0, 0 };

@@ -2413,7 +2413,8 @@ function b32 Prog__EditCommand(Prog_TextEdit *edit, Prog_CommandKind kind)
             u32 at = edit->cursor == edit->length ? Prog__EditStep(edit, edit->cursor, -1) : edit->cursor;
             u32 before = Prog__EditStep(edit, at, -1), after = Prog__EditStep(edit, at, 1);
             if (before == at || after == at) return true;
-            u8 bytes[8];
+            // A character can be more than four bytes long here, as a broken one's stray bytes count with it.
+            u8 bytes[sizeof(edit->text)];
             MemCopy(bytes, edit->text + at, after - at);
             MemCopy(bytes + (after - at), edit->text + before, at - before);
             edit->anchor = before;
@@ -2488,7 +2489,9 @@ function void Prog_BeginRename(Prog_State *state, u64 row)
     if (entry->file.name.length >= sizeof(state->renameFrom)) return;
     Prog_CloseMenu(state);
     state->filtering = false;
+    // A new box, whose Undo has nothing of the rename before.
     Prog_TextEdit *edit = &state->rename;
+    *edit = (Prog_TextEdit){ .version = edit->version + 1 };
     MemCopy(edit->text, name.value, name.length);
     MemCopy(state->renameFrom, entry->file.name.value, entry->file.name.length);
     state->renameFromLength = (u32)entry->file.name.length;
@@ -4071,9 +4074,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     Prog__MenuPrepend(state, (P_MenuItem){ .label = StrFormat(&state->menuArena, TrF("Empty %S"), Prog_PathName(state, path)), .action = P_MenuAction_EmptyTrash }, path);
                 }
                 Prog__MenuAddGroups(state, !file && !StrIsEqual(path, Prog_ThisPC) && !P_IsTrashFolder(path));
-                Prog__ApplyMenuPins(state);
                 // Filey's own cut, copy, duplicate and delete act on the list's selection, so for a sidebar folder they are shown disabled,
                 // and its rename, which edits its row, is left out where it does not rename; a Miller column's item is renamed in its folder's list.
+                // That is done before the pins order the menu, whose items a pin's toggle orders again, so that it keeps them.
                 for (u32 i = 0; i < state->menu.count; ++i) {
                     P_MenuItem *item = &state->menu.items[i];
                     if (StrIsEqual(item->verb, S("rename")) && !miller && !renamable) item->label = (String){0};
@@ -4082,6 +4085,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                                     item->action == P_MenuAction_Trash || item->action == P_MenuAction_Delete;
                     if (selection) item->disabled = true;
                 }
+                Prog__ApplyMenuPins(state);
                 state->menuAt = command->at.x != 0 || command->at.y != 0 ? command->at : state->ui.mouse;
                 state->menuHighlight = UINT32_MAX;
                 Prog__MenuMove(state, 1);
@@ -6112,7 +6116,8 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     if (event->key == Key_Right && at.kind == Prog_CommandKind_None) Prog__PaletteFold(state, at.group, true);
                     if (event->key == Key_Left) {
                         Prog__PaletteFold(state, at.group, false);
-                        while (matches[state->paletteHighlight].kind != Prog_CommandKind_None) --state->paletteHighlight;
+                        // Quick commands have no group titles, so the walk stops at the first row.
+                        while (state->paletteHighlight && matches[state->paletteHighlight].kind != Prog_CommandKind_None) --state->paletteHighlight;
                     }
                     continue;
                 }

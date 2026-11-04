@@ -509,7 +509,8 @@ function b32 Prog__PlaceIcon(Prog_IconAtlas *atlas, Prog_Icon *icon, const u32 *
 // Draws new pixels into a loaded icon's own cell.
 function void Prog__ReplaceIcon(const Prog_IconAtlas *atlas, Prog_Icon *icon, const u32 *pixels)
 {
-    i32 x = (i32)(icon->uv.x0 * (f32)atlas->pageSize + 0.5f), y = (i32)(icon->uv.y0 * (f32)atlas->pageSize + 0.5f);
+    // The cell's corner, below the half texel a smooth atlas's coordinates start in by.
+    i32 x = (i32)floorf(icon->uv.x0 * (f32)atlas->pageSize), y = (i32)floorf(icon->uv.y0 * (f32)atlas->pageSize);
     R_TextureUpdateRGBA(icon->texture, x, y, atlas->size, atlas->size, pixels);
     Prog__MeasurePicture(icon, pixels, atlas->size);
 }

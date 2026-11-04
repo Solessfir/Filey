@@ -29,6 +29,8 @@ function String Prog__ZipEntry(Arena *arena, String path, u64 size, String name)
     u32 entries = Prog__Zip16(t + end + 10);
     u64 directorySize = Prog__Zip32(t + end + 12), directoryAt = Prog__Zip32(t + end + 16);
     String directory = {0};
+    // Sizes past the file's end, which a broken or made-up zip gives, would only ask for room to read nothing into.
+    if (directoryAt > size || directorySize > size - directoryAt) goto done;
     if (!P_ReadFileAt(scratch.arena, path, directoryAt, directorySize, &directory) || directory.length < directorySize) goto done;
     const u8 *d = (const u8 *)directory.value;
     for (u64 at = 0, i = 0; i < entries && at + 46 <= directory.length; ++i) {
@@ -44,6 +46,7 @@ function String Prog__ZipEntry(Arena *arena, String path, u64 size, String name)
         const u8 *h = (const u8 *)header.value;
         u64 dataAt = local + 30 + Prog__Zip16(h + 26) + Prog__Zip16(h + 28);
         String data = {0};
+        if (dataAt > size || packed > size - dataAt) break;
         if (!P_ReadFileAt(scratch.arena, path, dataAt, packed, &data) || data.length < packed) break;
         if (method == 0) {
             result = StrCopy(arena, data);
@@ -191,6 +194,8 @@ function void Prog__SheetText(Arena *arena, StrBuilder *out, String xml, const A
     Scratch scratch = GetScratchEx(arena);
     Prog__ArrayCell cells = {0};
     u32 row = 0, columns = 0, rows = 0;
+    // The first cell end at or after the last cell's start, kept, so that many cells left open do not each look through the rest of the sheet; past the end when there is none.
+    u64 closeAt = 0;
     for (u64 i = 0; i < xml.length;) {
         if (xml.value[i] != '<') { ++i; continue; }
         u64 end;
@@ -205,8 +210,11 @@ function void Prog__SheetText(Arena *arena, StrBuilder *out, String xml, const A
             u32 column = Prog__CellColumn(Prog__XmlAttribute(xml, i, end, S("r")));
             String type = Prog__XmlAttribute(xml, i, end, S("t"));
             // Its value or inline string, up to the cell's end.
-            Index stop = StrIndexStr(StrFrom(xml, end), S("</c>"), SSF_None);
-            String body = stop.exists ? StrFromTo(xml, end, (i64)(end + stop.value)) : (String){0};
+            if (closeAt < end) {
+                Index stop = StrIndexStr(StrFrom(xml, end), S("</c>"), SSF_None);
+                closeAt = stop.exists ? end + stop.value : xml.length + 1;
+            }
+            String body = closeAt <= xml.length ? StrFromTo(xml, end, (i64)closeAt) : (String){0};
             StrBuilder text = {0};
             for (u64 k = 0; k < body.length;) {
                 if (body.value[k] != '<') { ++k; continue; }
@@ -231,7 +239,7 @@ function void Prog__SheetText(Arena *arena, StrBuilder *out, String xml, const A
                 ArrayPush(scratch.arena, cells, ((Prog__Cell){ row, column, value }));
                 columns = Max(columns, column + 1), rows = Max(rows, row + 1);
             }
-            if (stop.exists) end += stop.value + 4;
+            if (closeAt <= xml.length) end = closeAt + 4;
         }
         i = end;
     }

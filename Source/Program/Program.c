@@ -560,8 +560,7 @@ function b32 Prog__ParseColor(String text, R_Color *color)
     if (!text.length || text.value[0] != '#' || (text.length != 7 && text.length != 9)) return false;
     u32 channels[4] = { 0, 0, 0, 255 };
     for (u64 i = 1; i < text.length; ++i) {
-        u8 c = Prog__FoldAscii((u8)text.value[i]);
-        u32 digit = c >= '0' && c <= '9' ? (u32)(c - '0') : c >= 'a' && c <= 'f' ? (u32)(c - 'a' + 10) : 16;
+        u32 digit = (u32)Prog__Hex(text.value[i]);
         if (digit > 15) return false;
         channels[(i - 1) / 2] = (i - 1) % 2 ? channels[(i - 1) / 2] + digit : digit * 16;
     }
@@ -1779,8 +1778,9 @@ function void Prog_EndHexEdit(Prog_State *state, b32 keep)
     if (!keep || text.length != 6 || Prog_ShownScheme(state, &name) < Prog_BuiltInSchemes) return;
     u32 rgb = 0;
     for (u64 i = 0; i < text.length; ++i) {
-        u8 c = (u8)text.value[i];
-        rgb = rgb * 16 + (u32)(c <= '9' ? c - '0' : c - 'A' + 10);
+        u32 digit = (u32)Prog__Hex(text.value[i]);
+        if (digit > 15) return;
+        rgb = rgb * 16 + digit;
     }
     state->schemeGroups[option - Prog_Option_ColorClear] = rgb;
     Prog_ThemeUser = Prog__ThemeFromScheme(state->schemeGroups);
@@ -1913,9 +1913,11 @@ function void Prog_PickerTyped(Prog_State *state)
     String text = Prog_EditText(&state->pickerEdit);
     if (!text.length) return;
     u32 value = 0;
+    u32 base = state->pickerField == 7 ? 16 : 10;
     for (u64 i = 0; i < text.length; ++i) {
-        u8 c = (u8)text.value[i];
-        value = value * (state->pickerField == 7 ? 16 : 10) + (u32)(c <= '9' ? c - '0' : c - 'A' + 10);
+        u32 digit = (u32)Prog__Hex(text.value[i]);
+        if (digit >= base) return;
+        value = value * base + digit;
     }
     if (state->pickerField == 7) {
         if (text.length == 6) Prog_PickHex(state, value);
@@ -4186,7 +4188,10 @@ function u32 Prog__WrapName(Arena *arena, const R_Font *font, String text, f32 w
             lines[count++] = rest;
             break;
         }
-        u64 take = broken ? broken : Max(fit, (u64)1);
+        // Not even one character fits, and then one goes on the line whole, not a byte of it.
+        u64 whole = 0;
+        StrDecodeUtf8(rest, &whole);
+        u64 take = broken ? broken : fit ? fit : Max(whole, (u64)1);
         String line = StrFromTo(rest, 0, (i64)take);
         while (line.length && line.value[line.length - 1] == ' ') --line.length;
         lines[count++] = line;
@@ -11366,7 +11371,7 @@ function u32 Prog__TextRowLine(const Prog_State *state, u32 row, u32 columns, u3
 
 // A big text file's scroll bar, for the whole file rather than the window it holds: the thumb sits where the top line is in the file, by its
 // bytes, and let go elsewhere, the view goes there, in the window when it holds that place, else at the count's step there once counted.
-function void Prog__TextScrollBar(Prog_State *state, UI_Block *view, f32 pitch, u32 top, u32 columns, const Prog_Metrics *m)
+function void Prog__TextScrollBar(Prog_State *state, UI_Block *view, f32 pitch, u32 top, u32 columns, u32 shownCount, const Prog_Metrics *m)
 {
     u32 count = state->previewLineCount;
     String text = state->previewText;
@@ -11384,7 +11389,15 @@ function void Prog__TextScrollBar(Prog_State *state, UI_Block *view, f32 pitch, 
             if (state->previewOffset + state->previewLines[middle] <= place) low = middle;
             else high = middle;
         }
-        view->scrollOffset.y = view->scrollShown.y = (f32)(columns && state->previewRows ? state->previewRows[low] : low) * pitch;
+        // The view's rows are the lines kept by a filter, so the line found becomes the last kept one at or above it.
+        u32 kept = 0;
+        high = shownCount;
+        while (kept + 1 < high) {
+            u32 middle = (kept + high) / 2;
+            if (state->previewKept[middle] <= low) kept = middle;
+            else high = middle;
+        }
+        view->scrollOffset.y = view->scrollShown.y = (f32)(columns && state->previewRows ? state->previewRows[kept] : kept) * pitch;
     } else if (state->textIndex.done && state->textIndex.count) {
         u64 step = Min(place / Prog_TextStep, state->textIndex.count - 1);
         Prog_RequestTextWindow(state, state->textIndex.offsets[step], state->textIndex.numbers[step], state->textIndex.states[step], true);
@@ -11454,6 +11467,8 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
     if (state->previewKeptVersion != state->inspectorFilter.version && state->inspectorFind && found.length) state->findPick = true;
     if (!state->previewKept || state->previewKeptVersion != state->inspectorFilter.version) {
         state->previewKept = ArenaPushArray(textArena, lineCount + 1, u32);
+        // The rows' starts, made once wrapping needs them, are refilled in place as the width changes, which a divider's drag or the inspector's opening does every frame.
+        state->previewRows = NULL;
         u32 kept = 0;
         for (u32 i = 0; i < lineCount; ++i) {
             if (!filter.length || Prog_FilterMatch(StrFromTo(text, state->previewLines[i], (i64)state->previewLines[i + 1]), filter, NULL)) state->previewKept[kept++] = i;
@@ -11493,8 +11508,8 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
     b32 wrap = state->previewDocument ? !state->documentUnwrapped : state->inspectorWrap;
     u32 columns = wrap && !state->previewHex && !state->previewArchive ? Max((u32)(room / cell), 1u) : 0;
     // Each line's first row, worked out again when the width in characters changes.
-    if (columns && state->previewRowColumns != columns) {
-        state->previewRows = ArenaPushArray(textArena, shownCount + 1, u32);
+    if (columns && (state->previewRowColumns != columns || !state->previewRows)) {
+        if (!state->previewRows) state->previewRows = ArenaPushArray(textArena, lineCount + 1, u32);
         u32 rows = 0;
         for (u32 i = 0; i < shownCount; ++i) {
             u32 line = state->previewKept[i];
@@ -11517,9 +11532,11 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
         }
         u32 row = low;
         if (columns) {
-            u32 starts[256];
+            // As many row starts as the line wraps into, however long it is.
+            u32 room = Max(state->previewRows[low + 1] - state->previewRows[low], 1u);
+            u32 *starts = ArenaPushArrayNoZero(&state->frameArena, room, u32);
             String whole = StrFromTo(text, state->previewLines[low], (i64)state->previewLines[low + 1]);
-            u32 rows = Min(Prog__WrapLine(whole, columns, starts, CArrayCount(starts)), (u32)CArrayCount(starts)), r = 0;
+            u32 rows = Min(Prog__WrapLine(whole, columns, starts, room), room), r = 0;
             while (r + 1 < rows && starts[r + 1] <= at - state->previewLines[low]) ++r;
             row = state->previewRows[low] + r;
         }
@@ -11587,8 +11604,9 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
             }
             u8 *tokens = state->previewLineStates && !state->noHighlight ? ArenaPushArrayNoZero(&state->frameArena, whole.length + 1, u8) : NULL;
             if (tokens) Prog_SyntaxLine(state->previewSyntax, whole, state->previewLineStates[line], tokens);
-            u32 starts[256];
-            u32 rows = columns ? Min(Prog__WrapLine(whole, columns, starts, CArrayCount(starts)), (u32)CArrayCount(starts)) : 1;
+            u32 room = columns ? Max(state->previewRows[shown + 1] - state->previewRows[shown], 1u) : 1;
+            u32 *starts = ArenaPushArrayNoZero(&state->frameArena, room, u32);
+            u32 rows = columns ? Min(Prog__WrapLine(whole, columns, starts, room), room) : 1;
             if (!columns) starts[0] = 0;
             u32 lineRow = columns ? state->previewRows[shown] : shown;
             for (u32 r = row - lineRow; r < rows && row < last; ++r, ++row) {
@@ -11652,7 +11670,7 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
             UI_KeepAnimating();
         }
     }
-    if (state->previewWindowed && !state->textFound) Prog__TextScrollBar(state, view, pitch, shownCount ? state->previewKept[Min(Prog__TextRowLine(state, first, columns, shownCount), shownCount - 1)] : 0, columns, m);
+    if (state->previewWindowed && !state->textFound) Prog__TextScrollBar(state, view, pitch, shownCount ? state->previewKept[Min(Prog__TextRowLine(state, first, columns, shownCount), shownCount - 1)] : 0, columns, shownCount, m);
     else Prog__ScrollBar(view, pitch, S("InspectorText"), 1, m);
 }
 

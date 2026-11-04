@@ -166,7 +166,9 @@ function b32 Prog__DecodeImage(Arena *arena, String model, i32 side, String name
         b32 absolute = (file.length && file.value[0] == '/') || (file.length > 1 && file.value[1] == ':');
         String parent = Prog_ParentPath(model);
         if (!absolute) read = Prog__LoadPicture(arena, Prog_JoinPath(scratch.arena, parent, file), side, &image);
-        if (!read && absolute) read = Prog__LoadPicture(arena, file, side, &image);
+        // Not one on another computer, which a file only looked at would have Windows sign in to, sending its credentials.
+        b32 remote = StrIsEqual(StrFromTo(file, 0, 2), S("//"));
+        if (!read && absolute && !remote) read = Prog__LoadPicture(arena, file, side, &image);
         Index slash = StrIndexChar(file, '/', SSF_SearchBackwards);
         if (!read && slash.exists) read = Prog__LoadPicture(arena, Prog_JoinPath(scratch.arena, parent, StrFrom(file, slash.value + 1)), side, &image);
         ReleaseScratch(scratch);
@@ -891,7 +893,7 @@ function b32 Prog__ReadPly(Arena *arena, String data, const P_CancelToken *cance
             element->face = StrIsEqual(name, S("face"));
             const char *digits = count.value;
             f64 value = 0;
-            if (!Prog__Number(&digits, count.value + count.length, &value) || value < 0) return false;
+            if (!Prog__Number(&digits, count.value + count.length, &value) || value < 0 || value > 1e15) return false;
             element->count = (u64)value;
         } else if (StrIsEqual(word, S("property"))) {
             if (!elementCount) return false;
@@ -939,7 +941,8 @@ function b32 Prog__ReadPly(Arena *arena, String data, const P_CancelToken *cance
         if (!element->propertyCount) continue;
         // Where each row starts, which a short file cuts off, then the rows read side by side.
         Scratch scratch = GetScratchEx(arena);
-        const char **rows = ArenaPushArrayNoZero(scratch.arena, element->count + 1, const char *);
+        // Every row takes a byte at least, so a count beyond the bytes left asks for no more room than they could hold.
+        const char **rows = ArenaPushArrayNoZero(scratch.arena, Min(element->count, (u64)(end - p)) + 1, const char *);
         u64 rowCount = Prog__PlyRows(element, format, p, end, rows);
         p = rows[rowCount];
         Prog__PlyWork work = { .element = element, .format = format, .rows = rows, .rowCount = rowCount, .end = end, .cancel = cancel };
@@ -1106,10 +1109,14 @@ function u64 Prog__JsonCount(const Prog__Json *node, u64 fallback)
     return value >= 0 && value < 1e15 ? (u64)value : UINT64_MAX;
 }
 
+// The most nodes a model's tree is gone through, far more than real scenes have.
+#define Prog__ModelVisits (1u << 20)
+
 typedef struct Prog__Gltf {
     const Prog__Json *root;
     String *buffers;
     u64 bufferCount;
+    u64 *visits;  // the nodes gone through, which a node listing itself twice would make billions of
 } Prog__Gltf;
 
 function u8 Prog__Base64(char c)
@@ -1332,7 +1339,7 @@ function void Prog__GltfMesh(Arena *arena, const Prog__Gltf *gltf, const Prog__J
 
 function void Prog__GltfNode(Arena *arena, const Prog__Gltf *gltf, const Prog__Json *node, Prog__Affine parent, u32 depth, const P_CancelToken *cancel, Prog_Mesh *out)
 {
-    if (!node || depth > 32 || P_IsCancelled(cancel)) return;
+    if (!node || depth > 32 || ++*gltf->visits > Prog__ModelVisits || P_IsCancelled(cancel)) return;
     Prog__Affine local = Prog__AffineIdentity;
     const Prog__Json *matrix = Prog__JsonGet(node, S("matrix"));
     if (matrix && matrix->count == 16) {
@@ -1379,7 +1386,8 @@ function b32 Prog__ReadGltf(Arena *arena, String path, String data, b32 binary, 
         }
     }
     const char *p = json.value;
-    Prog__Gltf gltf = { .root = Prog__JsonValue(arena, &p, json.value + json.length, 0) };
+    u64 visits = 0;
+    Prog__Gltf gltf = { .root = Prog__JsonValue(arena, &p, json.value + json.length, 0), .visits = &visits };
     if (!gltf.root || gltf.root->kind != '{') return false;
     const Prog__Json *buffers = Prog__JsonGet(gltf.root, S("buffers"));
     gltf.bufferCount = buffers && buffers->kind == '[' ? buffers->count : 0;
@@ -1593,7 +1601,8 @@ function void Prog__FbxInflateAll(Arena *arena, Prog__FbxNode **geometries, u64 
         Prog__FbxProperty property = {0};
         Prog__FbxPropertyAt(work.nodes.v[i], 0, &property);
         u64 bytes = (u64)property.count * (property.type == 'd' || property.type == 'l' ? 8 : 4);
-        if (bytes <= INT32_MAX) work.outs[i] = ArenaPushArrayNoZero(arena, Max(bytes, (u64)1), u8);
+        // Deflate makes at most about a thousand times the bytes it was given, so a count beyond that is made up, and gets no room.
+        if (bytes <= INT32_MAX && bytes <= property.length * 1032 + 64) work.outs[i] = ArenaPushArrayNoZero(arena, Max(bytes, (u64)1), u8);
     }
     if (work.nodes.header.count) P_RunLanes((u32)Min((u64)Max(1u, Min(P_ProcessorCount(), 8u)), work.nodes.header.count), Prog__FbxInflateLane, &work);
     ReleaseScratch(scratch);
@@ -2236,8 +2245,10 @@ function b32 Prog__BlendField(const Prog__Blend *blend, u32 index, String name, 
         for (u64 k = to; k < full.length; ++k) {
             if (full.value[k] != '[') continue;
             u64 n = 0;
-            while (++k < full.length && full.value[k] >= '0' && full.value[k] <= '9') n = n * 10 + (u64)(full.value[k] - '0');
+            while (++k < full.length && full.value[k] >= '0' && full.value[k] <= '9') n = Min(n * 10 + (u64)(full.value[k] - '0'), (u64)1 << 24);
+            // No real field holds millions of items, and this bound keeps the offsets that follow far from wrapping around.
             count *= Max(n, (u64)1);
+            if (count > (u64)1 << 24) return false;
         }
         b32 pointer = full.length && (full.value[0] == '*' || full.value[0] == '(');
         u64 bytes = (pointer ? blend->pointer : blend->typeSizes[s[2 + 2 * f]]) * count;
@@ -2279,7 +2290,7 @@ function b32 Prog__BlendFloats(const Prog__Blend *blend, u32 type, const u8 *bas
 function b32 Prog__BlendParse(Arena *arena, String data, Prog__Blend *blend)
 {
     const u8 *d = (const u8 *)data.value;
-    if (data.length < 12 || !StrIsEqual(StrFromTo(data, 0, 7), S("BLENDER"))) return false;
+    if (data.length < 13 || !StrIsEqual(StrFromTo(data, 0, 7), S("BLENDER"))) return false;
     // Blender 5: "BLENDER17-01v0502", the header's size, its format and the version; before it "BLENDER-v402", the pointer size and the byte order.
     u64 at;
     b32 large = false;
@@ -2306,7 +2317,7 @@ function b32 Prog__BlendParse(Arena *arena, String data, Prog__Blend *blend)
             block.old = blend->pointer == 8 ? Prog__Read64(h + 8) : Prog__Read32(h + 8);
             block.sdna = Prog__Read32(h + head - 8), block.count = Prog__Read32(h + head - 4);
         }
-        if (at + head + block.length > data.length) break;
+        if (block.length > data.length - at - head) break;
         block.data = d + at + head;
         at += head + block.length;
         if (block.code == Prog__BlendCode('E', 'N', 'D', 'B')) break;
@@ -2318,6 +2329,8 @@ function b32 Prog__BlendParse(Arena *arena, String data, Prog__Blend *blend)
     u64 p = 4;
     if (Prog__Read32(dna + p) != Prog__BlendCode('N', 'A', 'M', 'E')) return false;
     blend->nameCount = Prog__Read32(dna + p + 4), p += 8;
+    // Each name, type and struct takes a byte or more, so counts beyond the bytes left are made up.
+    if (blend->nameCount > dnaLength - p) return false;
     blend->names = ArenaPushArray(arena, Max(blend->nameCount, 1u), String);
     for (u32 i = 0; i < blend->nameCount && p < dnaLength; ++i) {
         u64 end = p;
@@ -2327,6 +2340,7 @@ function b32 Prog__BlendParse(Arena *arena, String data, Prog__Blend *blend)
     p = (p + 3) & ~(u64)3;
     if (p + 8 > dnaLength || Prog__Read32(dna + p) != Prog__BlendCode('T', 'Y', 'P', 'E')) return false;
     blend->typeCount = Prog__Read32(dna + p + 4), p += 8;
+    if (blend->typeCount > dnaLength - p) return false;
     blend->types = ArenaPushArray(arena, Max(blend->typeCount, 1u), String);
     for (u32 i = 0; i < blend->typeCount && p < dnaLength; ++i) {
         u64 end = p;
@@ -2340,6 +2354,7 @@ function b32 Prog__BlendParse(Arena *arena, String data, Prog__Blend *blend)
     p = (p + 4 + 2 * (u64)blend->typeCount + 3) & ~(u64)3;
     if (p + 8 > dnaLength || Prog__Read32(dna + p) != Prog__BlendCode('S', 'T', 'R', 'C')) return false;
     blend->structCount = Prog__Read32(dna + p + 4), p += 8;
+    if (blend->structCount > dnaLength - p) return false;
     // Each struct as its type, its field count and its fields' types and names, the indices checked against the lists.
     blend->structs = ArenaPushArray(arena, Max(blend->structCount, 1u), u16 *);
     for (u32 i = 0; i < blend->structCount; ++i) {
@@ -2397,7 +2412,7 @@ function const Prog__BlendBlock *Prog__BlendAttribute(const Prog__Blend *blend, 
         const Prog__BlendBlock *list = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, storageType, storage, storageSize, S("dna_attributes")));
         i64 count = Prog__BlendInt(blend, storageType, storage, storageSize, S("dna_attributes_num"));
         u64 stride = blend->typeSizes[blend->structs[attributeType][0]];
-        for (i64 i = 0; list && i < count && (u64)(i + 1) * stride <= list->length; ++i) {
+        for (i64 i = 0; list && stride && i < count && (u64)(i + 1) * stride <= list->length; ++i) {
             const u8 *attribute = list->data + (u64)i * stride;
             const Prog__BlendBlock *named = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, attributeType, attribute, stride, S("name")));
             if (!named || !StrIsEqual(Prog__BlendName(named->data, named->length), name)) continue;
@@ -2420,7 +2435,7 @@ function const Prog__BlendBlock *Prog__BlendAttribute(const Prog__Blend *blend, 
         const Prog__BlendBlock *layers = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, customType, custom, customSize, S("layers")));
         i64 count = Prog__BlendInt(blend, customType, custom, customSize, S("totlayer"));
         u64 stride = blend->typeSizes[blend->structs[layerType][0]];
-        for (i64 i = 0; layers && i < count && (u64)(i + 1) * stride <= layers->length; ++i) {
+        for (i64 i = 0; layers && stride && i < count && (u64)(i + 1) * stride <= layers->length; ++i) {
             const u8 *layer = layers->data + (u64)i * stride;
             if (!StrIsEqual(Prog__BlendName(layer + nameAt, nameSize), name)) continue;
             *domain = domains[s];
@@ -4340,6 +4355,7 @@ typedef struct Prog__Dae {
     Prog__XmlIds ids;
     Prog_Mesh *mesh;
     const P_CancelToken *cancel;
+    u64 *visits;  // the nodes gone through, which a node instancing itself twice would make billions of
 } Prog__Dae;
 
 function Prog__Xml *Prog__DaeAt(const Prog__Dae *dae, String reference) { return Prog__XmlAt(&dae->ids, reference); }
@@ -4435,7 +4451,10 @@ function void Prog__DaePrimitive(Arena *arena, const Prog__Dae *dae, const Prog_
     f32 *points = NULL, *uvs = NULL, *colors = NULL;
     for (Prog__Xml *input = primitive->first; input; input = input->next) {
         if (!Prog__XmlIs(input, S("input"))) continue;
-        u32 offset = (u32)Prog__XmlNumber(input, S("offset"), 0);
+        // A corner has a handful of inputs, so an offset far beyond would only read outside its indices.
+        f64 at = Prog__XmlNumber(input, S("offset"), 0);
+        if (!(at >= 0 && at < 64)) continue;
+        u32 offset = (u32)at;
         stride = Max(stride, offset + 1);
         String semantic = Prog__XmlValue(input, S("semantic")), source = Prog__XmlValue(input, S("source"));
         if (StrIsEqual(semantic, S("VERTEX"))) {
@@ -4556,7 +4575,7 @@ function Prog__Affine Prog__DaePlace(Arena *arena, const Prog__Xml *node, Prog__
 
 function void Prog__DaeNode(Arena *arena, const Prog__Dae *dae, const Prog__Xml *node, Prog__Affine parent, u32 depth)
 {
-    if (depth > 64 || P_IsCancelled(dae->cancel)) return;
+    if (depth > 64 || ++*dae->visits > Prog__ModelVisits || P_IsCancelled(dae->cancel)) return;
     Prog__Affine place = Prog__DaePlace(arena, node, parent);
     for (Prog__Xml *child = node->first; child; child = child->next) {
         if (Prog__XmlIs(child, S("instance_geometry"))) {
@@ -4575,7 +4594,8 @@ function b32 Prog__ReadCollada(Arena *arena, String data, const P_CancelToken *c
 {
     Prog__Xml *document = Prog__XmlParse(arena, data, cancel), *collada = Prog__XmlChild(document, S("COLLADA"));
     if (!collada) return false;
-    Prog__Dae dae = { .mesh = mesh, .cancel = cancel };
+    u64 visits = 0;
+    Prog__Dae dae = { .mesh = mesh, .cancel = cancel, .visits = &visits };
     Prog__DaeIndex(arena, &dae, collada, 0);
     Prog__Xml *up = Prog__XmlChild(Prog__XmlChild(collada, S("asset")), S("up_axis"));
     mesh->zUp = up && StrIndexStr(up->text, S("Z_UP"), SSF_None).exists;
@@ -4602,6 +4622,7 @@ typedef struct Prog__3mf {
     String zip;
     Prog_Mesh *mesh;
     const P_CancelToken *cancel;
+    u64 *visits;  // the objects gone through, which an object made of itself twice would make billions of
 } Prog__3mf;
 
 // A "#RRGGBB" or "#RRGGBBAA" color, as straight RGBA; 0 for another.
@@ -4711,7 +4732,7 @@ function void Prog__3mfMesh(Arena *arena, const Prog__3mf *m, const Prog__Xml *o
 
 function void Prog__3mfObject(Arena *arena, const Prog__3mf *m, const Prog__Xml *object, Prog__Affine place, u32 depth)
 {
-    if (!object || depth > 32 || P_IsCancelled(m->cancel)) return;
+    if (!object || depth > 32 || ++*m->visits > Prog__ModelVisits || P_IsCancelled(m->cancel)) return;
     Prog__Xml *mesh = Prog__XmlChild(object, S("mesh")), *components = Prog__XmlChild(object, S("components"));
     if (mesh) Prog__3mfMesh(arena, m, object, mesh, &place);
     for (Prog__Xml *c = components ? components->first : NULL; c; c = c->next) {
@@ -4734,7 +4755,8 @@ function b32 Prog__Read3mf(Arena *arena, String data, const P_CancelToken *cance
     }
     Prog__Xml *model = Prog__XmlChild(Prog__XmlParse(arena, Prog__ZipView(arena, data, name), cancel), S("model"));
     if (!model) return false;
-    Prog__3mf m = { .zip = data, .mesh = mesh, .cancel = cancel };
+    u64 visits = 0;
+    Prog__3mf m = { .zip = data, .mesh = mesh, .cancel = cancel, .visits = &visits };
     Prog__Xml *resources = Prog__XmlChild(model, S("resources")), *build = Prog__XmlChild(model, S("build"));
     for (Prog__Xml *r = resources ? resources->first : NULL; r; r = r->next) {
         String id = Prog__XmlValue(r, S("id"));
