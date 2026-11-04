@@ -2686,6 +2686,7 @@ function void Prog__DirectoryJob(P_Job *job)
         if (!P_IsCancelled(&job->cancelToken)) {
             *error = input->explorer ? P_OpenFileExplorer(&job->arena, input->path)
                    : input->kind == Prog_JobKind_Open ? P_OpenPath(&job->arena, copy.length ? copy : input->path, (P_FileOrder){ input->sort, (b8)input->descending })
+                                                      : P_NameError(&job->arena, input->newName).code ? P_NameError(&job->arena, input->newName)
                                                       : P_RenamePath(&job->arena, input->path, input->name, input->newName);
         }
         job->result = error;

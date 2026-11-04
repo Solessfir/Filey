@@ -556,6 +556,10 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Check(StrIsEqual(Prog_MagnetHash(&quiet.frameArena, S("magnet:?xt=urn:btih:YEX6DQDLXISUVHOJ6UM3GNNKPQJWPKEK")), hex));
             Check(!Prog_MagnetHash(&quiet.frameArena, S("magnet:?xt=urn:btih:xyz")).length && !Prog_MagnetHash(&quiet.frameArena, S("magnet:?dn=x")).length);
             Check(StrIsEqual(Prog__TorrentFileName(&quiet.frameArena, S("a:b?. ")), S("a_b_")) && StrIsEqual(Prog__TorrentFileName(&quiet.frameArena, S(" .")), S("Torrent")));
+#if defined(_WIN32)
+            // A device's name is none for a file on Windows.
+            Check(StrIsEqual(Prog__TorrentFileName(&quiet.frameArena, S("con")), S("Torrent")));
+#endif
             // The downloads noted to be started again, a line each with the files they chose, replaced when noted again and dropped once over.
             Prog_State notes = {0};
             Prog__NoteTorrent(&notes, S("C:/t/a.torrent"), S("1,3"), true);
@@ -1697,6 +1701,22 @@ function void TestRename(TestFileFixture *fixture)
     Check(P_RenamePath(&arena, fixture->path, S("plain.txt"), (String){0}).code);
     Check(!P_RenamePath(&arena, fixture->path, S("plain.txt"), S("plain2.txt")).code);
     Check(!P_RenamePath(&arena, fixture->path, S("plain2.txt"), S("plain.txt")).code);
+#if defined(_WIN32)
+    // Names Explorer refuses are refused with why: a device's name, alone or with an extension, a character Windows keeps out, a dot or a space last, or too long.
+    {
+        String made = {0};
+        Check(StrIndexStr(P_CreateItem(&arena, fixture->path, S("con"), true, &made).message, S("device"), SSF_None).exists && !made.length);
+        Check(P_CreateItem(&arena, fixture->path, S("Lpt1.txt"), false, &made).code && P_CreateItem(&arena, fixture->path, S("a:b"), true, &made).code);
+        Check(P_CreateItem(&arena, fixture->path, S("ends."), true, &made).code && P_CreateItem(&arena, fixture->path, S("ends "), true, &made).code);
+        Check(P_NameError(&arena, S("NUL.log")).code && !P_NameError(&arena, S("plain.txt")).code);
+        String longName = StrFormat(&arena, "%0256d", 0);
+        Check(StrIndexStr(P_CreateItem(&arena, fixture->path, longName, true, &made).message, S("255"), SSF_None).exists);
+        // A name that only starts as a device's is fine.
+        Check(!P_CreateItem(&arena, fixture->path, S("console"), true, &made).code);
+        String console = Prog_JoinPath(&arena, fixture->path, made);
+        Check(!P_DeleteItems(&arena, &console, 1, false, NULL).code);
+    }
+#endif
     // Where the system has permissions, the listing has them, and they can be set; Windows has none to set.
     {
         String plainPath = Prog_JoinPath(&arena, fixture->path, S("plain.txt"));

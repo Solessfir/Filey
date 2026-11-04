@@ -212,6 +212,9 @@ function b32 P_DirectoryWatchStartTree(P_DirectoryWatch *watch, String path, P_J
 function b32 P_DirectoryWatchTakeChanged(P_DirectoryWatch *watch);
 function void P_DirectoryWatchStop(P_DirectoryWatch *watch);
 
+// Why `name`, typed for a new or renamed item, cannot be one, as the system's own file manager refuses it; no error where it can.
+function P_FileError P_NameError(Arena *arena, String name);
+
 // Renames `from` to `to` inside `directory`.
 // Never replaces an existing item, and refuses names that are empty, "." or "..", or contain a path separator.
 // May touch a slow disk, so run it in a job.

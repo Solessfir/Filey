@@ -495,6 +495,35 @@ function b32 P__ValidFileName(String name)
            !StrIndexChar(name, '/', SSF_None).exists && !StrIndexChar(name, '\\', SSF_None).exists;
 }
 
+// Why `name` cannot be given to a new or renamed item, as Explorer refuses it, or no error.
+// That is a character Windows keeps out of names, a dot or a space last, a device's name such as CON or LPT1, which the long-path form would otherwise let through, or more than 255 characters.
+function P_FileError P_NameError(Arena *arena, String name)
+{
+    if (!P__ValidFileName(name)) return P__FileError(arena, ERROR_INVALID_NAME);
+    for (u64 i = 0; i < name.length; ++i) {
+        u8 c = (u8)name.value[i];
+        if (c < 32 || c == '<' || c == '>' || c == ':' || c == '"' || c == '|' || c == '?' || c == '*') {
+            return (P_FileError){ .code = ERROR_INVALID_NAME, .message = S("A name can't hold any of these characters: \\ / : * ? \" < > |") };
+        }
+    }
+    u8 last = (u8)name.value[name.length - 1];
+    if (last == '.' || last == ' ') return (P_FileError){ .code = ERROR_INVALID_NAME, .message = S("A name can't end with a dot or a space.") };
+    // The device names, alone or before an extension, apart from case.
+    Index dot = StrIndexChar(name, '.', SSF_None);
+    String stem = dot.exists ? StrFromTo(name, 0, (i64)dot.value) : name;
+    while (stem.length && stem.value[stem.length - 1] == ' ') --stem.length;
+    local_persist const char *const devices[] = { "CON", "PRN", "AUX", "NUL" };
+    b32 device = false;
+    for (u32 d = 0; d < CArrayCount(devices) && !device; ++d) device = stem.length == 3 && !_strnicmp(stem.value, devices[d], 3);
+    if (stem.length == 4 && (!_strnicmp(stem.value, "COM", 3) || !_strnicmp(stem.value, "LPT", 3)) && stem.value[3] >= '0' && stem.value[3] <= '9') device = true;
+    if (device) return (P_FileError){ .code = ERROR_INVALID_NAME, .message = StrFormat(arena, "%S is a name Windows keeps for a device.", stem) };
+    // Counted as Windows counts it, in UTF-16 units.
+    u64 units = 0;
+    for (u64 at = 0; at < name.length;) units += StrDecodeUtf8(name, &at) > 0xFFFF ? 2 : 1;
+    if (units > 255) return (P_FileError){ .code = ERROR_FILENAME_EXCED_RANGE, .message = S("A name can be at most 255 characters long.") };
+    return (P_FileError){0};
+}
+
 function P_FileError P_SetMode(Arena *arena, String path, u16 mode)
 {
     (void)path, (void)mode;
@@ -536,6 +565,7 @@ function u32 P__DeviceChange(String path, String name, b32 create, b32 folder)
 
 function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to)
 {
+    // Either name may be one Windows would refuse for a new item, as a name made elsewhere, renamed away and put back by Undo; P_NameError checks a name typed.
     if (!P__ValidFileName(from) || !P__ValidFileName(to)) return P__FileError(arena, ERROR_INVALID_NAME);
     if (P__IsDevicePath(directory)) {
         Scratch scratch = GetScratchEx(arena);
@@ -767,7 +797,8 @@ function b32 P__PathWithin(String path, String folder)
 function P_FileError P_CreateItem(Arena *arena, String directory, String name, b32 folder, String *created)
 {
     *created = (String){0};
-    if (!P__ValidFileName(name)) return P__FileError(arena, ERROR_INVALID_NAME);
+    P_FileError refused = P_NameError(arena, name);
+    if (refused.code) return refused;
     Scratch scratch = GetScratchEx(arena);
     // Files number before their extension, folders after the whole name.
     Index dot = folder ? (Index){0} : StrIndexChar(name, '.', SSF_SearchBackwards);

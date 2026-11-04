@@ -579,6 +579,8 @@ function P_FileError P_SetMode(Arena *arena, String path, u16 mode)
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
+function P_FileError P_NameError(Arena *arena, String name) { (void)arena, (void)name; return (P_FileError){0}; }
+
 function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to)
 {
     if (!P__ValidFileName(from) || !P__ValidFileName(to)) return P__FileError(arena, EINVAL);
