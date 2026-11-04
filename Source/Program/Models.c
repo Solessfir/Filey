@@ -2130,6 +2130,15 @@ function void Prog__BlendFrameLane(void *user, u32 lane)
     free_dictionary(dict);
 }
 
+// A zstd frame's size from its header, 0 for a header too broken to read.
+function u64 Prog__ZstdFrameSize(String data)
+{
+    jmp_buf failed;
+    zstd_error_jump = &failed;
+    if (setjmp(failed)) return 0;
+    return ZSTD_get_decompressed_size(data.value, data.length);
+}
+
 // The decompressed file: zstd frames laid out by the seek table at their end, as Blender writes them, or one frame; gzip; or as it is.
 function String Prog__BlendInflate(Arena *arena, String data)
 {
@@ -2145,7 +2154,7 @@ function String Prog__BlendInflate(Arena *arena, String data)
         }
         u64 total = 0;
         for (u64 i = 0; i < frames; ++i) total += Prog__Read32(d + table + i * entry + 4);
-        if (!frames) total = ZSTD_get_decompressed_size(data.value, data.length);
+        if (!frames) total = Prog__ZstdFrameSize(data);
         if (!total || total == (u64)-1 || total > Prog_ModelMaxBytes * 4) return (String){0};
         u8 *out = ArenaPushArrayNoZero(arena, total, u8);
         Scratch scratch = GetScratchEx(arena);
