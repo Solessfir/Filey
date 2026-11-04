@@ -11,6 +11,10 @@
 #       | moveframes x y n interval tag, downframes, upframes, clickframes, rclickframes (the same for the pointer: moves, presses, releases or clicks at x y)
 #       | wheelframes x y notches n interval tag
 #       writes <out>/<name><tag>_{ref,filey}.png and a stacked <name><tag>.png; frames also write <name><tag>_<side>.times in milliseconds
+#       each pair is then scored as the diff command does; COMPARE_NOISE=1 shoots each shot again over a second and leaves what changed by itself, such as a blinking caret, out of the score
+#   python Source/Tools/Compare/Compare.py diff <name> [tag...]
+#       how alike the pair of shots is out of 100, the mean of the detail (SSIM of the brightness) and the layout (16 px tiles whose mean colours agree),
+#       the regions that differ, largest first, in pixels to pass to zoom, and <name><tag>_diff.png: Filey's shot dimmed, with what differs in red
 #   python Source/Tools/Compare/Compare.py trace "<steps>" [ngfx options]
 #       Filey under Nsight Graphics' GPU Trace (COMPARE_NGFX names its ngfx.exe, else the newest installed one), off the screen at COMPARE_X, COMPARE_Y unless they say otherwise.
 #       After the steps the pointer goes on moving over the list, since Filey draws only when something changes, until the trace is taken and exported to <out>/trace (BASE/*.xls, and the .ngfx-gputrace for Nsight's window), and the main figures are printed.
@@ -24,7 +28,8 @@
 # with "theme = filey-dark", so that the system's light mode stays out. COMPARE_PATH overrides the folder both apps open; COMPARE_W, COMPARE_H, COMPARE_X and COMPARE_Y the window, and COMPARE_MAXIMIZED=1 maximizes it.
 # COMPARE_STARTUP=1 prints when each window first looked as it does 3 s after its launch, for start-up times; =frames also saves each change.
 import ctypes, ctypes.wintypes as wt, glob, os, re, shutil, statistics, subprocess, sys, time
-from PIL import Image, ImageChops
+import numpy as np
+from PIL import Image, ImageChops, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..', '..'))
@@ -251,6 +256,86 @@ class App:
         try: self.process.wait(5)
         except subprocess.TimeoutExpired: self.process.kill()
 
+TILE = 16
+# The tiles of each shot that changed by themselves, as a caret's blink does, by name and tag, which COMPARE_NOISE=1 finds and the likeness leaves out.
+NOISE = {}
+
+def tile_means(image, w, h):
+    pixels = np.asarray(image.convert('RGB').crop((0, 0, w, h)), dtype=np.float64)
+    rows, cols = -(-h // TILE), -(-w // TILE)
+    padded = np.zeros((rows * TILE, cols * TILE, 3)); padded[:h, :w] = pixels
+    counts = np.zeros((rows * TILE, cols * TILE, 1)); counts[:h, :w] = 1
+    return padded.reshape(rows, TILE, cols, TILE, 3).sum((1, 3)) / counts.reshape(rows, TILE, cols, TILE, 1).sum((1, 3))
+
+def changed_tiles(a, b, threshold):
+    w, h = min(a.width, b.width), min(a.height, b.height)
+    return np.abs(tile_means(a, w, h) - tile_means(b, w, h)).max(2) > threshold
+
+def ssim(a, b, skip):
+    # The mean structural similarity of the brightness over 8x8 windows, both shrunk so the wider side is at most 512 px, which sees edges and text that tile colours miss.
+    f = max(1, -(-max(a.width, a.height) // 512))
+    w, h = -(-a.width // f), -(-a.height // f)
+    la, lb = [np.asarray(i.convert('L').resize((w, h), Image.BOX), dtype=np.float64) for i in (a, b)]
+    rows, cols = h // 8, w // 8
+    la, lb = [l[:rows * 8, :cols * 8].reshape(rows, 8, cols, 8) for l in (la, lb)]
+    ma, mb = la.mean((1, 3)), lb.mean((1, 3))
+    va, vb = la.var((1, 3)), lb.var((1, 3))
+    cov = (la * lb).mean((1, 3)) - ma * mb
+    c1, c2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
+    s = (2 * ma * mb + c1) * (2 * cov + c2) / ((ma * ma + mb * mb + c1) * (va + vb + c2))
+    if skip is not None:
+        # A window is left out when the noise tile under its top left corner is.
+        ys, xs = (np.arange(rows) * 8 * f) // TILE, (np.arange(cols) * 8 * f) // TILE
+        keep = ~skip[np.minimum(ys, skip.shape[0] - 1)][:, np.minimum(xs, skip.shape[1] - 1)]
+        s = s[keep]
+    return float(s.mean()) if s.size else 1.0
+
+def regions(mask):
+    # The tiles that differ, joined where they touch, largest first.
+    seen = np.zeros_like(mask); found = []
+    for y, x in zip(*np.nonzero(mask)):
+        if seen[y, x]: continue
+        stack, tiles = [(y, x)], []; seen[y, x] = True
+        while stack:
+            cy, cx = stack.pop(); tiles.append((cy, cx))
+            for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
+                if 0 <= ny < mask.shape[0] and 0 <= nx < mask.shape[1] and mask[ny, nx] and not seen[ny, nx]:
+                    seen[ny, nx] = True; stack.append((ny, nx))
+        ys, xs = [t[0] for t in tiles], [t[1] for t in tiles]
+        found.append((len(tiles), min(xs) * TILE, min(ys) * TILE, (max(xs) + 1) * TILE, (max(ys) + 1) * TILE))
+    return sorted(found, reverse=True)
+
+def likeness(name, tag):
+    # How alike the two shots are, as the mean of the detail (SSIM) and the layout (the share of 16 px tiles whose mean colours are within 24 a channel), out of 100, with where they differ and a picture of it.
+    a, b = [Image.open(os.path.join(OUT, f'{name}{tag}_{s}.png')).convert('RGB') for s in ('ref', 'filey')]
+    w, h = min(a.width, b.width), min(a.height, b.height)
+    size = '' if a.size == b.size else f', sizes {a.width}x{a.height} and {b.width}x{b.height} compared at {w}x{h}'
+    a, b = a.crop((0, 0, w, h)), b.crop((0, 0, w, h))
+    differ = changed_tiles(a, b, 24)
+    noise = NOISE.get(name + tag)
+    if noise is not None:
+        noise = noise[:differ.shape[0], :differ.shape[1]]; differ &= ~noise
+    counted = differ.size - (int(noise.sum()) if noise is not None else 0)
+    layout = 1 - differ.sum() / counted if counted else 1.0
+    detail = ssim(a, b, noise)
+    found = regions(differ)
+    # The build's shot, dimmed where it matches, with what differs tinted red and boxed, and what changed by itself in blue.
+    picture = Image.blend(b, Image.new('RGB', b.size), 0.6)
+    tint = np.asarray(picture).copy(); full = np.asarray(b)
+    for mask, color in ((differ, (255, 40, 40)), (noise, (40, 120, 255))):
+        if mask is None: continue
+        pixels = np.kron(mask, np.ones((TILE, TILE), dtype=bool))[:h, :w]
+        tint[pixels] = (full[pixels] * 0.5 + np.array(color) * 0.5).astype(np.uint8)
+    picture = Image.fromarray(tint)
+    draw = ImageDraw.Draw(picture)
+    for _, x0, y0, x1, y1 in found[:8]: draw.rectangle((x0, y0, min(x1, w) - 1, min(y1, h) - 1), outline=(255, 220, 0))
+    picture.save(os.path.join(OUT, f'{name}{tag}_diff.png'))
+    places = ', '.join(f'{min(x1, w) - x0}x{min(y1, h) - y0} at {x0} {y0}' for _, x0, y0, x1, y1 in found[:8])
+    more = f' and {len(found) - 8} more' if len(found) > 8 else ''
+    masked = f', {int(noise.sum())} tiles changing by themselves left out' if noise is not None and noise.any() else ''
+    print(f'{name}{tag}: {(detail + layout) * 50:.1f}% alike (detail {detail * 100:.1f}, layout {layout * 100:.1f}){size}{masked}')
+    if found: print(f'  {len(found)} region{"s" if len(found) > 1 else ""} differ{"" if len(found) > 1 else "s"}: {places}{more}')
+
 def fixture():
     root = os.path.join(OUT, 'Fixture')
     for folder in ['Alpha', 'Beta', 'Gamma folder', 'Docs']:
@@ -293,7 +378,21 @@ def steps(app, text, side, name, tags):
         elif op == 'wait': time.sleep(float(words[1]))
         elif op == 'shot':
             tag = words[1] if len(words) > 1 else ''
-            app.shot().save(os.path.join(OUT, f'{name}{tag}_{side}.png')); tags.add(tag)
+            image = app.shot(); image.save(os.path.join(OUT, f'{name}{tag}_{side}.png')); tags.add(tag)
+            if os.environ.get('COMPARE_NOISE'):
+                # Shot again over a second, as a caret blinks about twice a second, and what changed, grown by a tile so that moving edges are covered, is left out of both sides' likeness.
+                moved = np.zeros_like(changed_tiles(image, image, 6))
+                for _ in range(3):
+                    time.sleep(0.35); moved |= changed_tiles(image, app.shot(), 6)
+                padded = np.pad(moved, 1); rows, cols = moved.shape
+                grown = np.zeros_like(moved)
+                for dy in range(3):
+                    for dx in range(3): grown |= padded[dy:dy + rows, dx:dx + cols]
+                known = NOISE.get(name + tag)
+                if known is not None:
+                    rows, cols = min(known.shape[0], grown.shape[0]), min(known.shape[1], grown.shape[1])
+                    grown = grown[:rows, :cols] | known[:rows, :cols]
+                NOISE[name + tag] = grown
         elif op in ('frames', 'keyframes', 'moveframes', 'downframes', 'upframes', 'clickframes', 'rclickframes', 'wheelframes'):
             # keyframes presses a key and records from that moment, so that an animation's first frames are not lost; the pointer ones do the same.
             pointer = op not in ('frames', 'keyframes')
@@ -420,7 +519,11 @@ def main(argv):
                 a, b = [Image.open(p) for p in paths]
                 stacked = Image.new('RGB', (max(a.width, b.width), a.height + b.height)); stacked.paste(a, (0, 0)); stacked.paste(b, (0, a.height))
                 stacked.save(os.path.join(OUT, f'{name}{tag}.png'))
+                likeness(name, tag)
         print(OUT, sorted(tags))
+    elif command == 'diff':
+        name = argv[2]
+        for tag in argv[3:] or ['']: likeness(name, tag)
     elif command == 'trace':
         trace(argv[2] if len(argv) > 2 else '', argv[3:])
     elif command == 'zoom':
