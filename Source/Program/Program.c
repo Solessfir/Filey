@@ -11471,6 +11471,8 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
             state->findJump = true;
         }
     }
+    for (; state->findSteps > 0; --state->findSteps) Prog__InspectorFindStep(state, false);
+    for (; state->findSteps < 0; ++state->findSteps) Prog__InspectorFindStep(state, true);
     u32 shownCount = state->previewKeptCount;
     // The numbers sit in a gutter that grows for long files; the text starts closer to the edge without them.
     u32 digits = 1;

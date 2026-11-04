@@ -3895,16 +3895,18 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             // In the hex view the box finds, and keeps the keyboard for the next one.
             case Prog_CommandKind_InspectorApplyFilter: {
                 if (state->previewHex) Prog_FindHex(state);
-                else if (state->inspectorFind) Prog__InspectorFindStep(state, false);
+                // Counted, and gone through once the matches are found for what the box holds by then, which typing in the same moment may have changed.
+                else if (state->inspectorFind) ++state->findSteps;
                 else state->inspectorFiltering = false;
             } break;
-            case Prog_CommandKind_InspectorFindPrev: Prog__InspectorFindStep(state, true); break;
+            case Prog_CommandKind_InspectorFindPrev: --state->findSteps; break;
             case Prog_CommandKind_InspectorToggleFind: {
                 state->inspectorFind = !state->inspectorFind;
                 state->findPick = state->inspectorFind;
                 state->previewKept = state->previewRows = NULL;
             } break;
             case Prog_CommandKind_InspectorRemoveFilter: {
+                state->findSteps = 0;
                 state->inspectorFilter = (Prog_TextEdit){ .version = state->inspectorFilter.version + 1 };
                 state->inspectorFiltering = false;
             } break;
