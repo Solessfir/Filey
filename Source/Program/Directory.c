@@ -8774,7 +8774,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     Prog_RequestDirectory(state, Prog_NewTabPath(state, &state->frameArena, Prog_ThisPC), true, 0);
                 } else if (result->error.code) {
                     state->errorListing = true;
-                    state->error = StrFormat(&state->errorArena, "%S: %S", input->path, result->error.message);
+                    // The path as the system writes it.
+                    state->error = StrFormat(&state->errorArena, "%S: %S", P_NativePath(&state->frameArena, input->path), result->error.message);
                     state->sort = state->directory.sort;
                     state->descending = state->directory.descending;
                     state->folderSort = state->directory.folderSort;

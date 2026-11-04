@@ -82,6 +82,9 @@ function void TestDirectoryFiles(TestFileFixture *fixture)
     result = P_EnumerateDirectory(&arena, S("invalid-\xff"), NULL);
     Check(result.errorCode && result.files.header.count == 0);
     Check(P_AbsolutePath(&arena, S("invalid-\xff")).length == 0);
+    // The long-path form other tools give is the plain path.
+    Check(StrIsEqual(P_AbsolutePath(&arena, S("\\\\?\\C:\\Windows\\..\\")), S("C:/")));
+    Check(StrIsEqual(P_AbsolutePath(&arena, S("\\\\?\\UNC\\server\\share\\x")), S("//server/share/x")));
 #endif
     P_CancelToken cancel = {0};
     Check(!P_IsCancelled(&cancel));

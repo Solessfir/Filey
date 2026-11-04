@@ -236,6 +236,14 @@ function void P__ArchiveRemove(String path)
 
 function String P_AbsolutePath(Arena *arena, String path)
 {
+    // The long-path form a path may come in from other tools, \\?\C:\ or \\?\UNC\server\share, is the plain path, which the long form is added to again where it is needed.
+    b32 longForm = path.length >= 4 && (path.value[0] == '\\' || path.value[0] == '/') && (path.value[1] == '\\' || path.value[1] == '/') && path.value[2] == '?' &&
+                   (path.value[3] == '\\' || path.value[3] == '/');
+    if (longForm && path.length >= 8 && (path.value[4] | 0x20) == 'u' && (path.value[5] | 0x20) == 'n' && (path.value[6] | 0x20) == 'c' && (path.value[7] == '\\' || path.value[7] == '/')) {
+        path = StrFormat(arena, "//%S", StrFrom(path, 8));
+    } else if (longForm && path.length >= 6 && path.value[5] == ':') {
+        path = StrFrom(path, 4);
+    }
     if (P__IsDevicePath(path) || P__IsNetworkPath(path)) {
         while (path.length > 7 && path.value[path.length - 1] == '/') --path.length;
         return StrCopy(arena, path);
