@@ -471,6 +471,8 @@ function b32  RuneInvisible(rune c);
 function b32  RuneCombining(rune c);
 // The cells a character takes in monospaced text, as a terminal counts them: two for CJK and emoji, none for marks and invisible ones.
 function u32  RuneCells(rune c);
+// Decodes the character at *pos and the cells it takes, with an emoji selector after it taken along, which makes a symbol two cells wide.
+function rune StrDecodeCells(String s, u64 *pos, u32 *cells);
 // `c` as UTF-8 in `out`, its byte count back; 0 for no character, a surrogate's half or past U+10FFFF, which UTF-8 cannot hold.
 function u32  StrEncodeUtf8(rune c, u8 out[4]);
 

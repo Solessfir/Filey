@@ -368,8 +368,26 @@ function u32 RuneCells(rune c)
     b32 wide = (c >= 0x1100 && c <= 0x115F) || (c >= 0x2E80 && c <= 0x303E) || (c >= 0x3041 && c <= 0x33FF) || (c >= 0x3400 && c <= 0x4DBF) ||
                (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0xA000 && c <= 0xA4CF) || (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0xF900 && c <= 0xFAFF) ||
                (c >= 0xFE30 && c <= 0xFE4F) || (c >= 0xFF00 && c <= 0xFF60) || (c >= 0xFFE0 && c <= 0xFFE6) || (c >= 0x1F300 && c <= 0x1F64F) ||
-               (c >= 0x1F680 && c <= 0x1F6FF) || (c >= 0x1F900 && c <= 0x1FAFF) || (c >= 0x20000 && c <= 0x3FFFD);
+               (c >= 0x1F680 && c <= 0x1F6FF) || (c >= 0x1F900 && c <= 0x1FAFF) || (c >= 0x20000 && c <= 0x3FFFD) ||
+               // The symbols drawn as emoji by default: watches, the zodiac, check and cross marks, stars, and the enclosed ones.
+               c == 0x231A || c == 0x231B || (c >= 0x23E9 && c <= 0x23EC) || c == 0x23F0 || c == 0x23F3 || c == 0x25FD || c == 0x25FE ||
+               c == 0x2614 || c == 0x2615 || (c >= 0x2648 && c <= 0x2653) || c == 0x267F || c == 0x2693 || c == 0x26A1 || c == 0x26AA ||
+               c == 0x26AB || c == 0x26BD || c == 0x26BE || c == 0x26C4 || c == 0x26C5 || c == 0x26CE || c == 0x26D4 || c == 0x26EA ||
+               c == 0x26F2 || c == 0x26F3 || c == 0x26F5 || c == 0x26FA || c == 0x26FD || c == 0x2705 || c == 0x270A || c == 0x270B ||
+               c == 0x2728 || c == 0x274C || c == 0x274E || (c >= 0x2753 && c <= 0x2755) || c == 0x2757 || (c >= 0x2795 && c <= 0x2797) ||
+               c == 0x27B0 || c == 0x27BF || c == 0x2B1B || c == 0x2B1C || c == 0x2B50 || c == 0x2B55 || c == 0x1F004 || c == 0x1F0CF ||
+               c == 0x1F18E || (c >= 0x1F191 && c <= 0x1F19A) || (c >= 0x1F200 && c <= 0x1F2FF) || (c >= 0x1F7E0 && c <= 0x1F7FF);
     return wide ? 2 : 1;
+}
+
+function rune StrDecodeCells(String s, u64 *pos, u32 *cells)
+{
+    rune c = StrDecodeUtf8(s, pos);
+    *cells = RuneCells(c);
+    // The emoji selector after a symbol drawn as text by default, as in ❤️, draws it as a wide emoji.
+    u64 next = *pos;
+    if (*cells == 1 && next < s.length && StrDecodeUtf8(s, &next) == 0xFE0F) *pos = next, *cells = 2;
+    return c;
 }
 
 function rune StrDecodeUtf8(String s, u64 *pos)

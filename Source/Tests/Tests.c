@@ -337,6 +337,12 @@ function void TestStrings(void)
     // Monospaced cells: two for CJK and emoji, none for a combining accent or an emoji's variation selector, one for the rest.
     Check(RuneCells('a') == 1 && RuneCells(0x00E9) == 1 && RuneCells(0x8A9E) == 2 && RuneCells(0x1F600) == 2 && RuneCells(0x0301) == 0 && RuneCells(0xFE0F) == 0);
     Check(RuneInvisible(0x200D) && !RuneInvisible('a') && RuneCombining(0x0301) && !RuneCombining(0x00E9));
+    // Symbols drawn as emoji are wide too, and a heart becomes one with the emoji selector after it, which goes along.
+    Check(RuneCells(0x2705) == 2 && RuneCells(0x2B50) == 2 && RuneCells(0x1F7E2) == 2 && RuneCells(0x2764) == 1);
+    String heart = S("\xE2\x9D\xA4\xEF\xB8\x8F" "a");
+    u64 heartAt = 0;
+    u32 cells = 0;
+    Check(StrDecodeCells(heart, &heartAt, &cells) == 0x2764 && cells == 2 && heartAt == 6 && StrDecodeCells(heart, &heartAt, &cells) == 'a' && cells == 1);
 
     StrBuilder builder = {0};
     StrBuild(&arena, &builder, "Files: ");
