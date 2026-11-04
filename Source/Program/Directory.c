@@ -8377,7 +8377,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     changed = true;
                 }
                 // A status that failed or timed out counts as nothing to show, and the next one goes on.
-                if (input->offset && state->reposNext < state->repos.header.count && state->repos.v[state->reposNext].value.changes < 0) state->repos.v[state->reposNext].value.changes = 0;
+                // The repository it asked about by name, as a fetch done meanwhile can have sent reposNext back to another.
+                Prog_Repo *asked = input->offset && input->rowCount && StrIsEqual(input->path, state->directory.path) ? MapsGetPtrNull(state->repos, input->names[0]) : NULL;
+                if (asked && asked->changes < 0) asked->changes = 0;
                 Prog__NextRepoStatus(state);
                 Prog__NextRepoFetch(state);
             }
