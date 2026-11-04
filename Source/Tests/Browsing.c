@@ -2330,6 +2330,56 @@ function void TestRepoFetch(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+#if defined(__linux__)
+// A repository's own config naming commands, as an unpacked one could, runs none of them when Filey shows its status or fetches it: not its
+// fsmonitor hook, a worktree's included, nor its clean filter, required or not, nor on a fetch its upload-pack program or hooks.
+function void TestGitDistrust(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String repos = Prog_JoinPath(&arena, fixture->path, S("Distrust")), mine = Prog_JoinPath(&arena, repos, S("mine")), theirs = Prog_JoinPath(&arena, repos, S("theirs"));
+    String mark = Prog_JoinPath(&arena, repos, S("ran")), made = {0}, output = {0};
+    Check(!P_CreateItem(&arena, fixture->path, S("Distrust"), true, &made).code);
+    String evil = StrFormat(&arena, "touch '%S'; false", mark), evilCat = StrFormat(&arena, "sh -c \"touch '%S'; cat\"", mark);
+    String init[] = { S("git"), S("init"), S("-q"), S("--bare"), S("origin.git") }, cloneMine[] = { S("git"), S("clone"), S("-q"), S("origin.git"), S("mine") };
+    String cloneTheirs[] = { S("git"), S("clone"), S("-q"), S("origin.git"), S("theirs") }, add[] = { S("git"), S("add"), S("-A") };
+    String push[] = { S("git"), S("push"), S("-q"), S("-u"), S("origin"), S("HEAD") };
+    String commit[] = { S("git"), S("-c"), S("user.name=Test"), S("-c"), S("user.email=test@example.com"), S("-c"), S("commit.gpgsign=false"), S("commit"), S("-q"), S("-m"), S("c") };
+    String empty[] = { S("git"), S("-c"), S("user.name=Test"), S("-c"), S("user.email=test@example.com"), S("-c"), S("commit.gpgsign=false"), S("commit"), S("-q"), S("--allow-empty"), S("-m"), S("e") };
+    b32 ready = P_RunCommand(&arena, repos, init, CArrayCount(init), 10000, &output, false) && P_RunCommand(&arena, repos, cloneMine, CArrayCount(cloneMine), 10000, &output, false) &&
+                !P_WriteFile(&arena, Prog_JoinPath(&arena, mine, S(".gitattributes")), S("*.txt filter=evil\n")).code &&
+                !P_WriteFile(&arena, Prog_JoinPath(&arena, mine, S("a.txt")), S("a")).code && P_RunCommand(&arena, mine, add, CArrayCount(add), 10000, &output, false) &&
+                P_RunCommand(&arena, mine, commit, CArrayCount(commit), 10000, &output, false) && P_RunCommand(&arena, mine, push, CArrayCount(push), 10000, &output, false) &&
+                P_RunCommand(&arena, repos, cloneTheirs, CArrayCount(cloneTheirs), 10000, &output, false) &&
+                P_RunCommand(&arena, theirs, empty, CArrayCount(empty), 10000, &output, false) && P_RunCommand(&arena, theirs, push, CArrayCount(push), 10000, &output, false);
+    String settings[][2] = { { S("filter.evil.clean"), evilCat }, { S("filter.evil.required"), S("true") }, { S("extensions.worktreeConfig"), S("true") },
+                             { S("remote.origin.uploadpack"), evil } };
+    for (u32 i = 0; ready && i < CArrayCount(settings); ++i) {
+        String set[] = { S("git"), S("config"), settings[i][0], settings[i][1] };
+        ready = P_RunCommand(&arena, mine, set, CArrayCount(set), 10000, &output, false);
+    }
+    String worktree[] = { S("git"), S("config"), S("--worktree"), S("core.fsmonitor"), evil };
+    ready = ready && P_RunCommand(&arena, mine, worktree, CArrayCount(worktree), 10000, &output, false) &&
+            !P_WriteFile(&arena, Prog_JoinPath(&arena, mine, S(".git/hooks/reference-transaction")), StrFormat(&arena, "#!/bin/sh\n%S\n", evil)).code &&
+            !P_SetMode(&arena, Prog_JoinPath(&arena, mine, S(".git/hooks/reference-transaction")), 0755).code;
+    Check(ready);
+    if (ready) {
+        // The file looks changed to git, which then cleans it to compare.
+        Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, mine, S("a.txt")), S("a")).code);
+        Prog_GitStatus git = Prog_FindGitStatus(&arena, mine);
+        Check(git.branch.length && !P_PathExists(mark));
+        Prog_State state = {0};
+        Check(Prog_Init(&state, mine, NULL, NULL) && state.jobs.initialized && TestWaitDirectory(&state));
+        state.gitFetch = true;
+        Prog_RequestGitStatus(&state, mine);
+        for (u64 start = PlatformNowMicroseconds(); PlatformNowMicroseconds() - start < Millions(20) && state.git.behind != 1; P__TestPause()) Prog_TakeCompletions(&state);
+        Check(state.git.behind == 1 && !P_PathExists(mark));
+        Prog_Release(&state);
+    }
+    Check(!P_DeleteItems(&arena, &repos, 1, false, NULL).code && !P_PathExists(repos));
+    ArenaRelease(&arena);
+}
+#endif
+
 // The Quick Access filter: its hotkey gives its box the keyboard, typing finds sidebar items by their names' letters in order, Enter keeps the
 // filter and hands the keyboard back, Escape takes back what was typed since the box got the keyboard, and the clear button clears it.
 function void TestQuickAccessFilter(TestFileFixture *fixture)
@@ -5656,6 +5706,9 @@ function void TestBrowsing(void)
         TestRepoCommits(&fixture);
         TestPullable(&fixture);
         TestRepoFetch(&fixture);
+#if defined(__linux__)
+        TestGitDistrust(&fixture);
+#endif
         TestTextIndex(&fixture);
         TestEncryptedSevenZip(&fixture);
         TestStaleRunFolders(&fixture);

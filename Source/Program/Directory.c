@@ -2295,7 +2295,8 @@ function b32 Prog__ReadGitHead(Arena *arena, String at, String *head)
 // That is GIT_SSH_COMMAND, else core.sshCommand, else GIT_SSH's program, else ssh.
 // Only ssh itself takes its options; another program, as PuTTY's plink or a wrapper, is left as it is.
 #define Prog_GitQuietCount 4
-#define Prog_GitStatusMost 64
+#define Prog_GitDistrustMost 64
+#define Prog_GitStatusMost (Prog_GitDistrustMost + 8)
 function u32 Prog__GitQuiet(Arena *arena, String folder, b32 remote, String *environment)
 {
     u32 count = 0;
@@ -2331,28 +2332,65 @@ function u32 Prog__GitQuiet(Arena *arena, String folder, b32 remote, String *env
     return count;
 }
 
-// The status command for the repository `folder` is in, which runs whenever its folder is shown. A repository's own config can name commands
-// that status runs, an fsmonitor hook and the clean filters of changed files, which an unpacked or copied repository could bring along, so
-// those set there are turned off for it; the user's own, as Git LFS's filter, stay.
+// A repository's own config, and a worktree's, can name commands git runs on its own: an fsmonitor hook and clean filters on a status, and on
+// a fetch an ssh command, an upload-pack program and hooks. An unpacked or copied repository could bring those along, and Filey runs status
+// and fetch in folders only shown, so `-c` options in `arguments` turn those set there off; the user's own, as Git LFS's filter, stay. The
+// upload-pack program, which several lines can name, is given to the fetch itself.
+// An ssh command of the repository's own is kept only when it runs ssh, as one choosing a key does.
+function u32 Prog__GitDistrust(Arena *arena, String folder, b32 fetching, String *arguments)
+{
+    u32 count = 0;
+    arguments[count++] = S("-c");
+    arguments[count++] = S("core.fsmonitor=false");
+    if (fetching) {
+        arguments[count++] = S("-c");
+        arguments[count++] = S("core.hooksPath=/dev/null");
+    }
+    String asked[] = { S("git"), S("config"), S("--show-scope"), S("--includes"), S("-z"), S("--get-regexp"),
+                       fetching ? S("^core\\.sshcommand$") : S("^filter\\..*\\.(clean|process)$") }, set = {0};
+    if (!P_RunCommand(arena, folder, asked, CArrayCount(asked), 3000, &set, false)) return count;
+    // Each is its scope, then its key and value a line apart.
+    for (String rest = set; rest.length && count + 4 <= Prog_GitDistrustMost;) {
+        Index scopeEnd = StrIndexChar(rest, '\0', SSF_CountOnFail);
+        String scope = StrFromTo(rest, 0, (i64)scopeEnd.value);
+        rest = StrFrom(rest, Min(scopeEnd.value + 1, rest.length));
+        Index end = StrIndexChar(rest, '\0', SSF_CountOnFail);
+        String entry = StrFromTo(rest, 0, (i64)end.value);
+        rest = StrFrom(rest, Min(end.value + 1, rest.length));
+        Index line = StrIndexChar(entry, '\n', SSF_CountOnFail);
+        String key = StrFromTo(entry, 0, (i64)line.value), value = StrFrom(entry, Min(line.value + 1, entry.length));
+        if (!key.length || !(StrIsEqual(scope, S("local")) || StrIsEqual(scope, S("worktree")))) continue;
+        if (StrIsEqual(key, S("core.sshcommand"))) {
+            String program = StrFromTo(value, 0, (i64)StrIndexChar(value, ' ', SSF_CountOnFail).value);
+            Index slash = StrIndexChar(program, '/', SSF_SearchBackwards);
+            String leaf = slash.exists ? StrFrom(program, slash.value + 1) : program;
+            if (Prog__EqualFolded(leaf, S("ssh")) || Prog__EqualFolded(leaf, S("ssh.exe"))) continue;
+            arguments[count++] = S("-c");
+            arguments[count++] = S("core.sshCommand=ssh");
+        } else {
+            // A filter marked required fails the status without its command, so it is no longer.
+            String name = StrFromTo(key, 0, (i64)StrIndexChar(key, '.', SSF_SearchBackwards).value);
+            arguments[count++] = S("-c");
+            arguments[count++] = StrFormat(arena, "%S=", key);
+            arguments[count++] = S("-c");
+            arguments[count++] = StrFormat(arena, "%S.required=false", name);
+        }
+    }
+    return count;
+}
+
+// The status command for the repository `folder` is in, which runs whenever its folder is shown, trusting none of the commands its own
+// config names; a submodule's work tree, whose config is its own, is left out.
 function u32 Prog__GitStatusCommand(Arena *arena, String folder, String untracked, String *arguments)
 {
     u32 count = 0;
     arguments[count++] = S("git");
-    String asked[] = { S("git"), S("config"), S("--local"), S("--includes"), S("-z"), S("--get-regexp"), S("^(core\\.fsmonitor|filter\\..*\\.(clean|process))$") }, set = {0};
-    if (P_RunCommand(arena, folder, asked, CArrayCount(asked), 3000, &set, false)) {
-        for (String rest = set; rest.length && count + 6 < Prog_GitStatusMost;) {
-            Index end = StrIndexChar(rest, '\0', SSF_CountOnFail);
-            String entry = StrFromTo(rest, 0, (i64)end.value), key = StrFromTo(entry, 0, (i64)StrIndexChar(entry, '\n', SSF_CountOnFail).value);
-            rest = StrFrom(rest, Min(end.value + 1, rest.length));
-            if (!key.length) continue;
-            arguments[count++] = S("-c");
-            arguments[count++] = StrIsEqual(key, S("core.fsmonitor")) ? S("core.fsmonitor=false") : StrFormat(arena, "%S=", key);
-        }
-    }
+    count += Prog__GitDistrust(arena, folder, false, arguments + count);
     arguments[count++] = S("--no-optional-locks");
     arguments[count++] = S("status");
     arguments[count++] = S("--porcelain=v1");
     arguments[count++] = S("-z");
+    arguments[count++] = S("--ignore-submodules=dirty");
     arguments[count++] = untracked;
     return count;
 }
@@ -3095,9 +3133,16 @@ function void Prog__DirectoryJob(P_Job *job)
     // A fetch holds the repository's locks only in the moment it writes the refs it got.
     // The upkeep git may run after a fetch, which takes locks of its own, is left to the user's own git commands.
     if (input->kind == Prog_JobKind_GitFetch) {
-        String quiet[Prog_GitQuietCount], fetching[] = { S("git"), S("fetch"), S("--quiet"), S("--no-auto-gc") }, said = {0};
+        String quiet[Prog_GitQuietCount], fetching[Prog_GitDistrustMost + 6], said = {0};
+        u32 count = 0;
+        fetching[count++] = S("git");
+        count += Prog__GitDistrust(&job->arena, input->path, true, fetching + count);
+        fetching[count++] = S("fetch");
+        fetching[count++] = S("--quiet");
+        fetching[count++] = S("--no-auto-gc");
+        fetching[count++] = S("--upload-pack=git-upload-pack");
         u32 quietCount = Prog__GitQuiet(&job->arena, input->path, true, quiet);
-        P_RunCommandWith(&job->arena, input->path, fetching, CArrayCount(fetching), quiet, quietCount, 120000, &said, true, &job->cancelToken);
+        P_RunCommandWith(&job->arena, input->path, fetching, count, quiet, quietCount, 120000, &said, true, &job->cancelToken);
         return;
     }
     // The repositories among `names`, with their branches, or with `offset` set how many tracked files each has changed: untracked ones
