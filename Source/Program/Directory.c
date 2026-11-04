@@ -250,6 +250,18 @@ function String Prog__FocusedPath(const Prog_State *state, Arena *arena)
     return focused ? Prog_JoinPath(arena, state->directory.path, state->directory.entries[state->focusedRow].file.name) : StrFormat(arena, "%S/", state->directory.path);
 }
 
+// Whether the user went on to another item since a transfer started with `focusedAtStart` focused: that item is still listed and the
+// keyboard is on another. Nothing focused then, or the item gone, as a listing then puts the keyboard on a row by itself, is not that.
+function b32 Prog__WentOn(const Prog_State *state, Arena *arena, String focusedAtStart)
+{
+    if (!focusedAtStart.length || focusedAtStart.value[focusedAtStart.length - 1] == '/') return false;
+    if (StrIsEqual(Prog__FocusedPath(state, arena), focusedAtStart)) return false;
+    for (u64 i = 0; i < state->directory.count; ++i) {
+        if (StrIsEqual(Prog_JoinPath(arena, state->directory.path, state->directory.entries[i].file.name), focusedAtStart)) return true;
+    }
+    return false;
+}
+
 function b32 Prog_EntryBrokenLink(const Prog_Entry *entry)
 {
     return entry->file.symbolicLink && !entry->file.metadataValid;
@@ -8544,7 +8556,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 if (packed.length && Prog_SelectNext(state, packed)) {
                     state->selectRename = true;
                 } else if (result->placed.header.count && Prog__ListedName(&state->frameArena, state, input->path, Prog__FolderName(result->placed.v[0])).length &&
-                           StrIsEqual(Prog__FocusedPath(state, &state->frameArena), input->focusedAtStart)) {
+                           !Prog__WentOn(state, &state->frameArena, input->focusedAtStart)) {
                     // Not while the user has gone on to another item since it started, which they keep.
                     // What was pasted into the folder shown is selected once its listing shows it, all of it; a torrent fetched for its
                     // files to be chosen shows them in the inspector.

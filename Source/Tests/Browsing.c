@@ -3150,6 +3150,8 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     TestFileCommand(&state, Prog_CommandKind_Paste);
     Check(!state.error.length && TestEntryIndex(&state, S("a.txt")) != UINT64_MAX);
     Check(!TestHasFile(&arena, fixture, S("Commands"), S("a.txt")) && !state.cutPaths.header.count);
+    // Into a folder with nothing to focus, what was pasted is selected, though the listing has put the keyboard on it by itself.
+    Check(TestWaitCount(&state, 1) && TestWaitDirectory(&state) && state.directory.entries[TestEntryIndex(&state, S("a.txt"))].selected);
 
     // Pasting where the name is taken asks first, and the answer is carried out: here the file is replaced. Windows leaves taken names to the shell's own question.
 #if defined(__linux__)
