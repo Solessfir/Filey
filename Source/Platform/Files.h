@@ -219,6 +219,9 @@ function P_FileError P_NameError(Arena *arena, String name);
 // Never replaces an existing item, and refuses names that are empty, "." or "..", or contain a path separator.
 // May touch a slow disk, so run it in a job.
 function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to);
+// The folder a shell location names, as Explorer's address bar takes it: shell:Downloads, shell:Startup or ::{GUID}.
+// This PC comes as "This PC", and the bin and Network as P_TrashFolder and P_NetworkFolder name them; empty for anything else, and always where the system has no such names.
+function String P_ShellLocation(Arena *arena, String text);
 // Connects to the server at `address`, as "sftp://host/path" or "smb://server/share", with `password` when not empty, and gives in
 // `folder` the local folder it is reached at, as GVFS mounts it on Linux; a server that wants a password not given fails with
 // P_MountNeedsPassword. Windows reaches its servers by their \\server\share paths instead, so it fails there. Slow, so run it in a job.

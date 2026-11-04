@@ -1714,6 +1714,11 @@ function void TestRename(TestFileFixture *fixture)
         Check(P_NameError(&arena, S("NUL.log")).code && !P_NameError(&arena, S("plain.txt")).code);
         String longName = StrFormat(&arena, "%0256d", 0);
         Check(StrIndexStr(P_CreateItem(&arena, fixture->path, longName, true, &made).message, S("255"), SSF_None).exists);
+        // Shell locations name their folders as Explorer's address bar takes them; the computer, the bin and the network by Filey's own names.
+        Check(TestEndsWith(P_ShellLocation(&arena, S("shell:Windows")), S("/Windows")) && P_ShellLocation(&arena, S("shell:Windows")).value[1] == ':');
+        Check(StrIsEqual(P_ShellLocation(&arena, S("::{20D04FE0-3AEA-1069-A2D8-08002B30309D}")), S("This PC")));
+        Check(StrIsEqual(P_ShellLocation(&arena, S("shell:RecycleBinFolder")), P_TrashFolder(&arena)));
+        Check(!P_ShellLocation(&arena, S("shell:NoSuchFolderAnywhere")).length && !P_ShellLocation(&arena, S("C:/Windows")).length);
         // A name that only starts as a device's is fine.
         Check(!P_CreateItem(&arena, fixture->path, S("console"), true, &made).code);
         String console = Prog_JoinPath(&arena, fixture->path, made);

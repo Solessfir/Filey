@@ -1126,6 +1126,39 @@ function b32 P_PrefersDarkColors(void)
     return status != ERROR_SUCCESS || light == 0;
 }
 
+function String P_ShellLocation(Arena *arena, String text)
+{
+    b32 shell = text.length > 6 && !_strnicmp(text.value, "shell:", 6);
+    b32 guid = text.length > 3 && text.value[0] == ':' && text.value[1] == ':' && text.value[2] == '{';
+    if (!shell && !guid) return (String){0};
+    P__EnsureCom();
+    Scratch scratch = GetScratchEx(arena);
+    i32 units = text.length < INT32_MAX ? MultiByteToWideChar(CP_UTF8, 0, text.value, (i32)text.length, NULL, 0) : 0;
+    wchar *wide = units ? ArenaPushArray(scratch.arena, (u64)units + 1, wchar) : NULL;
+    if (wide) MultiByteToWideChar(CP_UTF8, 0, text.value, (i32)text.length, wide, units);
+    PIDLIST_ABSOLUTE list = NULL;
+    String result = {0};
+    if (wide && SUCCEEDED(SHParseDisplayName(wide, NULL, &list, 0, NULL)) && list) {
+        wchar path[MAX_PATH * 4] = {0};
+        if (SHGetPathFromIDListEx(list, path, CArrayCount(path), GPFIDL_DEFAULT) && path[0]) {
+            result = P__FileStringWide(arena, path, lstrlenW(path));
+            for (u64 i = 0; i < result.length; ++i) if (result.value[i] == '\\') ((char *)result.value)[i] = '/';
+        } else {
+            // The folders with no path of their own that Filey shows: the computer, the bin and the network.
+            local_persist const i32 known[] = { CSIDL_DRIVES, CSIDL_BITBUCKET, CSIDL_NETWORK };
+            for (u32 k = 0; k < CArrayCount(known) && !result.length; ++k) {
+                PIDLIST_ABSOLUTE other = NULL;
+                if (FAILED(SHGetSpecialFolderLocation(NULL, known[k], &other)) || !other) continue;
+                if (ILIsEqual(list, other)) result = known[k] == CSIDL_DRIVES ? S("This PC") : known[k] == CSIDL_BITBUCKET ? P_TrashFolder(arena) : P_NetworkFolder();
+                ILFree(other);
+            }
+        }
+        ILFree(list);
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function String P_TrashFolder(Arena *arena)
 {
     wchar drive[8] = {0};

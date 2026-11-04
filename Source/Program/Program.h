@@ -1959,7 +1959,11 @@ typedef struct Prog_State {
     Arena gotoArena;
     Prog_GoToListed gotoListing;
     b32 gotoListed;
-    b32 gotoFolded[Prog_GoToSection_Folder];  // sections shown by their title alone
+    b32 gotoFolded[Prog_GoToSection_Folder];
+    // The folder a shell location typed in Go To names, as shell:Downloads, resolved once for the text gotoShellText, in gotoShellArena.
+    Arena gotoShellArena;
+    String gotoShellText;
+    String gotoShellPath;  // sections shown by their title alone
     u32 gotoGroupsFolded;                     // and the user's own groups folded there, a bit each
     u32 gotoScroll;           // the first row shown
     // The texts the back and forward buttons go through, which every expansion adds to.

@@ -688,6 +688,7 @@ function String P_ComputerIconPath(void) { return S("computer:///"); }
 
 // ponytail: none until "//server" paths list a server's shares here, through smbclient or GVFS's smb mounts.
 function String P_NetworkFolder(void) { return (String){0}; }
+function String P_ShellLocation(Arena *arena, String text) { (void)arena, (void)text; return (String){0}; }
 
 function b32 P_PathsIgnoreCase(void) { return false; }
 

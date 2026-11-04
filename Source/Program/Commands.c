@@ -1126,8 +1126,29 @@ function u32 Prog_TabMatches(const Prog_State *state, u32 *out)
 }
 
 // `typed` as an absolute path, taken from the shown folder unless it starts at a root; empty when it cannot be one.
+// The folder `text` names as a shell location, such as shell:Downloads or ::{GUID}, asked of the system once for each text typed; empty for none.
+function String Prog__ShellLocation(Prog_State *state, String text)
+{
+    if (text.length < 4 || !((text.value[0] == ':' && text.value[1] == ':') || Prog__StartsFolded(text, S("shell:")))) return (String){0};
+    if (!StrIsEqual(text, state->gotoShellText)) {
+        ArenaClear(&state->gotoShellArena);
+        state->gotoShellText = StrCopy(&state->gotoShellArena, text);
+        state->gotoShellPath = P_ShellLocation(&state->gotoShellArena, text);
+    }
+    return state->gotoShellPath;
+}
+
+// The folder a Go To row's `path` opens: a shell location's, asked of the system now, once the row is used; the path itself for any other.
+function String Prog__GoToResolved(Prog_State *state, String path)
+{
+    String shell = Prog__ShellLocation(state, path);
+    return shell.length ? shell : path;
+}
+
 function String Prog__GoToPath(Prog_State *state, String typed)
 {
+    String shell = Prog__ShellLocation(state, typed);
+    if (shell.length) return shell;
     typed = P_ExpandVariables(&state->frameArena, typed, true);
     if (!typed.length) return typed;
     u8 separator = (u8)P_NativePath(&state->frameArena, S("/")).value[0];
@@ -1289,6 +1310,13 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
     for (u64 i = 0; i < text.length; ++i) if (text.value[i] == '/' || text.value[i] == separator) cut = (i64)i;
     *count = 0;
     *folder = (String){0};
+    // A shell location, as Explorer's address bar takes one, is the one row, asked of the system only once it is opened, as asking may wait on a network.
+    if (text.length >= 4 && ((text.value[0] == ':' && text.value[1] == ':') || Prog__StartsFolded(text, S("shell:")))) {
+        Prog_GoToItem *one = ArenaPushStruct(frame, Prog_GoToItem);
+        *one = (Prog_GoToItem){ .path = text, .section = Prog_GoToSection_Places, .name = text };
+        *count = 1;
+        return one;
+    }
     // Something typed searches a short list, as one list ranked by score, as the reference's Go To does: the drives, the places, the
     // folders the system names (Prog_SearchPlaces), the recents, files among them, the bookmarks, the folders of the user's own groups, and
     // Filey's own settings files. Each matches by its name and its shown path, and shows whatever its score, as long as it is above 0; the
@@ -5029,6 +5057,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
                     // With nothing found, the text itself is the place to go.
                     Prog_GoToItem item = chosen < count ? found[chosen] : (Prog_GoToItem){ Prog__GoToPath(state, Prog_EditText(&state->palette)), Prog_GoToSection_Folder, false, false, {0}, NULL };
+                    item.path = Prog__GoToResolved(state, item.path);
                     state->paletteOpen = false;
                     // Ctrl shows it in the panel instead: its folder, with it selected.
                     String name = Prog__FolderName(item.path), parent = Prog_ParentPath(item.path);
@@ -6060,14 +6089,14 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 b32 atEnd = state->palette.cursor == state->palette.length && state->palette.anchor == state->palette.cursor;
                 if (goTo && event->key == Key_Right && !(event->mods & (KeyMod_Control | KeyMod_Alt | KeyMod_Shift | KeyMod_Super)) && atEnd &&
                     state->paletteHighlight < count && !found[state->paletteHighlight].file) {
-                    Prog__GoToExpand(state, found[state->paletteHighlight].path);
+                    Prog__GoToExpand(state, Prog__GoToResolved(state, found[state->paletteHighlight].path));
                     continue;
                 }
                 // Autocomplete in Go To puts the highlighted folder in the box, to go on into it.
                 const Prog_Hotkey *boxKey = goTo ? Prog_FindHotkey(state, Prog_HotkeyScope_Text, Key_None, event->key, event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super)) : NULL;
                 if (boxKey && boxKey->command == Prog_CommandKind_TextAutocomplete) {
                     state->swallowText = true;
-                    if (state->paletteHighlight < count && !found[state->paletteHighlight].file) Prog__GoToExpand(state, found[state->paletteHighlight].path);
+                    if (state->paletteHighlight < count && !found[state->paletteHighlight].file) Prog__GoToExpand(state, Prog__GoToResolved(state, found[state->paletteHighlight].path));
                     continue;
                 }
                 // Its own hotkeys close it again.
