@@ -10415,6 +10415,8 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
                 String title = downloading ? StrFormat(&state->frameArena, TrF("Downloading into %S"), target)
                              : transfer->op == Prog_TransferOp_CompressVideo ? StrFormat(&state->frameArena, TrN(items, "Compressing %u video", "Compressing %u videos"), (u32)items)
                              : transfer->opening ? StrFormat(&state->frameArena, TrF("Extracting %S to open it"), target)
+                             : transfer->op == Prog_TransferOp_Pack ? StrFormat(&state->frameArena, TrN(items, "Compressing %u item into %S", "Compressing %u items into %S"), (u32)items, target)
+                             : transfer->op == Prog_TransferOp_ExtractHere || transfer->op == Prog_TransferOp_ExtractToFolder ? StrFormat(&state->frameArena, TrF("Extracting into %S"), target)
                              : transfer->move ? StrFormat(&state->frameArena, TrN(items, "Moving %u item to %S", "Moving %u items to %S"), (u32)items, target)
                                               : StrFormat(&state->frameArena, TrN(items, "Copying %u item to %S", "Copying %u items to %S"), (u32)items, target);
                 // A narrow card's title has the line to itself, its buttons going beside the name, and its percent beside the amount.

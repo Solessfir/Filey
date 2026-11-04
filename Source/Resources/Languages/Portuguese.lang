@@ -1295,6 +1295,18 @@ Restore failed
 Move failed
 = Falha ao mover
 
+Compress failed
+= Falha ao compactar
+
+Extract failed
+= Falha ao extrair
+
+Compressing %u items into %S
+= Compactando %u item em %S | Compactando %u itens em %S
+
+Extracting into %S
+= Extraindo para %S
+
 Copy failed
 = Falha ao copiar
 

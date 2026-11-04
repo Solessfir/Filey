@@ -1293,6 +1293,18 @@ Restore failed
 Move failed
 = Не удалось переместить
 
+Compress failed
+= Не удалось сжать
+
+Extract failed
+= Не удалось распаковать
+
+Compressing %u items into %S
+= Сжатие %u элемента в %S | Сжатие %u элементов в %S | Сжатие %u элементов в %S
+
+Extracting into %S
+= Распаковка в %S
+
 Copy failed
 = Не удалось скопировать
 

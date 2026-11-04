@@ -1295,6 +1295,18 @@ Restore failed
 Move failed
 = Échec du déplacement
 
+Compress failed
+= Échec de la compression
+
+Extract failed
+= Échec de l'extraction
+
+Compressing %u items into %S
+= Compression de %u élément dans %S | Compression de %u éléments dans %S
+
+Extracting into %S
+= Extraction dans %S
+
 Copy failed
 = Échec de la copie
 

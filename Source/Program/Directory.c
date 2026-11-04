@@ -8364,12 +8364,15 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             P_FileError error = created ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
             String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? NoTr("Download") : input->kind == Prog_JobKind_Trash ? NoTr("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? NoTr("Delete") : input->kind == Prog_JobKind_Create ? NoTr("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
-                          input->kind == Prog_JobKind_Restore ? NoTr("Restore") : input->move ? NoTr("Move") : NoTr("Copy");
+                          input->kind == Prog_JobKind_Restore ? NoTr("Restore") : input->transferOp == Prog_TransferOp_Pack ? NoTr("Compress") :
+                          input->transferOp == Prog_TransferOp_ExtractHere || input->transferOp == Prog_TransferOp_ExtractToFolder ? NoTr("Extract") : input->move ? NoTr("Move") : NoTr("Copy");
             // One stopped from its card, with Escape or in the system's own progress window ends without an error.
             if (error.code && !P_IsCancelled(&job->cancelToken) && !P_FileErrorIsCancel(error)) {
                 String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Remove failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
                               : input->kind == Prog_JobKind_Create ? Tr("Create failed") : input->kind == Prog_JobKind_Link ? Tr("Paste shortcut failed")
-                              : input->kind == Prog_JobKind_Restore ? Tr("Restore failed") : input->move ? Tr("Move failed") : Tr("Copy failed");
+                              : input->kind == Prog_JobKind_Restore ? Tr("Restore failed") : input->transferOp == Prog_TransferOp_Pack ? Tr("Compress failed")
+                              : input->transferOp == Prog_TransferOp_ExtractHere || input->transferOp == Prog_TransferOp_ExtractToFolder ? Tr("Extract failed")
+                              : input->move ? Tr("Move failed") : Tr("Copy failed");
                 // A trash or delete that fails leaves the files as they were, which is no harm done.
                 b32 harmless = input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash;
                 Prog_Notify(state, harmless ? Prog_NoticeKind_Warning : Prog_NoticeKind_Error, Prog__NoticeKey(&state->frameArena, verb), failed, error.message);

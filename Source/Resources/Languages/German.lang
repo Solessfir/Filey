@@ -1294,6 +1294,18 @@ Restore failed
 Move failed
 = Verschieben fehlgeschlagen
 
+Compress failed
+= Komprimieren fehlgeschlagen
+
+Extract failed
+= Entpacken fehlgeschlagen
+
+Compressing %u items into %S
+= %u Element wird in %S komprimiert | %u Elemente werden in %S komprimiert
+
+Extracting into %S
+= Wird nach %S entpackt
+
 Copy failed
 = Kopieren fehlgeschlagen
 

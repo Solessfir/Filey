@@ -1294,6 +1294,18 @@ Restore failed
 Move failed
 = 移动失败
 
+Compress failed
+= 压缩失败
+
+Extract failed
+= 解压失败
+
+Compressing %u items into %S
+= 正在将 %u 个项目压缩到 %S
+
+Extracting into %S
+= 正在解压到 %S
+
 Copy failed
 = 复制失败
 
