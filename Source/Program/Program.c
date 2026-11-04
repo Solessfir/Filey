@@ -5639,7 +5639,7 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
         if (icon.length) Prog__Icon(icon, slot, m->row, color, 0, m);
         if (state->layoutSaving && state->nameFor == 1 && (u32)group == Prog_Group_Count + state->nameGroup) Prog__SidebarNameBox(state, m->row, m);
         else Prog__Label(title, UI_Flex(), m->row, 0, color, 0);
-        Prog__Icon(Prog_GroupOpen(state, group) || state->sidebarFilter.length ? Icon_ChevronDown : Icon_ChevronRight, m->line * 1.5f, m->row, color, 0.5f, m);
+        Prog__Icon(Prog_GroupShown(state, group) ? Icon_ChevronDown : Icon_ChevronRight, m->line * 1.5f, m->row, color, 0.5f, m);
     }
 }
 
@@ -5958,8 +5958,8 @@ function void Prog__SidebarTree(Prog_State *state, u32 node, u32 depth, const Pr
 // when the items need no blocks.
 function UI_Block *Prog__GroupBody(Prog_State *state, Prog_Group group, const Prog_Metrics *m)
 {
-    // A filter shows what it finds in every group.
-    b32 open = Prog_GroupOpen(state, group) || state->sidebarFilter.length;
+    // A filter shows what it finds in every group, unless folded while it does.
+    b32 open = Prog_GroupShown(state, group);
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "GroupBody/%u", (u32)group));
     UI_Block *last = UI__Find(key);
     f32 full = last ? last->contentSize.y : 0;
@@ -6047,6 +6047,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         state->sidebarAtOrder = settled;
     }
     ArenaClear(&state->sidebarStopArena);
+    if (!state->sidebarFilter.length) state->groupsFilterFolded = 0;
     state->sidebarStops = NULL;
     state->sidebarStopCount = state->sidebarStopRoom = 0;
     state->sidebarRect = sidebar->rect;

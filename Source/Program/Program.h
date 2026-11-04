@@ -2155,6 +2155,7 @@ typedef struct Prog_State {
     f32 sidebarWidth;         // logical pixels its edge was dragged to; 0 for the default
     f32 sidebarGrab;          // how far right of its edge line the pointer took it
     PlatformCursor cursor;    // the pointer's shape the last build asked for, over an edge that drags
+    u32 groupsFilterFolded;  // the groups folded, by their numbers' bits, while the Quick Access filter shows the others open, until it is cleared
     b32 groupToggled[Prog_Group_Count];  // differs from the group's default, which is open for bookmarks and storage
     // The sidebar's folder tree, sidebar.tree: the drives and shares unfold to their folders, by path in treeMap, each listed in a job as it unfolds, treeListings of them under way, and down to the folder shown, treeFollowed, as it changes, which then scrolls into sight once its row is laid out, while treeReveal.
     // Past twice the folders and the bytes it kept the last time it was copied down to what it shows, treeKept and treeKeptBytes, it is copied again.

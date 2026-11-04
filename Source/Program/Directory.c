@@ -5790,6 +5790,13 @@ function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group)
     return open != (state->groupToggled[group] != 0);
 }
 
+// Whether the sidebar shows the group open: as it was left, or while the Quick Access filter finds in it, unless folded since.
+function b32 Prog_GroupShown(const Prog_State *state, Prog_Group group)
+{
+    if (!state->sidebarFilter.length) return Prog_GroupOpen(state, group);
+    return (u32)group >= 32 || !(state->groupsFilterFolded & (1u << (u32)group));
+}
+
 function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, void *user)
 {
     state->longPaths = P_LongPathsEnabled();

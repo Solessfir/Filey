@@ -2246,9 +2246,13 @@ function void TestQuickAccessFilter(TestFileFixture *fixture)
     TestRenameKey(&state, Key_O, 0);
     TestRenameType(&state, S("o"));
     Check(StrIsEqual(Prog_EditText(&state.sidebarFilter), S("dlo")));
+    // A group folded while the filter shows every group stays folded until it is cleared, leaving how it was left alone.
+    b32 left = Prog_GroupOpen(&state, Prog_Group_Places);
+    TestBrowsingCommand(&state, Prog_CommandKind_ToggleGroup, Prog_Group_Places);
+    Check(!Prog_GroupShown(&state, Prog_Group_Places) && Prog_GroupShown(&state, Prog_Group_Recents) && Prog_GroupOpen(&state, Prog_Group_Places) == left);
     // Escape clears it.
     TestRenameKey(&state, Key_Escape, 0);
-    Check(!state.sidebarFiltering && !state.sidebarFilter.length && Prog__SidebarFinds(&state, S("Desktop")));
+    Check(!state.sidebarFiltering && !state.sidebarFilter.length && Prog__SidebarFinds(&state, S("Desktop")) && Prog_GroupShown(&state, Prog_Group_Places) == left);
     // Enter opens the first folder it found, as the last build laid the sidebar out, and clears it.
     Arena arena = {0};
     String folder = Prog_JoinPath(&arena, fixture->path, S("Folder2"));

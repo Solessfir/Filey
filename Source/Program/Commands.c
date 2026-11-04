@@ -3788,6 +3788,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_QuickAccessFilterCancel: {
                 state->sidebarFiltering = false;
+                state->groupsFilterFolded = 0;
                 state->sidebarFilter.length = state->sidebarFilter.cursor = state->sidebarFilter.anchor = 0;
                 ++state->sidebarFilter.version;
             } break;
@@ -4018,6 +4019,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog__MenuMove(state, 1);
             } break;
             case Prog_CommandKind_ToggleGroup: {
+                // While the filter shows every group, a fold lasts until it is cleared.
+                if (state->sidebarFilter.length) {
+                    if (command->row < 32) state->groupsFilterFolded ^= 1u << command->row;
+                    break;
+                }
                 if (command->row < Prog_Group_Count) state->groupToggled[command->row] = !state->groupToggled[command->row];
                 else Prog_UserGroupFold(state, (u32)(command->row - Prog_Group_Count));
             } break;
@@ -5628,13 +5634,13 @@ function b32 Prog__SidebarKey(Prog_State *state, const PlatformEvent *event, u64
     }
     // Left folds what is open and otherwise goes up to the row it is under; Right unfolds what is shut and otherwise goes into it.
     if (plain && key == Key_Left) {
-        if (stop->title && Prog_GroupOpen(state, (Prog_Group)stop->group)) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, stop->group, 0, order);
+        if (stop->title && Prog_GroupShown(state, (Prog_Group)stop->group)) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, stop->group, 0, order);
         else if (!stop->title && treeOpen) Prog_QueueCommand(state, Prog_CommandKind_SidebarTreeToggle, stop->node, 0, order);
         else for (u32 i = at; i-- > 0;) if (state->sidebarStops[i].depth < stop->depth) { Prog__SidebarGo(state, i); break; }
         return true;
     }
     if (plain && key == Key_Right) {
-        if (stop->title && !Prog_GroupOpen(state, (Prog_Group)stop->group)) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, stop->group, 0, order);
+        if (stop->title && !Prog_GroupShown(state, (Prog_Group)stop->group)) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, stop->group, 0, order);
         else if (!stop->title && stop->node < state->treeNodes.header.count && !treeOpen) Prog_QueueCommand(state, Prog_CommandKind_SidebarTreeToggle, stop->node, 0, order);
         else if (at + 1 < count && state->sidebarStops[at + 1].depth > stop->depth) Prog__SidebarGo(state, at + 1);
         return true;
