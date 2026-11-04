@@ -6077,6 +6077,15 @@ function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, 
 {
     Prog__EnsureTab(state);
     if (state->panelCount >= Prog_MaxPanels || index >= state->panelCount || !path.length) return UINT32_MAX;
+    // Halves too narrow or too short to show a list in are not made; a panel not laid out yet has no size to go by.
+    R_Rect rect = index == state->currentPanel ? state->panelRect : state->panels[index].panelRect;
+    // The scale the UI was last built at, the settings' included.
+    f32 unit = state->iconScale > 0 ? state->iconScale : 1;
+    f32 room = kind == Prog_SplitKind_Horizontal ? rect.x1 - rect.x0 : rect.y1 - rect.y0, least = (kind == Prog_SplitKind_Horizontal ? 240.0f : 160.0f) * unit;
+    if (room > 0 && room * 0.5f < least) {
+        Prog_Notify(state, Prog_NoticeKind_Warning, S("split.room"), Tr("No room to split"), Tr("The panel is too small to split this way."));
+        return UINT32_MAX;
+    }
     u32 leaf = Prog__SplitOf(state, state->panels[index].id);
     u32 kept = Prog__FreeSplit(state);
     if (leaf == UINT32_MAX || kept == UINT32_MAX) return UINT32_MAX;

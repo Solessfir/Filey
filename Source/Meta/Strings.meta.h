@@ -624,6 +624,8 @@ global const char *const Prog_Strings[] = {
     "Report on GitHub",
     "Downloading Filey %S...",
     "Cannot resolve the initial directory",
+    "No room to split",
+    "The panel is too small to split this way.",
     "Nothing to redo",
     "Nothing to undo",
     "Couldn't save the layouts",

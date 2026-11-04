@@ -3654,3 +3654,9 @@ Agent Access
 
 Lets AI agents see what Filey shows and act in it, through filey --mcp, which an agent starts as an MCP server.
 = Позволяет ИИ-агентам видеть, что показывает Filey, и действовать в нём через filey --mcp, который агент запускает как MCP-сервер.
+
+No room to split
+= Нет места для разделения
+
+The panel is too small to split this way.
+= Панель слишком мала, чтобы разделить её так.
