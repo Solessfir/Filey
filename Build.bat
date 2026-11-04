@@ -87,8 +87,13 @@ if "%TEST%"=="1" (
 :: install replaces the copy Filey Setup installed, when there is one; a running copy is moved aside, as Setup does, and goes once nothing runs it.
 if "%INSTALL%"=="1" (
     if exist "%LOCALAPPDATA%\Filey\Filey.exe" (
-        del "%LOCALAPPDATA%\Filey\Filey.old.exe" 2>nul
-        move /y "%LOCALAPPDATA%\Filey\Filey.exe" "%LOCALAPPDATA%\Filey\Filey.old.exe" >nul || exit /b 1
+        rem A copy moved aside before may still run, so it goes once it no longer does, and this one takes a numbered name meanwhile.
+        del "%LOCALAPPDATA%\Filey\Filey.old.exe" "%LOCALAPPDATA%\Filey\Filey.old-*.exe" >nul 2>nul
+        if exist "%LOCALAPPDATA%\Filey\Filey.old.exe" (
+            move /y "%LOCALAPPDATA%\Filey\Filey.exe" "%LOCALAPPDATA%\Filey\Filey.old-%RANDOM%%RANDOM%.exe" >nul || exit /b 1
+        ) else (
+            move /y "%LOCALAPPDATA%\Filey\Filey.exe" "%LOCALAPPDATA%\Filey\Filey.old.exe" >nul || exit /b 1
+        )
         copy /y "%OUT%\Filey.exe" "%LOCALAPPDATA%\Filey\Filey.exe" >nul || exit /b 1
         echo Installed to %LOCALAPPDATA%\Filey
     ) else (
