@@ -2452,6 +2452,8 @@ function void Prog_BeginRename(Prog_State *state, u64 row);
 function void Prog_SetTransparent(Prog_State *state, b32 transparent);
 function String Prog_EditText(const Prog_TextEdit *edit);
 function String Prog_EntryLeaf(String name);
+// A link whose target is gone, which the platform could not read through; Windows' listing reads the link itself, so there it never is.
+function b32 Prog_EntryBrokenLink(const Prog_Entry *entry);
 function String Prog_EntryParent(String name);
 function b32 Prog_FilterMatch(String name, String filter, u8 *marks);
 function String Prog_HexDump(Arena *arena, String bytes, b32 cut);

@@ -613,6 +613,7 @@ global const char *const Prog_Strings[] = {
     "There is no folder to download into.",
     "The download failed.",
     "The download holds no Filey for this system.",
+    "Broken link",
     "Folder link",
     "Link",
     "Couldn't pull",

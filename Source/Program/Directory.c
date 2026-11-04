@@ -231,6 +231,11 @@ function u8 Prog__FoldAscii(u8 c)
 }
 
 // The last component of an entry's name, which in an expanded listing is a path.
+function b32 Prog_EntryBrokenLink(const Prog_Entry *entry)
+{
+    return entry->file.symbolicLink && !entry->file.metadataValid;
+}
+
 function String Prog_EntryLeaf(String name)
 {
     Index slash = StrIndexChar(name, '/', SSF_SearchBackwards);
@@ -3729,7 +3734,7 @@ function void Prog__FillListing(Arena *arena, const Prog_JobInput *input, P_File
             MapsPut(arena, types, StrCopy(arena, typeKey), entry->type);
         }
         ArenaPopTo(keys.arena, mark);
-        if (file.symbolicLink) entry->type = file.kind == P_FileKind_Directory ? TrMark("Folder link") : TrMark("Link");
+        if (file.symbolicLink) entry->type = Prog_EntryBrokenLink(entry) ? TrMark("Broken link") : file.kind == P_FileKind_Directory ? TrMark("Folder link") : TrMark("Link");
     }
     ReleaseScratch(keys);
     if (input->expanded) ProfileScope("FolderTotals") {

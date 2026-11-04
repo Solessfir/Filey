@@ -4312,10 +4312,10 @@ function b32 Prog__EntryCut(const Prog_State *state, const Prog_Entry *entry)
     return result;
 }
 
-// Hidden and dot-named items are faded whether or not the OS marks them hidden.
+// Hidden and dot-named items are faded whether or not the OS marks them hidden, and so is a link whose target is gone.
 function b32 Prog__EntryFaded(const Prog_Entry *entry)
 {
-    return entry->file.hidden || (entry->file.name.length && entry->file.name.value[0] == '.');
+    return entry->file.hidden || (entry->file.name.length && entry->file.name.value[0] == '.') || Prog_EntryBrokenLink(entry);
 }
 
 // The item's system icon drawn at `size` in a `width` x `height` slot, or a glyph while it loads or when it has none.

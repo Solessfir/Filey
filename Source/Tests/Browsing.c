@@ -2430,6 +2430,19 @@ function void TestContainingPath(TestFileFixture *fixture)
     String link = Prog_JoinPath(&arena, fixture->path, S("inside-link"));
     Check(symlink(P__FilePathCString(&arena, file), P__FilePathCString(&arena, link)) == 0);
     Check(P_RealPath(&arena, link, &real) && TestEndsWith(real, S("/Folder2/inside.txt")));
+    // A link whose target is gone is listed as broken, and faded; one that leads somewhere is not.
+    String gone = Prog_JoinPath(&arena, fixture->path, S("gone-link"));
+    Check(symlink(P__FilePathCString(&arena, Prog_JoinPath(&arena, fixture->path, S("missing.txt"))), P__FilePathCString(&arena, gone)) == 0);
+    {
+        Prog_State listed = {0};
+        Check(Prog_Init(&listed, fixture->path, NULL, NULL) && TestWaitDirectory(&listed));
+        u64 broken = TestEntryIndex(&listed, S("gone-link")), working = TestEntryIndex(&listed, S("inside-link"));
+        Check(broken != UINT64_MAX && Prog_EntryBrokenLink(&listed.directory.entries[broken]) && StrIsEqual(listed.directory.entries[broken].type, S("Broken link")));
+        Check(Prog__EntryFaded(&listed.directory.entries[broken]));
+        Check(working != UINT64_MAX && !Prog_EntryBrokenLink(&listed.directory.entries[working]) && StrIsEqual(listed.directory.entries[working].type, S("Link")));
+        Prog_Release(&listed);
+    }
+    Check(P__TestRemovePath(fixture, S("gone-link"), false));
     Check(P__TestRemovePath(fixture, S("inside-link"), false));
 #endif
     // The command shows the focused item of an expanded listing selected in the folder it really is in.
