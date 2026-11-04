@@ -2357,6 +2357,34 @@ function u32 Prog__GitStatusCommand(Arena *arena, String folder, String untracke
     return count;
 }
 
+// Whether a change not committed, in `changes` as status gives them, is in a file the commits to pull change, which would stop a pull;
+// true too when that cannot be told.
+function b32 Prog__PullClashes(Arena *arena, String folder, String changes)
+{
+    String asked[] = { S("git"), S("diff"), S("--no-relative"), S("--no-ext-diff"), S("--name-only"), S("-z"), S("HEAD"), S("@{upstream}") }, pulled = {0};
+    if (!P_RunCommand(arena, folder, asked, CArrayCount(asked), 5000, &pulled, false)) return true;
+    struct { MapHeader header; struct { String key; b32 value; } *v; } incoming = {0};
+    for (String rest = pulled; rest.length;) {
+        Index end = StrIndexChar(rest, '\0', SSF_CountOnFail);
+        if (end.value) MapsPut(arena, incoming, StrFromTo(rest, 0, (i64)end.value), true);
+        rest = StrFrom(rest, Min(end.value + 1, rest.length));
+    }
+    // Each entry is two letters, a space and its path; a rename or copy has its old path after it as another entry.
+    for (String rest = changes; rest.length > 3;) {
+        Index end = StrIndexChar(rest, '\0', SSF_CountOnFail);
+        String entry = StrFromTo(rest, 0, (i64)end.value);
+        b32 moved = entry.value[0] == 'R' || entry.value[0] == 'C' || entry.value[1] == 'R' || entry.value[1] == 'C';
+        rest = StrFrom(rest, Min(end.value + 1, rest.length));
+        if (entry.length > 3 && MapsGet(incoming, b32, StrFrom(entry, 3))) return true;
+        if (moved) {
+            Index from = StrIndexChar(rest, '\0', SSF_CountOnFail);
+            if (MapsGet(incoming, b32, StrFromTo(rest, 0, (i64)from.value))) return true;
+            rest = StrFrom(rest, Min(from.value + 1, rest.length));
+        }
+    }
+    return false;
+}
+
 // The git status of the repository `folder` is in.
 function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
 {
@@ -2380,7 +2408,9 @@ function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
         // Without the index's optional lock, which would get in the way of the user's own git commands.
         String status[Prog_GitStatusMost], changes = {0};
         u32 statusCount = Prog__GitStatusCommand(arena, folder, S("--untracked-files=normal"), status);
-        if (P_RunCommand(arena, folder, status, statusCount, 5000, &changes, false)) Prog_ReadGitChanges(arena, at, folder, changes, &result);
+        b32 listed = P_RunCommand(arena, folder, status, statusCount, 5000, &changes, false);
+        if (listed) Prog_ReadGitChanges(arena, at, folder, changes, &result);
+        result.pullable = listed && result.behind > 0 && result.ahead == 0 && !Prog__PullClashes(arena, folder, changes);
         break;
     }
     return result;
@@ -4484,7 +4514,7 @@ function void Prog_ToggleBranches(Prog_State *state)
 function b32 Prog_CanPull(const Prog_State *state)
 {
     u64 root = MapHashBytes(state->git.root.value, state->git.root.length);
-    return state->git.branch.length && !state->gitPullJob && !(state->gitFetchJob && state->gitFetchHash == root);
+    return state->git.branch.length && state->git.pullable && !state->gitPullJob && !(state->gitFetchJob && state->gitFetchHash == root);
 }
 
 // Pulls the shown folder's repository's new commits in a job, one at a time; a pull fetches too, which counts as the repository's fetch.
@@ -8151,7 +8181,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (status && StrIsEqual(input->path, state->directory.path)) {
                 ArenaClear(&state->gitArena);
                 state->git = (Prog_GitStatus){ .branch = StrCopy(&state->gitArena, status->branch), .root = StrCopy(&state->gitArena, status->root),
-                                               .folder = StrCopy(&state->gitArena, input->path), .ahead = status->ahead, .behind = status->behind, .changes = status->changes };
+                                               .folder = StrCopy(&state->gitArena, input->path), .ahead = status->ahead, .behind = status->behind, .pullable = status->pullable,
+                                               .changes = status->changes };
                 MemCopy(state->git.counts, status->counts, sizeof(state->git.counts));
                 for (u64 i = 0; i < status->marks.header.count; ++i) {
                     MapsPut(&state->gitArena, state->git.marks, StrCopy(&state->gitArena, status->marks.v[i].key), status->marks.v[i].value);

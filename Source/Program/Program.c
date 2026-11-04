@@ -3407,8 +3407,8 @@ function void Prog__GitStatus(Prog_State *state, const Prog_Metrics *m)
             Prog__Label(changes[mark], UI_TextContent(), inner, 0, Prog__Muted(Prog__GitInk((Prog_GitMark)mark)), 0);
         }
     }
-    // Commits to pull are pulled by the button beside it, as git can without merging.
-    if (state->git.behind > 0) {
+    // Commits to pull are pulled by the button beside it, shown only where git can bring them in without merging or touching a change not committed.
+    if (state->git.pullable) {
         UI_Interaction pull = Prog__TextButton(StrFormat(frame, "GitPull/%" PRIu64, Prog__PanelId(state)), Icon_Download, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)),
                                                Prog__ToolbarButtonHeight(m), 0, theme->icon, theme->text, theme->iconDisabled, Prog_CanPull(state), m);
         Prog__NoteTooltip(state, Prog_CommandKind_GitPull, (String){0});

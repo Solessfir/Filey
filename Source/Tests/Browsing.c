@@ -2259,6 +2259,43 @@ function void TestRepoCommits(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+// The pull button shows only where a pull can go through as it is: behind the upstream and not ahead of it, with no change not committed in a
+// file the commits to pull change. Made here with git, which the tests need on the PATH.
+function void TestPullable(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String repos = Prog_JoinPath(&arena, fixture->path, S("Pulls")), mine = Prog_JoinPath(&arena, repos, S("mine")), theirs = Prog_JoinPath(&arena, repos, S("theirs")), made = {0}, output = {0};
+    Check(!P_CreateItem(&arena, fixture->path, S("Pulls"), true, &made).code);
+    String init[] = { S("git"), S("init"), S("-q"), S("--bare"), S("origin.git") };
+    String cloneMine[] = { S("git"), S("clone"), S("-q"), S("origin.git"), S("mine") }, cloneTheirs[] = { S("git"), S("clone"), S("-q"), S("origin.git"), S("theirs") };
+    String add[] = { S("git"), S("add"), S("-A") }, fetch[] = { S("git"), S("fetch"), S("-q") }, push[] = { S("git"), S("push"), S("-q"), S("-u"), S("origin"), S("HEAD") };
+    String commit[] = { S("git"), S("-c"), S("user.name=Test"), S("-c"), S("user.email=test@example.com"), S("-c"), S("commit.gpgsign=false"), S("commit"), S("-q"), S("-m"), S("c") };
+    b32 ready = P_RunCommand(&arena, repos, init, CArrayCount(init), 10000, &output, false) && P_RunCommand(&arena, repos, cloneMine, CArrayCount(cloneMine), 10000, &output, false);
+    ready = ready && !P_WriteFile(&arena, Prog_JoinPath(&arena, mine, S("a.txt")), S("a")).code && !P_WriteFile(&arena, Prog_JoinPath(&arena, mine, S("b.txt")), S("b")).code;
+    ready = ready && P_RunCommand(&arena, mine, add, CArrayCount(add), 10000, &output, false) && P_RunCommand(&arena, mine, commit, CArrayCount(commit), 10000, &output, false) &&
+            P_RunCommand(&arena, mine, push, CArrayCount(push), 10000, &output, false) && P_RunCommand(&arena, repos, cloneTheirs, CArrayCount(cloneTheirs), 10000, &output, false);
+    // Another clone changes a.txt upstream, which this one then knows of.
+    ready = ready && !P_WriteFile(&arena, Prog_JoinPath(&arena, theirs, S("a.txt")), S("theirs")).code && P_RunCommand(&arena, theirs, add, CArrayCount(add), 10000, &output, false) &&
+            P_RunCommand(&arena, theirs, commit, CArrayCount(commit), 10000, &output, false) && P_RunCommand(&arena, theirs, push, CArrayCount(push), 10000, &output, false) &&
+            P_RunCommand(&arena, mine, fetch, CArrayCount(fetch), 10000, &output, false);
+    Check(ready);
+    if (ready) {
+        Prog_GitStatus git = Prog_FindGitStatus(&arena, mine);
+        Check(git.behind == 1 && git.ahead == 0 && git.pullable);
+        // A change of its own to another file leaves it pullable; one to the file the pull changes does not.
+        Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, mine, S("b.txt")), S("mine")).code);
+        Check(Prog_FindGitStatus(&arena, mine).pullable);
+        Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, mine, S("a.txt")), S("mine")).code);
+        Check(!Prog_FindGitStatus(&arena, mine).pullable);
+        // Ahead too, it could only merge.
+        Check(P_RunCommand(&arena, mine, add, CArrayCount(add), 10000, &output, false) && P_RunCommand(&arena, mine, commit, CArrayCount(commit), 10000, &output, false));
+        git = Prog_FindGitStatus(&arena, mine);
+        Check(git.ahead == 1 && git.behind == 1 && !git.pullable);
+    }
+    Check(!P_DeleteItems(&arena, &repos, 1, false, NULL).code && !P_PathExists(repos));
+    ArenaRelease(&arena);
+}
+
 // The Quick Access filter: its hotkey gives its box the keyboard, typing finds sidebar items by their names' letters in order, Enter keeps the
 // filter and hands the keyboard back, Escape takes back what was typed since the box got the keyboard, and the clear button clears it.
 function void TestQuickAccessFilter(TestFileFixture *fixture)
@@ -5583,6 +5620,7 @@ function void TestBrowsing(void)
         TestQuickAccessFilter(&fixture);
         TestGitFetchLimit(&fixture);
         TestRepoCommits(&fixture);
+        TestPullable(&fixture);
         TestTextIndex(&fixture);
         TestEncryptedSevenZip(&fixture);
         TestStaleRunFolders(&fixture);

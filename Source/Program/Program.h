@@ -716,6 +716,7 @@ typedef struct Prog_GitStatus {
     String root;     // the repository's folder
     String folder;   // the folder it was found for, which a panel's tabs share it between
     i32 ahead, behind;
+    b32 pullable;    // behind its upstream and not ahead of it, with no change of its own in a file the pull brings: one git pulls forward as it is
     u32 changes;
     u32 counts[Prog_GitMark_Count];  // the changes by kind, a deletion counted as a change
     Prog_GitMarks marks;
