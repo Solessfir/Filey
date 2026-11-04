@@ -2715,6 +2715,12 @@ A name can't contain /
 A name can't be . or ..
 = 名称不能是 . 或 ..
 
+No room for another tab
+= 没有空间再开标签页
+
+Close a tab to open one more.
+= 关闭一个标签页后才能再打开。
+
 Broken link
 = 失效的链接
 

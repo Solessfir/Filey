@@ -263,7 +263,7 @@ function b32 Prog__WentOn(const Prog_State *state, Arena *arena, String focusedA
 
 function b32 Prog_EntryBrokenLink(const Prog_Entry *entry)
 {
-    return entry->file.symbolicLink && entry->file.linkBroken;
+    return entry->file.linkBroken;
 }
 
 // The last component of an entry's name, which in an expanded listing is a path.
@@ -2835,10 +2835,11 @@ function void Prog__DirectoryJob(P_Job *job)
         String copy = input->kind == Prog_JobKind_Open ? Prog_ArchiveCopy(&job->arena, input->path, input->progress, &job->cancelToken) : (String){0};
         String problem = input->kind == Prog_JobKind_Rename ? Prog_NameProblem(input->newName) : (String){0};
         if (!P_IsCancelled(&job->cancelToken)) {
+            P_FileError refused = input->kind == Prog_JobKind_Rename && !problem.length ? P_NameError(&job->arena, input->newName) : (P_FileError){0};
             *error = input->explorer ? P_OpenFileExplorer(&job->arena, input->path)
                    : input->kind == Prog_JobKind_Open ? P_OpenPath(&job->arena, copy.length ? copy : input->path, (P_FileOrder){ input->sort, (b8)input->descending })
                                                       : problem.length ? (P_FileError){ 1, problem }
-                                                      : P_NameError(&job->arena, input->newName).code ? P_NameError(&job->arena, input->newName)
+                                                      : refused.code ? refused
                                                       : P_RenamePath(&job->arena, input->path, input->name, input->newName);
         }
         job->result = error;
@@ -7657,8 +7658,7 @@ function void Prog_OpenPaths(Prog_State *state, String text)
         }
         // A file, as Show in Filey passes one, opens its folder with it selected.
         if (file) {
-            Prog_ShowInFolder(state, path, true);
-            if (inspect) state->previewShown = true;
+            if (Prog_ShowInFolder(state, path, true) && inspect) state->previewShown = true;
             continue;
         }
         Prog_OpenTab(state, path, into != UINT32_MAX ? Min(state->foreignSlot, state->tabCount) : state->activeTab + 1, !kept);
@@ -7667,11 +7667,15 @@ function void Prog_OpenPaths(Prog_State *state, String text)
     }
 }
 
-// Shows the item at `path` selected in its folder, in a new tab after the active one with `inTab`.
-function void Prog_ShowInFolder(Prog_State *state, String path, b32 inTab)
+// Shows the item at `path` selected in its folder, in a new tab after the active one with `inTab`; false when it cannot, as with no room for another tab, which a notice says.
+function b32 Prog_ShowInFolder(Prog_State *state, String path, b32 inTab)
 {
     String parent = Prog_ParentPath(path), name = Prog__FolderName(path);
-    if (!parent.length || StrIsEqual(parent, path) || name.length > sizeof(state->selectText)) return;
+    if (!parent.length || StrIsEqual(parent, path) || name.length > sizeof(state->selectText)) return false;
+    if (inTab && state->tabCount >= Prog_MaxTabs) {
+        Prog_Notify(state, Prog_NoticeKind_Warning, S("tabs.full"), Tr("No room for another tab"), Tr("Close a tab to open one more."));
+        return false;
+    }
     if (inTab) Prog_OpenTab(state, parent, state->activeTab + 1, true);
     Prog_SelectNext(state, name);
     // It scrolls into sight, though a tab from the session would start scrolled where it was.
@@ -7681,6 +7685,7 @@ function void Prog_ShowInFolder(Prog_State *state, String path, b32 inTab)
         state->expanded = false;
         Prog_RequestDirectory(state, parent, !Prog__SamePath(parent, Prog_TabPath(state, state->activeTab)), 0);
     }
+    return true;
 }
 
 function void Prog_SelectTab(Prog_State *state, u32 index)

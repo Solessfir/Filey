@@ -2115,15 +2115,17 @@ function void Prog__BlendFrameLane(void *user, u32 lane)
     (void)lane;
     Prog__BlendFrames *frames = user;
     // A corrupt frame jumps out past ZSTD_decompress's own free of its dictionary, so the lane keeps one.
-    dictionary_t *dict = create_dictionary();
+    // Making it may jump out too, when memory runs out, so the jump is set first.
+    dictionary_t *volatile dict = NULL;
     jmp_buf failed;
     zstd_error_jump = &failed;
     if (setjmp(failed)) {
         atomic_store(&frames->failed, true);
-        free_dictionary(dict);
+        if (dict) free_dictionary(dict);
         zstd_error_jump = NULL;
         return;
     }
+    dict = create_dictionary();
     for (u64 i; !atomic_load(&frames->failed) && (i = atomic_fetch_add(&frames->next, 1)) < frames->count;) {
         u64 unpacked = frames->to[i + 1] - frames->to[i];
         if (ZSTD_decompress_with_dict(frames->out + frames->to[i], unpacked, frames->in + frames->from[i], frames->from[i + 1] - frames->from[i], dict) != unpacked) atomic_store(&frames->failed, true);

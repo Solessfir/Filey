@@ -2714,6 +2714,12 @@ A name can't contain /
 A name can't be . or ..
 = Имя не может быть . или ..
 
+No room for another tab
+= Нет места для ещё одной вкладки
+
+Close a tab to open one more.
+= Закройте вкладку, чтобы открыть ещё одну.
+
 Broken link
 = Битая ссылка
 

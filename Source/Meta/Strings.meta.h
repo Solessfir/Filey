@@ -634,6 +634,8 @@ global const char *const Prog_Strings[] = {
     "Nothing to redo",
     "Nothing to undo",
     "Couldn't save the layouts",
+    "No room for another tab",
+    "Close a tab to open one more.",
     "Couldn't start the new Filey",
     "Couldn't switch to \"%S\"",
     "Not found",

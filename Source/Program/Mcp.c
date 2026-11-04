@@ -143,7 +143,7 @@ function String Prog__ToolOpen(Prog_State *state, Arena *arena, const Prog__Json
     b32 newTab = Prog__JsonTrue(Prog__JsonGet(arguments, S("newTab")));
     if (newTab && state->tabCount >= Prog_MaxTabs) return Prog__ToolError(arena, StrFormat(arena, "The panel has its most tabs, %u, open; close one first.", Prog_MaxTabs));
     if (!StrIsEqual(path, Prog_ThisPC) && !P_IsDirectory(path)) {
-        Prog_ShowInFolder(state, path, newTab);
+        if (!Prog_ShowInFolder(state, path, newTab)) return Prog__ToolError(arena, StrFormat(arena, "Filey cannot show %S in its folder.", given));
         return S("{\"opened\":\"file\"}");
     }
     if (newTab) Prog_OpenTab(state, path, state->activeTab + 1, true);

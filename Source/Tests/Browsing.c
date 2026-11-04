@@ -47,7 +47,7 @@ function void TestDirectoryFiles(TestFileFixture *fixture)
 #elif defined(__linux__)
     Check(result.files.header.count == 10);
     P_File *broken = TestFindFile(result.files, S("broken-link"));
-    Check(broken && broken->symbolicLink && !broken->metadataValid && broken->kind == P_FileKind_Other);
+    Check(broken && broken->symbolicLink && !broken->metadataValid && broken->linkBroken && broken->kind == P_FileKind_Other);
     Check(TestFindFile(result.files, S("invalid-\xff.txt")) != NULL);
 #endif
     for (u64 i = 0; i + 1 < CArrayCount(TestFixtureEntries); ++i) {
@@ -2577,6 +2577,17 @@ function void TestContainingPath(TestFileFixture *fixture)
         Check(working != UINT64_MAX && !Prog_EntryBrokenLink(&listed.directory.entries[working]) && StrIsEqual(listed.directory.entries[working].type, S("Link")));
         Prog_Release(&listed);
     }
+    // A link that loops is broken too; one into a folder it may not read is not, its target being there.
+    String loop = Prog_JoinPath(&arena, fixture->path, S("loop-link")), closed = Prog_JoinPath(&arena, fixture->path, S("closed")), made = {0};
+    String shut = Prog_JoinPath(&arena, fixture->path, S("shut-link"));
+    Check(symlink("loop-link", P__FilePathCString(&arena, loop)) == 0 && !P_CreateItem(&arena, fixture->path, S("closed"), true, &made).code);
+    Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, closed, S("x.txt")), S("x")).code && !P_SetMode(&arena, closed, 0).code);
+    Check(symlink(P__FilePathCString(&arena, Prog_JoinPath(&arena, closed, S("x.txt"))), P__FilePathCString(&arena, shut)) == 0);
+    P_DirectoryResult links = P_EnumerateDirectory(&arena, fixture->path, NULL);
+    P_File *looped = TestFindFile(links.files, S("loop-link")), *kept = TestFindFile(links.files, S("shut-link"));
+    Check(looped && looped->linkBroken && kept && !kept->linkBroken && (getuid() == 0 || !kept->metadataValid));
+    Check(!P_SetMode(&arena, closed, 0755).code && P__TestRemovePath(fixture, S("closed/x.txt"), false) && P__TestRemovePath(fixture, S("closed"), true));
+    Check(P__TestRemovePath(fixture, S("loop-link"), false) && P__TestRemovePath(fixture, S("shut-link"), false));
     Check(P__TestRemovePath(fixture, S("gone-link"), false));
     Check(P__TestRemovePath(fixture, S("inside-link"), false));
 #endif
