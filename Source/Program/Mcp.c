@@ -145,6 +145,7 @@ function String Prog__ToolOpen(Prog_State *state, Arena *arena, const Prog__Json
         Prog_ShowInFolder(state, path, newTab);
         return S("{\"opened\":\"file\"}");
     }
+    if (newTab && state->tabCount >= Prog_MaxTabs) return Prog__ToolError(arena, StrFormat(arena, "The panel has its most tabs, %u, open; close one first.", Prog_MaxTabs));
     if (newTab) Prog_OpenTab(state, path, state->activeTab + 1, true);
     else Prog_RequestDirectory(state, path, true, 0);
     // What to select comes with the listing, as a paste's new items do.
