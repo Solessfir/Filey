@@ -3158,6 +3158,13 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     if (saved.length) setenv("XDG_DATA_HOME", P__FilePathCString(&arena, saved), 1);
     else unsetenv("XDG_DATA_HOME");
 
+    // The listing has to show the folder Redo made again first: one listing bringing both it and New folder would be two items new at
+    // once, which starts no rename.
+    for (u64 start = PlatformNowMicroseconds(); TestEntryIndex(&state, Prog_EntryLeaf(remade)) == UINT64_MAX && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) {
+        Prog_TakeCompletions(&state);
+    }
+    Check(TestWaitDirectory(&state) && TestEntryIndex(&state, Prog_EntryLeaf(remade)) != UINT64_MAX);
+
     // The context menu's items run the same commands.
     ArenaClear(&state.frameArena);
     Prog_QueueCommand(&state, Prog_CommandKind_ContextMenuAt, UINT64_MAX, 1, 0);
