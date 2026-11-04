@@ -1627,6 +1627,52 @@ function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *path
     return (P_FileError){0};
 }
 
+// The trash at the top of the mount that holds `folder`, on the device `device`; empty when the folder cannot be resolved.
+function String P__MountTrash(Arena *arena, String folder, dev_t device)
+{
+    Scratch scratch = GetScratchEx(arena);
+    char top[PATH_MAX];
+    char *native = P__FilePathCString(scratch.arena, folder);
+    String result = {0};
+    if (native && realpath(native, top)) {
+        for (;;) {
+            char *slash = strrchr(top, '/');
+            if (!slash || slash == top) {
+                struct stat root;
+                if (stat("/", &root) == 0 && root.st_dev == device) strcpy(top, "/");
+                break;
+            }
+            char saved = *slash;
+            *slash = 0;
+            struct stat above;
+            b32 same = stat(top[0] ? top : "/", &above) == 0 && above.st_dev == device;
+            if (!same) {
+                *slash = saved;
+                break;
+            }
+        }
+        result = StrFormat(arena, "%s/.Trash-%u", strcmp(top, "/") == 0 ? "" : top, (u32)getuid());
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function String P_TrashFolderOf(Arena *arena, String path)
+{
+    Scratch scratch = GetScratchEx(arena);
+    String home = P_TrashFolder(scratch.arena), parent, leaf, homeParent, homeLeaf;
+    P__SplitPath(path, &parent, &leaf);
+    P__SplitPath(home, &homeParent, &homeLeaf);
+    // The home Trash may not have been made yet; the folder it goes in is on its file system.
+    char *native = P__FilePathCString(scratch.arena, parent), *homeNative = P__FilePathCString(scratch.arena, home), *homeAbove = P__FilePathCString(scratch.arena, homeParent);
+    struct stat from, to;
+    b32 known = native && stat(native, &from) == 0 && ((homeNative && stat(homeNative, &to) == 0) || (homeAbove && stat(homeAbove, &to) == 0));
+    String result = known && from.st_dev != to.st_dev ? P__MountTrash(arena, parent, from.st_dev) : (String){0};
+    if (!result.length) result = StrCopy(arena, home);
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
 {
     Scratch scratch = GetScratchEx(arena);
@@ -1644,26 +1690,8 @@ function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
         error = P__TrashInto(scratch.arena, P__FilePathCString(scratch.arena, homeTrash), source, leaf, folder);
         if (error != EXDEV) continue;
         // Items on other file systems go to that file system's own trash, at the top of its mount.
-        char top[PATH_MAX];
-        char *parentPath = P__FilePathCString(scratch.arena, parent);
-        if (!parentPath || !realpath(parentPath, top)) { error = (u32)errno; break; }
-        for (;;) {
-            char *slash = strrchr(top, '/');
-            if (!slash || slash == top) {
-                struct stat root;
-                if (stat("/", &root) == 0 && root.st_dev == info.st_dev) strcpy(top, "/");
-                break;
-            }
-            char saved = *slash;
-            *slash = 0;
-            struct stat above;
-            b32 same = stat(top[0] ? top : "/", &above) == 0 && above.st_dev == info.st_dev;
-            if (!same) {
-                *slash = saved;
-                break;
-            }
-        }
-        String trash = StrFormat(scratch.arena, "%s/.Trash-%u", strcmp(top, "/") == 0 ? "" : top, (u32)getuid());
+        String trash = P__MountTrash(scratch.arena, parent, info.st_dev);
+        if (!trash.length) { error = (u32)errno; break; }
         error = P__TrashInto(scratch.arena, P__FilePathCString(scratch.arena, trash), source, leaf, folder);
     }
     ReleaseScratch(scratch);

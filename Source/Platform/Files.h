@@ -307,6 +307,9 @@ function b32 P_PrefersDarkColors(void);
 
 // The folder the user's deleted items are listed in: the system drive's $Recycle.Bin, or the home Trash; P_UserPlaces lists it too.
 function String P_TrashFolder(Arena *arena);
+// The bin an item trashed from `path` went to: on Windows the Recycle Bin, and on Linux the home Trash, or for another file system the
+// trash at the top of its mount.
+function String P_TrashFolderOf(Arena *arena, String path);
 // True when `path` is a bin P_ListTrash reads: a drive's $Recycle.Bin, or the home Trash.
 function b32 P_IsTrashFolder(String path);
 // Whether the Recycle Bin, the system drive's on Windows, or the Trash holds anything; it reads the bin, so it is asked on a click, not every frame.

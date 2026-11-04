@@ -1159,6 +1159,12 @@ function String P_ShellLocation(Arena *arena, String text)
     return result;
 }
 
+// The Recycle Bin lists every drive's deleted items.
+function String P_TrashFolderOf(Arena *arena, String path)
+{
+    return P_TrashFolder(arena);
+}
+
 function String P_TrashFolder(Arena *arena)
 {
     wchar drive[8] = {0};

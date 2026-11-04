@@ -2964,21 +2964,31 @@ function void Prog__DirectoryJob(P_Job *job)
         } else if (undo->kind == Prog_UndoKind_Trash || undo->kind == Prog_UndoKind_Create || undo->kind == Prog_UndoKind_Copy) {
             // Each item from the bin by where it was, the one deleted last where it holds several from the same place.
             // That is what was trashed, on undo, and on redo what was made or copied, which undoing it sent there, as Explorer's Redo makes them again.
-            String bin = P_TrashFolder(&job->arena);
-            P_ArrayTrashed binned = P_ListTrash(&job->arena, bin, &job->cancelToken);
+            // On Linux an item from another file system went to the trash at the top of its mount, so each bin is read and restored from in turn.
+            String *bins = ArenaPushArray(&job->arena, Max(undo->count, (u64)1), String);
+            for (u64 i = 0; i < undo->count; ++i) bins[i] = P_TrashFolderOf(&job->arena, undo->to[i]);
             String *names = ArenaPushArray(&job->arena, Max(undo->count, (u64)1), String);
-            u64 found = 0;
-            for (u64 i = 0; i < undo->count; ++i) {
-                const P_Trashed *best = NULL;
-                for (u64 b = 0; b < binned.header.count; ++b) {
-                    const P_Trashed *item = &binned.v[b];
-                    if (!Prog__SamePath(Prog_JoinPath(&job->arena, item->original, item->name), undo->to[i])) continue;
-                    if (!best || item->deletedTimeUnix > best->deletedTimeUnix) best = item;
+            u64 foundAll = 0;
+            for (u64 first = 0; first < undo->count && !error->code; ++first) {
+                b32 seen = false;
+                for (u64 j = 0; j < first && !seen; ++j) seen = StrIsEqual(bins[j], bins[first]);
+                if (seen) continue;
+                P_ArrayTrashed binned = P_ListTrash(&job->arena, bins[first], &job->cancelToken);
+                u64 found = 0;
+                for (u64 i = first; i < undo->count; ++i) {
+                    if (!StrIsEqual(bins[i], bins[first])) continue;
+                    const P_Trashed *best = NULL;
+                    for (u64 b = 0; b < binned.header.count; ++b) {
+                        const P_Trashed *item = &binned.v[b];
+                        if (!Prog__SamePath(Prog_JoinPath(&job->arena, item->original, item->name), undo->to[i])) continue;
+                        if (!best || item->deletedTimeUnix > best->deletedTimeUnix) best = item;
+                    }
+                    if (best) names[found++] = best->file.name;
                 }
-                if (best) names[found++] = best->file.name;
+                if (found) *error = P_RestoreTrash(&job->arena, bins[first], names, found);
+                foundAll += found;
             }
-            if (found) *error = P_RestoreTrash(&job->arena, bin, names, found);
-            else *error = (P_FileError){ 1, TrMark("They are no longer in the bin") };
+            if (!foundAll && !error->code) *error = (P_FileError){ 1, TrMark("They are no longer in the bin") };
         } else if (undo->kind == Prog_UndoKind_Move) {
             for (u64 i = 0; i < undo->count && !error->code; ++i) {
                 if (!undo->to[i].length || StrIsEqual(undo->to[i], undo->from[i])) continue;
