@@ -2542,6 +2542,12 @@ Filter Inspector Content
 Start filtering contents in the inspector. Applicable to text and folder previews.
 = Den Inhalt des Inspektors filtern. Gilt für Text- und Ordnervorschauen.
 
+Find in Inspector Content
+= Im Inspektor suchen
+
+Find text in the inspector, going from match to match, with every line left in place.
+= Text im Inspektor suchen und von Treffer zu Treffer springen; alle Zeilen bleiben stehen.
+
 Toggle Inspector Image Grid
 = Bildraster ein/aus
 

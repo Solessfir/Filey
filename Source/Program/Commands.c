@@ -702,6 +702,43 @@ function b32 Prog__StartsFolded(String text, String needle)
     return text.length >= needle.length && Prog__ContainsFolded(StrFromTo(text, 0, (i64)needle.length), needle);
 }
 
+// Where each match of `needle` in `text` starts, apart from case, one after another without overlapping, into `out` when given; returns how many.
+function u32 Prog_FindMatches(String text, String needle, u64 *out)
+{
+    u32 count = 0;
+    // A first letter of ASCII rules out most places at a glance.
+    u8 lead = needle.length && (u8)needle.value[0] < 0x80 ? Prog__FoldAscii((u8)needle.value[0]) : 0;
+    for (u64 at = 0; needle.length && at + needle.length <= text.length && count < UINT32_MAX;) {
+        b32 may = lead ? Prog__FoldAscii((u8)text.value[at]) == lead : ((u8)text.value[at] & 0xC0) != 0x80;
+        if (may && Prog__StartsFolded(StrFrom(text, at), needle)) {
+            if (out) out[count] = at;
+            ++count;
+            at += needle.length;
+        } else {
+            ++at;
+        }
+    }
+    return count;
+}
+
+// Selects the inspector's next match after the selection, or with `back` the one before it, round from the end to the start, and scrolls to it.
+function void Prog__InspectorFindStep(Prog_State *state, b32 back)
+{
+    if (!state->findCount || !state->findMatches) return;
+    u64 at = state->previewAnchor;
+    u32 pick = back ? state->findCount - 1 : 0;
+    for (u32 i = 0; i < state->findCount; ++i) {
+        u32 k = back ? state->findCount - 1 - i : i;
+        if (back ? state->findMatches[k] < at : state->findMatches[k] > at) {
+            pick = k;
+            break;
+        }
+    }
+    state->previewAnchor = state->findMatches[pick];
+    state->previewCaret = state->previewAnchor + Prog_EditText(&state->inspectorFilter).length;
+    state->findJump = true;
+}
+
 // The palette's groups and their commands. Quick holds the starred commands, Prog_State.quickCommands, which their own groups then leave out.
 #define Prog__PaletteGroup(name) ((u32)Prog_CommandKind_Count + (u32)Prog_CommandGroup_##name)
 global const u16 Prog_PaletteTree[] = {
@@ -737,7 +774,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Inspector),
     Prog_CommandKind_TogglePreview, Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
     Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap, Prog_CommandKind_InspectorToggleLineNumbers,
-    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorToggleUsage, Prog_CommandKind_InspectorUsageRescan, Prog_CommandKind_InspectorUsageShowInFolder, Prog_CommandKind_InspectorPlay, Prog_CommandKind_InspectorMute, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorToggleImageGrid,
+    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorToggleUsage, Prog_CommandKind_InspectorUsageRescan, Prog_CommandKind_InspectorUsageShowInFolder, Prog_CommandKind_InspectorPlay, Prog_CommandKind_InspectorMute, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorStartFind, Prog_CommandKind_InspectorToggleImageGrid,
     Prog_CommandKind_InspectorToggleImageMinimap, Prog_CommandKind_InspectorToggleImageScale, Prog_CommandKind_InspectorScaleImageUp,
     Prog_CommandKind_InspectorScaleImageDown,
     Prog__PaletteGroup(Panels),
@@ -887,6 +924,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_InspectorToggleWordWrap: case Prog_CommandKind_InspectorToggleLineNumbers: case Prog_CommandKind_InspectorToggleWhitespace:
         case Prog_CommandKind_InspectorStartFilter:
             return state->previewShown && state->previewText.length;
+        case Prog_CommandKind_InspectorStartFind: return state->previewShown && state->previewText.length && !state->previewFolder && !state->previewHex;
         case Prog_CommandKind_InspectorToggleImageGrid: case Prog_CommandKind_InspectorToggleImageMinimap: case Prog_CommandKind_InspectorToggleImageScale:
         case Prog_CommandKind_InspectorScaleImageUp: case Prog_CommandKind_InspectorScaleImageDown:
             return state->previewShown && state->previewImage;
@@ -2690,6 +2728,8 @@ function void Prog__UpdatePreview(Prog_State *state)
     Prog__DropPdf(state);
     state->imagePan = (UI_Vec2){0};
     state->previewLines = state->previewRows = state->previewKept = NULL;
+    state->findMatches = NULL;
+    state->findCount = 0;
     state->previewLineStates = NULL;
     state->previewSyntax = Prog_Syntax_None;
     state->previewLineCount = state->previewRowColumns = 0;
@@ -3736,13 +3776,21 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_InspectorFoldDetails: state->inspectorDetailsFolded = !state->inspectorDetailsFolded; break;
             case Prog_CommandKind_InspectorChangeLayout: state->inspectorLayout = state->inspectorBelow ? Prog_InspectorLayout_Right : Prog_InspectorLayout_Below; break;
             case Prog_CommandKind_InspectorSetLayout: if (command->row < Prog_InspectorLayout_Count) state->inspectorLayout = (u8)command->row; break;
-            case Prog_CommandKind_InspectorStartFilter: {
+            case Prog_CommandKind_InspectorStartFilter:
+            case Prog_CommandKind_InspectorStartFind: {
                 // A folder's list filters as the panel's does, with the keyboard in it.
                 u32 inner = state->previewFolder ? Prog_InspectorPanel(state, state->panels[state->currentPanel].id, false) : UINT32_MAX;
                 if (inner != UINT32_MAX) {
                     Prog__ActivatePanel(state, inner);
                     state->filtering = true;
                     break;
+                }
+                // A click in the box, row 1, keeps whichever it does.
+                b32 find = command->kind == Prog_CommandKind_InspectorStartFind || (command->row == 1 && state->inspectorFind);
+                if (find != state->inspectorFind) {
+                    state->inspectorFind = find;
+                    state->findPick = find;
+                    state->previewKept = state->previewRows = NULL;
                 }
                 state->inspectorFiltering = true;
                 state->inspectorFilter.anchor = 0;
@@ -3751,7 +3799,14 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             // In the hex view the box finds, and keeps the keyboard for the next one.
             case Prog_CommandKind_InspectorApplyFilter: {
                 if (state->previewHex) Prog_FindHex(state);
+                else if (state->inspectorFind) Prog__InspectorFindStep(state, false);
                 else state->inspectorFiltering = false;
+            } break;
+            case Prog_CommandKind_InspectorFindPrev: Prog__InspectorFindStep(state, true); break;
+            case Prog_CommandKind_InspectorToggleFind: {
+                state->inspectorFind = !state->inspectorFind;
+                state->findPick = state->inspectorFind;
+                state->previewKept = state->previewRows = NULL;
             } break;
             case Prog_CommandKind_InspectorRemoveFilter: {
                 state->inspectorFilter = (Prog_TextEdit){ .version = state->inspectorFilter.version + 1 };
@@ -5056,6 +5111,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_RenameInsertModifiedDate: Prog__RenameInsert(state, command->kind); break;
             case Prog_CommandKind_RenameCancel: Prog__EndRename(state, false); break;
             case Prog_CommandKind_StartFilter: {
+                // After a press on the inspector's text, its own box finds in it, as Select All selects it; in hex it finds bytes.
+                if (state->previewTextFocus && state->previewShown && state->previewText.length && !state->renaming) {
+                    Prog_QueueCommand(state, state->previewHex ? Prog_CommandKind_InspectorStartFilter : Prog_CommandKind_InspectorStartFind, 0, 0, command->inputOrder);
+                    break;
+                }
                 if (!state->renaming) {
                     state->filtering = true;
                     state->filter.anchor = 0;
@@ -5490,7 +5550,9 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         if (event->kind == PlatformEventKind_KeyDown) state->swallowText = false;
         // A press anywhere but on the inspector's text drops what is selected in it, and gives Select All back to the files.
-        if (event->kind == PlatformEventKind_MouseDown && !UI__Contains(state->inspectorTextRect, (UI_Vec2){ event->x, event->y })) {
+        // A press on the find box keeps the match it is on, which its buttons step from.
+        b32 onFind = state->inspectorFind && UI__Contains(state->inspectorFilterRect, (UI_Vec2){ event->x, event->y });
+        if (event->kind == PlatformEventKind_MouseDown && !UI__Contains(state->inspectorTextRect, (UI_Vec2){ event->x, event->y }) && !onFind) {
             state->previewAnchor = state->previewCaret;
             state->previewTextFocus = false;
         }
@@ -5954,7 +6016,8 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             if (event->kind == PlatformEventKind_KeyDown) {
                 // Keys the box does not use, such as Up and Down, still reach the list; what types a character is typed.
                 b32 used = true;
-                if (event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_InspectorApplyFilter, 0, 0, order);
+                if (event->key == Key_Enter && state->inspectorFind && !state->previewHex && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_InspectorFindPrev, 0, 0, order);
+                else if (event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_InspectorApplyFilter, 0, 0, order);
                 else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_InspectorRemoveFilter, 0, 0, order);
                 else used = Prog__EditKey(state, &state->inspectorFilter, event) || Prog__TypesInBox(event->key, event->mods) ||
                             (event->key == Key_Space && !(event->mods & (KeyMod_Control | KeyMod_Alt | KeyMod_Super)));

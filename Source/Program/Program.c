@@ -11341,7 +11341,9 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
     if (view->rect.y1 <= view->rect.y0) UI_KeepAnimating();
     // A big file's filter looks through the whole file in a job, whose lines show in place of the window once found; until then, the
     // window's that it keeps. A filter changed or cleared puts the window back where it was.
-    String filter = Prog_EditText(&state->inspectorFilter);
+    String found = Prog_EditText(&state->inspectorFilter);
+    // Finding keeps every line, with what it finds lit.
+    String filter = state->inspectorFind ? (String){0} : found;
     if (state->previewWindowed) {
         u32 version = state->inspectorFilter.version;
         if (state->textFound && (!filter.length || state->textFind.version != version)) {
@@ -11369,6 +11371,8 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
     u64 selectFrom = Min(state->previewAnchor, state->previewCaret), selectTo = Max(state->previewAnchor, state->previewCaret);
     u32 lineCount = state->previewLineCount;
     // The lines the filter keeps, picked again when it changes; the rows are then worked out again too.
+    // Only what it finds typed anew picks a match, not a big file's window moving on.
+    if (state->previewKeptVersion != state->inspectorFilter.version && state->inspectorFind && found.length) state->findPick = true;
     if (!state->previewKept || state->previewKeptVersion != state->inspectorFilter.version) {
         state->previewKept = ArenaPushArray(textArena, lineCount + 1, u32);
         u32 kept = 0;
@@ -11378,6 +11382,22 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
         state->previewKeptCount = kept;
         state->previewKeptVersion = state->inspectorFilter.version;
         state->previewRowColumns = 0;
+        // ponytail: a big file finds only in the window it holds; finding across the whole of it would go through a job, as filtering does.
+        state->findCount = state->inspectorFind ? Prog_FindMatches(text, found, NULL) : 0;
+        state->findMatches = state->findCount ? ArenaPushArrayNoZero(textArena, state->findCount, u64) : NULL;
+        if (state->findCount) Prog_FindMatches(text, found, state->findMatches);
+    }
+    // Typing more of what it finds stays on the match it was on, or goes on to the next.
+    if (state->findPick) {
+        state->findPick = false;
+        if (state->findCount) {
+            u64 at = Min(state->previewAnchor, state->previewCaret);
+            u32 pick = 0;
+            while (pick < state->findCount && state->findMatches[pick] < at) ++pick;
+            state->previewAnchor = state->findMatches[pick < state->findCount ? pick : 0];
+            state->previewCaret = state->previewAnchor + found.length;
+            state->findJump = true;
+        }
     }
     u32 shownCount = state->previewKeptCount;
     // The numbers sit in a gutter that grows for long files; the text starts closer to the edge without them.
@@ -11404,6 +11424,27 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
         state->previewRowColumns = columns;
     }
     u32 rowCount = columns ? state->previewRows[shownCount] : shownCount;
+    // A match gone to is brought into sight, in the middle when it was out of it; finding keeps every line, so the shown ones are the lines.
+    if (state->findJump && state->inspectorFind && lineCount && shownCount == lineCount) {
+        state->findJump = false;
+        u64 at = state->previewAnchor;
+        u32 low = 0, high = lineCount - 1;
+        while (low < high) {
+            u32 mid = (low + high + 1) / 2;
+            if (state->previewLines[mid] <= at) low = mid;
+            else high = mid - 1;
+        }
+        u32 row = low;
+        if (columns) {
+            u32 starts[256];
+            String whole = StrFromTo(text, state->previewLines[low], (i64)state->previewLines[low + 1]);
+            u32 rows = Min(Prog__WrapLine(whole, columns, starts, CArrayCount(starts)), (u32)CArrayCount(starts)), r = 0;
+            while (r + 1 < rows && starts[r + 1] <= at - state->previewLines[low]) ++r;
+            row = state->previewRows[low] + r;
+        }
+        f32 y = (f32)row * pitch, tall = view->rect.y1 - view->rect.y0;
+        if (y < view->scrollOffset.y || y + pitch > view->scrollOffset.y + tall) view->scrollOffset.y = MaxF32(0, y - floorf((tall - pitch) * 0.5f));
+    }
     // A big file's window: a new one keeps the line that was at the top there, and the line at the top now is noted for the next.
     if (state->previewWindowed && !state->textFound && shownCount) {
         if (state->textKeepTop) {
@@ -11452,8 +11493,17 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
             String whole = StrFromTo(text, state->previewLines[line], (i64)state->previewLines[line + 1]);
             if (whole.length && whole.value[whole.length - 1] == '\n') --whole.length;
             if (whole.length && whole.value[whole.length - 1] == '\r') --whole.length;
-            u8 *matched = filter.length ? ArenaPushArray(&state->frameArena, whole.length + 1, u8) : NULL;
-            if (matched) Prog_FilterMatch(whole, filter, matched);
+            u8 *matched = filter.length || (state->inspectorFind && found.length) ? ArenaPushArray(&state->frameArena, whole.length + 1, u8) : NULL;
+            if (matched && filter.length) Prog_FilterMatch(whole, filter, matched);
+            // What it finds is lit where it is, each match whole.
+            if (matched && !filter.length) {
+                u64 lineStart = state->previewLines[line];
+                u32 k = 0;
+                while (k < state->findCount && state->findMatches[k] + found.length <= lineStart) ++k;
+                for (; k < state->findCount && state->findMatches[k] < lineStart + whole.length; ++k) {
+                    for (u64 b = state->findMatches[k]; b < state->findMatches[k] + found.length; ++b) if (b >= lineStart && b - lineStart < whole.length) matched[b - lineStart] = 1;
+                }
+            }
             u8 *tokens = state->previewLineStates && !state->noHighlight ? ArenaPushArrayNoZero(&state->frameArena, whole.length + 1, u8) : NULL;
             if (tokens) Prog_SyntaxLine(state->previewSyntax, whole, state->previewLineStates[line], tokens);
             u32 starts[256];
@@ -11780,7 +11830,8 @@ function void Prog__InspectorFilterBox(Prog_State *state, String prompt, const P
     UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = theme->tabBorder });
     UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorFilterBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Interaction interaction = UI_InteractionFromBlock(box);
-    if (interaction.pressed) Prog_QueueCommand(state, Prog_CommandKind_InspectorStartFilter, 0, 0, interaction.pressOrder);
+    state->inspectorFilterRect = box->rect;
+    if (interaction.pressed) Prog_QueueCommand(state, Prog_CommandKind_InspectorStartFilter, 1, 0, interaction.pressOrder);
     UI_Parent(box) {
         if (active) {
             f32 tall = m->pill - inset;
@@ -11801,8 +11852,14 @@ function void Prog__InspectorFilterBox(Prog_State *state, String prompt, const P
             }
             UI_Block *buttons = Prog__Box(UI_Fill(), UI_Pixels(tall), UI_Layout_Horizontal, (R_Color){0}, 0);
             UI_Parent(buttons) {
-                // Kept while it is being typed; once kept, only clearing it is left.
-                if (state->inspectorFiltering) Prog__PillButton(state, S("InspectorFilterApply"), Icon_Check, Prog_CommandKind_InspectorApplyFilter, false, m);
+                // Text finds or filters, lit while it filters; finding goes back and on, and filtering is kept while it is typed.
+                if (!state->previewHex) Prog__PillButton(state, S("InspectorFilterMode"), Icon_Funnel, Prog_CommandKind_InspectorToggleFind, !state->inspectorFind, m);
+                if (state->inspectorFind && !state->previewHex) {
+                    Prog__PillButton(state, S("InspectorFindPrev"), Icon_ChevronUp, Prog_CommandKind_InspectorFindPrev, false, m);
+                    Prog__PillButton(state, S("InspectorFindNext"), Icon_ChevronDown, Prog_CommandKind_InspectorApplyFilter, false, m);
+                } else if (state->inspectorFiltering) {
+                    Prog__PillButton(state, S("InspectorFilterApply"), Icon_Check, Prog_CommandKind_InspectorApplyFilter, false, m);
+                }
                 Prog__PillButton(state, S("InspectorFilterRemove"), Icon_X, Prog_CommandKind_InspectorRemoveFilter, false, m);
             }
         } else {
@@ -13149,7 +13206,12 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                     // found, with a plus where there were more than it holds; the whole file's once counted; for hex, the file's size.
                     u64 every = state->previewWindowed && state->textIndex.done ? state->textIndex.lines : state->textFound ? state->previewFirstLine + state->textSaved.count : state->previewLineCount;
                     u64 among = state->textFound ? every : state->previewLineCount;
+                    // Finding counts its matches and which of them is selected.
+                    u32 match = 0;
+                    while (state->inspectorFind && match < state->findCount && state->findMatches[match] < state->previewAnchor) ++match;
+                    b32 onMatch = state->inspectorFind && match < state->findCount && state->findMatches && state->findMatches[match] == state->previewAnchor;
                     String lines = state->previewHex ? Prog_FormatSize(&state->frameArena, state->hexSize)
+                                 : state->inspectorFind && state->inspectorFilter.length ? StrFormat(&state->frameArena, "%u/%u", onMatch ? match + 1 : 0, state->findCount)
                                  : state->inspectorFilter.length ? StrFormat(&state->frameArena, "%u%s/%llu", state->previewKeptCount, state->textFound && state->textFind.cut ? "+" : "", (unsigned long long)among)
                                  : StrFormat(&state->frameArena, "%llu", (unsigned long long)every);
                     Prog__LabelPadded(lines, UI_TextContent(), m->pill, floorf(10.4f * s + 0.5f), floorf(12.0f * s + 0.5f), theme->text, 0);

@@ -2541,6 +2541,12 @@ Filter Inspector Content
 Start filtering contents in the inspector. Applicable to text and folder previews.
 = Начать фильтровать содержимое инспектора. Для текста и папок.
 
+Find in Inspector Content
+= Найти в инспекторе
+
+Find text in the inspector, going from match to match, with every line left in place.
+= Найти текст в инспекторе, переходя от совпадения к совпадению; все строки остаются на месте.
+
 Toggle Inspector Image Grid
 = Сетка изображения
 

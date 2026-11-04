@@ -3961,6 +3961,8 @@ function void Prog_ShowTextWindow(Prog_State *state)
     state->previewLineCount = state->textSaved.count;
     state->previewNumbers = NULL;
     state->previewKept = state->previewRows = NULL;
+    state->findMatches = NULL;
+    state->findCount = 0;
     state->previewRowColumns = 0;
     state->previewAnchor = state->previewCaret = 0;
     state->textFound = false;
@@ -8217,6 +8219,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->previewOffset = input->offset;
                 state->previewFirstLine = input->line;
                 state->previewKept = state->previewRows = NULL;
+                state->findMatches = NULL;
+                state->findCount = 0;
                 state->previewRowColumns = 0;
                 state->previewAnchor = state->previewCaret = 0;
                 changed = true;

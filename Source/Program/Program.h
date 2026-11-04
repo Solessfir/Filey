@@ -1452,6 +1452,7 @@ typedef struct Prog_PdfView {
 //     downloaded, NULL until known, torrentRead: asked for once already
 //   inspectorFilter, inspectorFiltering: the text view's filter, with the keyboard in its box, which keeps previewKept, previewKeptCount lines,
 //     picked for its version previewKeptVersion
+//   inspectorFind: the box finds instead, keeping every line; findMatches, findCount: where its matches start, found with the lines kept; findPick: the first match from the selection on is selected once they are found; findJump: the view scrolls to it
 //   previewWindowed: previewText is the window of a text file too big to hold, previewSize bytes, read from textReadPath: its bytes from
 //     previewOffset, the lines from previewFirstLine, in textWindowArena; textWindowJob reads the next window, from textWindowFrom, and
 //     with textKeepTop, once it is in place, the same line stays at the top, or with textJump it starts at its top, gone to from the scroll
@@ -1471,9 +1472,9 @@ typedef struct Prog_PdfView {
     X(u64, previewSubmitted) \
     X(enum8(Prog_ImageScale), imageScaleMode) X(f32, imageScale) X(f32, imageFit) X(UI_Vec2, imagePan) X(UI_Vec2, imageDragFrom) \
     X(u32 *, previewLines) X(enum8(Prog_Syntax), previewSyntax) X(u8 *, previewLineStates) X(u32, previewLineCount) X(u32 *, previewRows) \
-    X(u32, previewRowColumns) X(u64, previewAnchor) X(u64, previewCaret) X(u32, previewClicks) X(b32, previewTextFocus) X(R_Rect, inspectorTextRect) \
+    X(u32, previewRowColumns) X(u64, previewAnchor) X(u64, previewCaret) X(u32, previewClicks) X(b32, previewTextFocus) X(R_Rect, inspectorTextRect) X(R_Rect, inspectorFilterRect) \
     X(b32, inspectorResetScroll) X(Prog_TextEdit, inspectorFilter) X(b32, inspectorFiltering) X(u32 *, previewKept) X(u32, previewKeptCount) \
-    X(u32, previewKeptVersion) X(Prog_TorrentInfo, torrent) X(b8 *, torrentSkip) X(u64 *, torrentDone) X(b32, torrentRead) \
+    X(u32, previewKeptVersion) X(b32, inspectorFind) X(u64 *, findMatches) X(u32, findCount) X(b32, findPick) X(b32, findJump) X(Prog_TorrentInfo, torrent) X(b8 *, torrentSkip) X(u64 *, torrentDone) X(b32, torrentRead) \
     X(b32, previewWindowed) X(u64, previewSize) X(u64, previewOffset) X(u64, previewFirstLine) X(String, textReadPath) X(Arena, textWindowArena) \
     X(P_Job *, textWindowJob) X(u64, textWindowFrom) X(b32, textKeepTop) X(b32, textJump) X(Prog_TextIndex, textIndex) X(P_Job *, textIndexJob) X(Arena, textIndexArena) \
     X(u64, textTopLine) X(f32, textTopPart) X(Prog_FoundLines, textFind) X(P_Job *, textFindJob) X(u32, textFindAsked) X(Arena, textFindArena) X(b32, textFound) \

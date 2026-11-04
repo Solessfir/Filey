@@ -1175,6 +1175,8 @@ global const char *const Prog_Strings[] = {
     "Toggle inspector layout between horizontal and vertical.",
     "Filter Inspector Content",
     "Start filtering contents in the inspector. Applicable to text and folder previews.",
+    "Find in Inspector Content",
+    "Find text in the inspector, going from match to match, with every line left in place.",
     "Toggle Inspector Image Grid",
     "Toggle display of image grid to better differentiate background from the image contents.",
     "Toggle Inspector Image Minimap",

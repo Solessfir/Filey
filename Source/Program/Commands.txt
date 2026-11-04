@@ -2208,7 +2208,21 @@ command InspectorFoldDetails {
 }
 
 // Inspector filter buttons.
+// The box finds rather than filters: every line stays, the matches lit, Enter going to the next and Shift+Enter to the one before.
+command InspectorStartFind {
+    label   = "Find in Inspector Content^search,next,match"
+    tooltip = "Find text in the inspector, going from match to match, with every line left in place."
+    hotkey  = "Alt+Shift+F"
+}
+
 command InspectorApplyFilter {
+}
+
+command InspectorFindPrev {
+}
+
+// Between finding and filtering, from the box's button.
+command InspectorToggleFind {
 }
 
 command InspectorRemoveFilter {

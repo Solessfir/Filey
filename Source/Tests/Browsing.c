@@ -1868,6 +1868,9 @@ function void TestFilter(TestFileFixture *fixture)
     TestRenameKey(&state, Key_Escape, 0);
     Check(!state.filter.length && state.viewCount == state.directory.count);
     Check(Prog_FilterMatchEither(S("AppData"), S("фззвфеф"), NULL) && !Prog_FilterMatchEither(S("AppData"), S("ывф"), NULL));
+    u64 found[4];
+    Check(Prog_FindMatches(S("Abc abC aaa"), S("abc"), found) == 2 && found[0] == 0 && found[1] == 4 && Prog_FindMatches(S("aaaa"), S("aa"), NULL) == 2);
+    Check(Prog_FindMatches(S("Мои Документы, документы"), S("ДОКУМЕНТЫ"), found) == 2 && Prog_FindMatches(S("abc"), S(""), NULL) == 0);
     Check(Prog__ContainsFolded(S("Мои Документы"), S("документы")) && !Prog__ContainsFolded(S("abc"), S("д")) && !Prog__ContainsFolded(S("appdata"), S("фзз")) && Prog__StartsFolded(S("AppData"), S("app")));
 
     // The counts toggles leave out folders or files; totals include hidden items.

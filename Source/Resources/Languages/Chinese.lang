@@ -2542,6 +2542,12 @@ Filter Inspector Content
 Start filtering contents in the inspector. Applicable to text and folder previews.
 = 开始筛选检查器中的内容。适用于文本和文件夹预览。
 
+Find in Inspector Content
+= 在检查器中查找
+
+Find text in the inspector, going from match to match, with every line left in place.
+= 在检查器中查找文本，逐个跳转匹配项，所有行保持原位。
+
 Toggle Inspector Image Grid
 = 切换检查器图像网格
 
