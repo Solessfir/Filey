@@ -6059,8 +6059,8 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             }
             continue;
         }
-        // The Quick Access filter's box takes the keyboard: typing finds sidebar items, Enter keeps what it found and hands the keyboard back,
-        // and Escape clears it. A press anywhere else hands the keyboard back and goes on.
+        // The Quick Access filter's box takes the keyboard: typing finds sidebar items, Enter opens the first, and Escape clears it.
+        // A press anywhere else hands the keyboard back and goes on.
         if (state->sidebarFiltering) {
             if (event->kind == PlatformEventKind_MouseDown && !UI__Contains(state->sidebarFilterRect, (UI_Vec2){ event->x, event->y })) {
                 state->sidebarFiltering = false;
@@ -6069,12 +6069,22 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 continue;
             } else if (event->kind == PlatformEventKind_KeyDown) {
                 if (event->key == Key_Escape) {
-                    Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterRevert, 0, 0, order);
+                    Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterCancel, 0, 0, order);
                     state->swallowText = true;
                     continue;
                 }
+                // Enter opens the first folder it found and clears it, the keyboard going back to the list; with nothing found it only keeps it.
                 if (event->key == Key_Enter) {
-                    if (!event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterApply, 0, 0, order);
+                    if (event->isRepeat) continue;
+                    u32 first = UINT32_MAX;
+                    for (u32 i = 0; i < state->sidebarStopCount && first == UINT32_MAX; ++i) if (!state->sidebarStops[i].title) first = i;
+                    if (first != UINT32_MAX && state->sidebarFilter.length) {
+                        Prog_QueueCommand(state, Prog_CommandKind_SidebarOpen, state->sidebarStops[first].group, 0, order)->target = state->sidebarStops[first].index;
+                        Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterCancel, 0, 0, order);
+                        state->sidebarKeys = false;
+                    } else {
+                        Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterApply, 0, 0, order);
+                    }
                     continue;
                 }
                 // Down or Up goes from the box to what it found, with the keyboard in the sidebar.

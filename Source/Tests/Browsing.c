@@ -2246,10 +2246,24 @@ function void TestQuickAccessFilter(TestFileFixture *fixture)
     TestRenameKey(&state, Key_O, 0);
     TestRenameType(&state, S("o"));
     Check(StrIsEqual(Prog_EditText(&state.sidebarFilter), S("dlo")));
+    // Escape clears it.
     TestRenameKey(&state, Key_Escape, 0);
-    Check(!state.sidebarFiltering && StrIsEqual(Prog_EditText(&state.sidebarFilter), S("dl")));
-    TestBrowsingCommand(&state, Prog_CommandKind_QuickAccessFilterCancel, 0);
     Check(!state.sidebarFiltering && !state.sidebarFilter.length && Prog__SidebarFinds(&state, S("Desktop")));
+    // Enter opens the first folder it found, as the last build laid the sidebar out, and clears it.
+    Arena arena = {0};
+    String folder = Prog_JoinPath(&arena, fixture->path, S("Folder2"));
+    Prog__SetList(&state.bookmarkArena, &state.bookmarks, &folder, 1);
+    Prog_SidebarStop stops[] = { { .group = Prog_Group_Bookmarks, .title = true, .node = UINT32_MAX }, { .group = Prog_Group_Bookmarks, .index = 0, .node = UINT32_MAX, .depth = 1 } };
+    state.sidebarStops = stops;
+    state.sidebarStopCount = CArrayCount(stops);
+    TestBrowsingCommand(&state, Prog_CommandKind_StartQuickAccessFilter, 0);
+    TestRenameKey(&state, Key_F, 0);
+    TestRenameType(&state, S("f"));
+    TestRenameKey(&state, Key_Enter, 0);
+    Check(TestWaitDirectory(&state) && Prog__PathsEqual(state.directory.path, folder) && !state.sidebarFiltering && !state.sidebarFilter.length);
+    state.sidebarStops = NULL;
+    state.sidebarStopCount = 0;
+    ArenaRelease(&arena);
     Prog_Release(&state);
 }
 

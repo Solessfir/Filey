@@ -1185,15 +1185,15 @@ command StartQuickAccessFilter {
     repeat  = "false"
 }
 
-// Enter in the Quick Access filter: the keyboard goes back to the list, and the filter stays.
+// The Quick Access filter kept, as Enter does when it found nothing: the keyboard goes back to the list, and the filter stays.
 command QuickAccessFilterApply {
 }
 
-// The box's clear button: the filter is cleared.
+// The box's clear button, or Escape: the filter is cleared.
 command QuickAccessFilterCancel {
 }
 
-// Escape in the Quick Access filter: it goes back to what it was before this round of typing.
+// The Quick Access filter put back to what it was before this round of typing.
 command QuickAccessFilterRevert {
 }
 
