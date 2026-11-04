@@ -4856,7 +4856,9 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
     Prog__EntryValues(state, entry, values);
     f32 text = width - m->gap;
     UI_Parent(cell) {
-        if (entry->selected) Prog__CopyFlash(state->itemsFlashTime, Prog_CurrentTheme()->text, 0.25f, (UI_Vec2){ 0, 0 }, UI_Percent(1), UI_Percent(1), m->radius * 2);
+        // Over the whole cell, as its light is, rather than inside its padding, from its last layout; a cell new this frame has none yet.
+        if (entry->selected && cell->rect.x1 > cell->rect.x0) Prog__CopyFlash(state->itemsFlashTime, Prog_CurrentTheme()->text, 0.25f, (UI_Vec2){ -cell->props.childrenPadding.left, -cell->props.childrenPadding.top },
+                                             UI_Pixels(cell->rect.x1 - cell->rect.x0), UI_Pixels(cell->rect.y1 - cell->rect.y0), m->radius * 2);
         Prog__ItemIcon(state, entry, iconSize, width, iconSize, 0.5f, 0, highlighted, m);
         // While several are selected, when asked, a checked box in the cell's corner takes it out of the selection, as the rows' does.
         f32 box = floorf(16.0f * m->scale + 0.5f), corner = floorf(6.4f * m->scale + 0.5f);
