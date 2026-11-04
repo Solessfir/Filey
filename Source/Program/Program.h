@@ -2138,14 +2138,17 @@ typedef struct Prog_State {
     Prog_TextEdit sidebarFilterBefore;  // what it was as this round of typing began, which Escape brings back
     b32 sidebarFiltering;
     R_Rect sidebarFilterRect;  // the box, as the last build laid it out
-    // The keyboard in the sidebar, from Focus Sidebar: on a row of the group sidebarAtGroup, its title or its item sidebarAtIndex, the row sidebarAtOrder, which it falls back to once that row is gone.
+    // The keyboard in the sidebar, from Focus Sidebar: on a row of the group sidebarAtGroup, its title or its item by its folder sidebarAtPath, in sidebarAtArena, the row sidebarAtOrder, which it falls back to once that row is gone.
+    // The item goes by its folder rather than its place in its list, which for the recents changes with every visit.
     // A group of UINT32_MAX stands for the first item; sidebarReveal scrolls the row into sight. The rows the last build laid out are sidebarStops, in sidebarStopArena.
     b32 sidebarKeys;
     u64 sidebarKeysTime;  // when the keyboard went into the sidebar, whose row it went to flashes
     b32 sidebarReveal;
     b32 sidebarAtTitle;
     u32 sidebarAtGroup;
-    u64 sidebarAtIndex;
+    String sidebarAtPath;
+    Arena sidebarAtArena;
+    u8 sidebarPending;  // Enter in the filter's box, 1, opens the first folder found, and Down, 2, takes the keyboard to it, once the build laid out what the text typed by then finds
     u32 sidebarAtOrder;
     Arena sidebarStopArena;
     Prog_SidebarStop *sidebarStops;

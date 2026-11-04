@@ -2238,7 +2238,10 @@ function void TestQuickAccessFilter(TestFileFixture *fixture)
     Check(StrIsEqual(Prog_EditText(&state.sidebarFilter), S("dl")) && !state.filtering && !state.filter.length);
     Check(Prog__SidebarFinds(&state, S("Downloads")) && !Prog__SidebarFinds(&state, S("Desktop")));
     u64 focused = state.focusedRow;
+    // With nothing laid out found, Enter only keeps the filter.
     TestRenameKey(&state, Key_Enter, 0);
+    Prog__SidebarSettlePending(&state);
+    Prog_ProcessCommands(&state);
     Check(!state.sidebarFiltering && state.sidebarFilter.length == 2 && StrIsEqual(state.directory.path, fixture->path));
     TestRenameKey(&state, Key_Down, 0);
     Check(state.focusedRow != focused || state.directory.count < 2);
@@ -2271,7 +2274,17 @@ function void TestQuickAccessFilter(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_StartQuickAccessFilter, 0);
     Check(!state.sidebarKeys && state.sidebarFiltering);
     TestRenameKey(&state, Key_J, KeyMod_Control);
+    Prog__SidebarSettlePending(&state);
+    Prog_ProcessCommands(&state);
     Check(state.sidebarKeys && !state.sidebarFiltering);
+    // Ctrl+F from the sidebar's rows types into the list's filter, which takes the keyboard from them.
+    state.sidebarKeys = true;
+    TestRenameKey(&state, Key_F, KeyMod_Control);
+    TestRenameKey(&state, Key_Q, 0);
+    TestRenameType(&state, S("q"));
+    Check(state.filtering && StrIsEqual(Prog_EditText(&state.filter), S("q")) && !state.sidebarKeys && !state.sidebarFilter.length);
+    TestBrowsingCommand(&state, Prog_CommandKind_RemoveFilter, 0);
+    state.sidebarKeys = true;
     // Escape from a folder found hands the keyboard back and clears the filter.
     state.sidebarFilter = (Prog_TextEdit){0};
     Prog__EditInsert(&state.sidebarFilter, 'f');
@@ -2281,6 +2294,10 @@ function void TestQuickAccessFilter(TestFileFixture *fixture)
     TestRenameKey(&state, Key_F, 0);
     TestRenameType(&state, S("f"));
     TestRenameKey(&state, Key_Enter, 0);
+    // What it found is known once the build lays it out.
+    Check(state.sidebarPending == 1);
+    Prog__SidebarSettlePending(&state);
+    Prog_ProcessCommands(&state);
     Check(TestWaitDirectory(&state) && Prog__PathsEqual(state.directory.path, folder) && !state.sidebarFiltering && !state.sidebarFilter.length);
     state.sidebarStops = NULL;
     state.sidebarStopCount = 0;
@@ -3290,7 +3307,7 @@ function void TestSidebarKeys(void)
     // It starts on the first item, and stops at the ends.
     Check(Prog__SidebarAt(&state) == 1);
     Prog__SidebarGo(&state, 1);
-    Check(TestSidebarKey(&state, Key_Down, 0) && TestSidebarKey(&state, Key_Down, 0) && Prog__SidebarAt(&state) == 3 && state.sidebarAtIndex == 2);
+    Check(TestSidebarKey(&state, Key_Down, 0) && TestSidebarKey(&state, Key_Down, 0) && Prog__SidebarAt(&state) == 3 && StrIsEqual(state.sidebarAtPath, S("/c")));
     Check(TestSidebarKey(&state, Key_End, 0) && Prog__SidebarAt(&state) == 4 && TestSidebarKey(&state, Key_Down, 0) && Prog__SidebarAt(&state) == 4);
     Check(TestSidebarKey(&state, Key_Home, 0) && Prog__SidebarAt(&state) == 0);
     // Left from an item goes up to its group's title.
@@ -3300,7 +3317,7 @@ function void TestSidebarKeys(void)
     Prog__SidebarGo(&state, 3);
     state.commandFirst = NULL;
     Check(TestSidebarKey(&state, Key_Up, KeyMod_Alt) && state.commandFirst && state.commandFirst->kind == Prog_CommandKind_BookmarkMove);
-    Check(state.commandFirst->row == 2 && state.commandFirst->target == 1 && state.sidebarAtIndex == 1);
+    Check(state.commandFirst->row == 2 && state.commandFirst->target == 1 && StrIsEqual(state.sidebarAtPath, S("/c")));
     ArrayStr one = {0};
     ArrayPush(&state.frameArena, one, S("/c"));
     Prog_PinBookmarks(&state, &one, state.commandFirst->target);
@@ -3310,6 +3327,14 @@ function void TestSidebarKeys(void)
     Check(TestSidebarKey(&state, Key_Up, KeyMod_Alt) && !state.commandFirst);
     Prog__SidebarGo(&state, 3);
     Check(TestSidebarKey(&state, Key_Down, KeyMod_Alt) && !state.commandFirst);
+    // The last bookmark gone, the keyboard stays in its group, on the one before it, rather than going on to the next group's title.
+    Prog__SidebarGo(&state, 3);
+    state.sidebarStopCount = 4;
+    stops[3] = stops[4];
+    Check(Prog__SidebarAt(&state) == 2);
+    // With no rows, as when the filter finds nothing, Enter is kept from the list.
+    state.sidebarStopCount = 0;
+    Check(TestSidebarKey(&state, Key_Enter, 0) && TestSidebarKey(&state, Key_Down, 0) && !state.commandFirst);
     // Escape hands the keyboard back.
     Check(TestSidebarKey(&state, Key_Escape, 0) && !state.sidebarKeys);
     ArenaRelease(&state.frameArena);

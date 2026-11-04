@@ -5604,13 +5604,13 @@ function void Prog__AskSidebarRename(Prog_State *state, Prog_Group group, u64 in
 }
 
 function b32 Prog__SidebarStop(Prog_State *state, Prog_SidebarStop stop, UI_Block *row, const Prog_Metrics *m);
-function b32 Prog__SidebarKeyed(const Prog_State *state, u32 group, b32 title, u64 index);
+function b32 Prog__SidebarKeyed(const Prog_State *state, u32 group, b32 title, String path);
 
 function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title, String icon, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Group/%S", title));
-    b32 keyed = Prog__SidebarKeyed(state, (u32)group, true, 0);
+    b32 keyed = Prog__SidebarKeyed(state, (u32)group, true, (String){0});
     b32 hot = UI->hotKey == key || state->groupDrag == (u32)group + 1 || keyed;
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Pixels(m->row));
@@ -5697,10 +5697,10 @@ function f32 Prog__TreeBodyHeight(Prog_State *state, u32 node, u32 depth, f32 ro
 // A row of the sidebar's `group`; a `faded` one, hidden, is dimmed as the list dims hidden items.
 function void Prog__MarkedText(String text, const u8 *marks, const R_Font *font, f32 height, R_Color color);
 
-// Whether the keyboard is on the sidebar's row of `group`, its title or its item `index`.
-function b32 Prog__SidebarKeyed(const Prog_State *state, u32 group, b32 title, u64 index)
+// Whether the keyboard is on the sidebar's row of `group`, its title or its item of the folder `path`.
+function b32 Prog__SidebarKeyed(const Prog_State *state, u32 group, b32 title, String path)
 {
-    return state->sidebarKeys && group == state->sidebarAtGroup && title == state->sidebarAtTitle && (title || index == state->sidebarAtIndex);
+    return state->sidebarKeys && group == state->sidebarAtGroup && title == state->sidebarAtTitle && (title || StrIsEqual(path, state->sidebarAtPath));
 }
 
 // Notes a row of the sidebar the keyboard can go to, and brings it into sight once when the keyboard is on it.
@@ -5716,11 +5716,13 @@ function b32 Prog__SidebarStop(Prog_State *state, Prog_SidebarStop stop, UI_Bloc
     stop.path = StrCopy(&state->sidebarStopArena, stop.path);
     stop.rect = row->rect;
     state->sidebarStops[state->sidebarStopCount++] = stop;
-    b32 result = Prog__SidebarKeyed(state, stop.group, stop.title, stop.index);
+    // A press on a row while the keyboard is in the sidebar moves the keyboard there.
+    if (state->sidebarKeys && UI_InteractionFromBlock(row).pressed) Prog__SidebarHold(state, state->sidebarStopCount - 1);
+    b32 result = Prog__SidebarKeyed(state, stop.group, stop.title, stop.path);
     // The row the keyboard went to as it came into the sidebar flashes, as a copied item does.
-    // Over the whole row, as its light is, rather than inside its padding.
+    // Over the whole row, as its light is, rather than inside its padding, from the row's last layout; a row new this frame has none yet.
     UI_Padding pad = row->props.childrenPadding;
-    if (result) UI_Parent(row) Prog__CopyFlash(state->sidebarKeysTime, Prog_CurrentTheme()->text, 0.25f, (UI_Vec2){ -pad.left, -pad.top }, UI_Pixels(row->rect.x1 - row->rect.x0), UI_Pixels(row->rect.y1 - row->rect.y0), m->radius);
+    if (result && row->rect.x1 > row->rect.x0) UI_Parent(row) Prog__CopyFlash(state->sidebarKeysTime, Prog_CurrentTheme()->text, 0.25f, (UI_Vec2){ -pad.left, -pad.top }, UI_Pixels(row->rect.x1 - row->rect.x0), UI_Pixels(row->rect.y1 - row->rect.y0), m->radius);
     if (result && state->sidebarReveal && row->rect.y1 > row->rect.y0) {
         UI_Block *sidebar = UI__Find(UI_KeyFromStr(0, S("Sidebar")));
         if (sidebar) {
@@ -5744,7 +5746,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     else if (state->sidebarTree && group == Prog_Group_Storage && Prog_TreeFolder(path)) node = Prog_TreeNodeOf(state, path, true);
     f32 arrow = node != UINT32_MAX ? floorf(16.0f * m->scale + 0.5f) : 0, indent = (f32)depth * floorf(12.8f * m->scale + 0.5f);
     // Not lit under a drag, which would hide the line where it goes; a place dragged stays lit.
-    b32 keyed = Prog__SidebarKeyed(state, (u32)group, false, index);
+    b32 keyed = Prog__SidebarKeyed(state, (u32)group, false, path);
     b32 hot = ((UI->hotKey == key || UI->hotKey == removeKey || UI->hotKey == arrowKey) && !P_DropPending() &&
                (!state->sidebarDrag || (state->sidebarDragGroup == (u32)group + 1 && state->sidebarDrag == index + 1))) || keyed;
     b32 own = (u32)group >= Prog_Group_Count && group != Prog_Group_Tree;
@@ -6041,13 +6043,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
     UI_Block *sidebar =UI_AddBlockFromKey(UI_KeyFromStr(0, S("Sidebar")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable | UI_Flag_RightMouseClickable);
     // The row the keyboard is on settles on one the last build laid out, before this build lays them out again.
     u32 settled = state->sidebarKeys ? Prog__SidebarAt(state) : UINT32_MAX;
-    if (settled != UINT32_MAX) {
-        const Prog_SidebarStop *stop = &state->sidebarStops[settled];
-        state->sidebarAtGroup = stop->group;
-        state->sidebarAtTitle = stop->title;
-        state->sidebarAtIndex = stop->index;
-        state->sidebarAtOrder = settled;
-    }
+    if (settled != UINT32_MAX) Prog__SidebarHold(state, settled);
     ArenaClear(&state->sidebarStopArena);
     if (!state->sidebarFilter.length) state->groupsFilterFolded = 0;
     state->sidebarStops = NULL;
@@ -6286,6 +6282,8 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                 } break;
             }
         }
+        // Enter or Down in the filter's box, on what this build found.
+        Prog__SidebarSettlePending(state);
         // A group's title dragged goes before the group whose upper half the pointer is over, or last, marked by a line there.
         // One whose press the system took away ends without a move.
         if (state->groupDrag && !UI->activeKey) state->groupDrag = state->groupGap = 0;

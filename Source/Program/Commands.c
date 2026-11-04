@@ -726,26 +726,59 @@ function u32 Prog__SidebarAt(const Prog_State *state)
 {
     for (u32 i = 0; i < state->sidebarStopCount; ++i) {
         const Prog_SidebarStop *stop = &state->sidebarStops[i];
-        if (stop->group == state->sidebarAtGroup && stop->title == state->sidebarAtTitle && (stop->title || stop->index == state->sidebarAtIndex)) return i;
+        if (stop->group == state->sidebarAtGroup && stop->title == state->sidebarAtTitle && (stop->title || StrIsEqual(stop->path, state->sidebarAtPath))) return i;
     }
     if (!state->sidebarStopCount) return UINT32_MAX;
     if (state->sidebarAtGroup == UINT32_MAX) {
         for (u32 i = 0; i < state->sidebarStopCount; ++i) if (!state->sidebarStops[i].title) return i;
         return 0;
     }
-    return Min(state->sidebarAtOrder, state->sidebarStopCount - 1);
+    // Gone, as a bookmark removed: the row now in its place, or the one before it when that is still in its group, as after the last one.
+    u32 at = Min(state->sidebarAtOrder, state->sidebarStopCount - 1);
+    if (at > 0 && state->sidebarStops[at].group != state->sidebarAtGroup && state->sidebarStops[at - 1].group == state->sidebarAtGroup && !state->sidebarStops[at - 1].title) --at;
+    return at;
+}
+
+// Puts the keyboard on the sidebar's row `at`.
+function void Prog__SidebarHold(Prog_State *state, u32 at)
+{
+    if (at >= state->sidebarStopCount) return;
+    const Prog_SidebarStop *stop = &state->sidebarStops[at];
+    ArenaClear(&state->sidebarAtArena);
+    state->sidebarAtGroup = stop->group;
+    state->sidebarAtTitle = stop->title;
+    state->sidebarAtPath = StrCopy(&state->sidebarAtArena, stop->path);
+    state->sidebarAtOrder = at;
 }
 
 // Puts the keyboard on the sidebar's row `at`, scrolling it into sight.
 function void Prog__SidebarGo(Prog_State *state, u32 at)
 {
     if (at >= state->sidebarStopCount) return;
-    const Prog_SidebarStop *stop = &state->sidebarStops[at];
-    state->sidebarAtGroup = stop->group;
-    state->sidebarAtTitle = stop->title;
-    state->sidebarAtIndex = stop->index;
-    state->sidebarAtOrder = at;
+    Prog__SidebarHold(state, at);
     state->sidebarReveal = true;
+}
+
+// What Enter or Down in the filter's box asked for, once the build laid out what its text finds.
+function void Prog__SidebarSettlePending(Prog_State *state)
+{
+    u8 pending = state->sidebarPending;
+    state->sidebarPending = 0;
+    if (!pending) return;
+    u32 first = UINT32_MAX;
+    for (u32 i = 0; i < state->sidebarStopCount && first == UINT32_MAX; ++i) if (!state->sidebarStops[i].title) first = i;
+    if (pending == 1 && first != UINT32_MAX) {
+        Prog_QueueCommand(state, Prog_CommandKind_SidebarOpen, state->sidebarStops[first].group, 0, 0)->target = state->sidebarStops[first].index;
+        Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterCancel, 0, 0, 0);
+        state->sidebarKeys = false;
+    } else if (pending == 1) {
+        Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterApply, 0, 0, 0);
+    } else if (first != UINT32_MAX) {
+        // With nothing found the keyboard stays in the box.
+        state->sidebarKeys = true;
+        state->sidebarKeysTime = PlatformNowMicroseconds();
+        Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterApply, 0, 0, 0);
+    }
 }
 
 // Selects the inspector's next match after the selection, or with `back` the one before it, round from the end to the start, and scrolls to it.
@@ -3742,11 +3775,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (state->sidebarHidden) state->sidebarFiltering = false;
             } break;
             case Prog_CommandKind_FocusSidebar: {
-                if (state->sidebarKeys) {
+                if (state->sidebarKeys || state->renaming) {
                     state->sidebarKeys = false;
                     break;
                 }
                 Prog_CloseMenu(state);
+                // The list's and the inspector's boxes give up the keyboard, keeping what they hold, as does the inspector's text.
+                state->filtering = state->inspectorFiltering = state->previewTextFocus = false;
                 state->sidebarHidden = state->uiHidden = state->sidebarFiltering = false;
                 state->sidebarKeys = true;
                 state->sidebarKeysTime = PlatformNowMicroseconds();
@@ -5599,8 +5634,6 @@ function void Prog__SidebarMoveRow(Prog_State *state, u32 at, b32 up, u64 order)
     if (stop->group == Prog_Group_Bookmarks) Prog_QueueCommand(state, Prog_CommandKind_BookmarkMove, stop->index, 0, order)->target = before;
     else if (stop->group == Prog_Group_Places) Prog_QueueCommand(state, Prog_CommandKind_PlaceMove, stop->index, 0, order)->target = before;
     else Prog_QueueCommand(state, Prog_CommandKind_GroupItemMove, stop->group, 0, order)->target = stop->index | (before << 32);
-    // It lands where the one it went past was.
-    state->sidebarAtIndex = other;
     state->sidebarReveal = true;
 }
 
@@ -5619,7 +5652,12 @@ function b32 Prog__SidebarKey(Prog_State *state, const PlatformEvent *event, u64
         return true;
     }
     u32 count = state->sidebarStopCount, at = Prog__SidebarAt(state);
-    if (at == UINT32_MAX) return Prog__TypesInBox(event->key, event->mods);
+    // With no rows, the keys that would act on one do nothing rather than reach the list.
+    if (at == UINT32_MAX) {
+        Key key = event->key;
+        return key == Key_Up || key == Key_Down || key == Key_Left || key == Key_Right || key == Key_Home || key == Key_End || key == Key_PageUp ||
+               key == Key_PageDown || key == Key_Enter || key == Key_Delete || key == Key_F2 || key == Key_ContextMenu || Prog__TypesInBox(event->key, event->mods);
+    }
     const Prog_SidebarStop *stop = &state->sidebarStops[at];
     b32 own = stop->group >= Prog_Group_Count && stop->group != Prog_Group_Tree;
     b32 treeOpen = stop->node < state->treeNodes.header.count && state->treeNodes.v[stop->node].open;
@@ -6094,30 +6132,24 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 continue;
             } else if (event->kind == PlatformEventKind_KeyDown) {
                 if (event->key == Key_Escape) {
+                    // An Enter or Down just before it, still waiting on the build, goes too.
+                    state->sidebarPending = 0;
                     Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterCancel, 0, 0, order);
                     state->swallowText = true;
                     continue;
                 }
                 // Enter opens the first folder it found and clears it, the keyboard going back to the list; with nothing found it only keeps it.
+                // What it finds is known once the build lays out what is typed by then, which may be more than the last build had.
                 if (event->key == Key_Enter) {
                     if (event->isRepeat) continue;
-                    u32 first = UINT32_MAX;
-                    for (u32 i = 0; i < state->sidebarStopCount && first == UINT32_MAX; ++i) if (!state->sidebarStops[i].title) first = i;
-                    if (first != UINT32_MAX && state->sidebarFilter.length) {
-                        Prog_QueueCommand(state, Prog_CommandKind_SidebarOpen, state->sidebarStops[first].group, 0, order)->target = state->sidebarStops[first].index;
-                        Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterCancel, 0, 0, order);
-                        state->sidebarKeys = false;
-                    } else {
-                        Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterApply, 0, 0, order);
-                    }
+                    if (state->sidebarFilter.length) state->sidebarPending = 1;
+                    else Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterApply, 0, 0, order);
                     continue;
                 }
                 // Down or Up, or the list's own keys for them such as Ctrl+J and Ctrl+K, go from the box to what it found, with the keyboard in the sidebar.
                 b32 plainArrow = (event->key == Key_Down || event->key == Key_Up) && !(event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super));
                 if (plainArrow || Prog__ListCursorKey(state, event)) {
-                    state->sidebarKeys = true;
-                    state->sidebarKeysTime = PlatformNowMicroseconds();
-                    Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterApply, 0, 0, order);
+                    state->sidebarPending = 2;
                     continue;
                 }
                 // Other hotkeys still reach the browser.
@@ -6126,6 +6158,8 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         // The keyboard in the sidebar: the arrows go through its rows, Left and Right fold and unfold, Enter opens, Alt with Up or Down moves what it is on among the others, and typing filters it.
         // Escape, Tab, Focus Sidebar again or a press outside it hand the keyboard back to the list.
+        // A box or popup that takes the keyboard after the sidebar's turn takes it from the sidebar.
+        if (state->sidebarKeys && (state->filtering || state->inspectorFiltering || state->renaming || state->filesOpen || state->confirmingDelete)) state->sidebarKeys = false;
         if (state->sidebarKeys && !state->menuOpen) {
             if (state->sidebarHidden || state->uiHidden) {
                 state->sidebarKeys = false;
