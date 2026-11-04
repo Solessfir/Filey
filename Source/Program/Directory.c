@@ -2288,6 +2288,7 @@ function b32 Prog__ReadGitHead(Arena *arena, String at, String *head)
 // That is GIT_SSH_COMMAND, else core.sshCommand, else GIT_SSH's program, else ssh.
 // Only ssh itself takes its options; another program, as PuTTY's plink or a wrapper, is left as it is.
 #define Prog_GitQuietCount 4
+#define Prog_GitStatusMost 64
 function u32 Prog__GitQuiet(Arena *arena, String folder, b32 remote, String *environment)
 {
     u32 count = 0;
@@ -2323,6 +2324,32 @@ function u32 Prog__GitQuiet(Arena *arena, String folder, b32 remote, String *env
     return count;
 }
 
+// The status command for the repository `folder` is in, which runs whenever its folder is shown. A repository's own config can name commands
+// that status runs, an fsmonitor hook and the clean filters of changed files, which an unpacked or copied repository could bring along, so
+// those set there are turned off for it; the user's own, as Git LFS's filter, stay.
+function u32 Prog__GitStatusCommand(Arena *arena, String folder, String untracked, String *arguments)
+{
+    u32 count = 0;
+    arguments[count++] = S("git");
+    String asked[] = { S("git"), S("config"), S("--local"), S("--includes"), S("-z"), S("--get-regexp"), S("^(core\\.fsmonitor|filter\\..*\\.(clean|process))$") }, set = {0};
+    if (P_RunCommand(arena, folder, asked, CArrayCount(asked), 3000, &set, false)) {
+        for (String rest = set; rest.length && count + 6 < Prog_GitStatusMost;) {
+            Index end = StrIndexChar(rest, '\0', SSF_CountOnFail);
+            String entry = StrFromTo(rest, 0, (i64)end.value), key = StrFromTo(entry, 0, (i64)StrIndexChar(entry, '\n', SSF_CountOnFail).value);
+            rest = StrFrom(rest, Min(end.value + 1, rest.length));
+            if (!key.length) continue;
+            arguments[count++] = S("-c");
+            arguments[count++] = StrIsEqual(key, S("core.fsmonitor")) ? S("core.fsmonitor=false") : StrFormat(arena, "%S=", key);
+        }
+    }
+    arguments[count++] = S("--no-optional-locks");
+    arguments[count++] = S("status");
+    arguments[count++] = S("--porcelain=v1");
+    arguments[count++] = S("-z");
+    arguments[count++] = untracked;
+    return count;
+}
+
 // The git status of the repository `folder` is in.
 function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
 {
@@ -2344,9 +2371,9 @@ function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
             }
         }
         // Without the index's optional lock, which would get in the way of the user's own git commands.
-        String status[] = { S("git"), S("--no-optional-locks"), S("status"), S("--porcelain=v1"), S("-z"), S("--untracked-files=normal") };
-        String changes = {0};
-        if (P_RunCommand(arena, folder, status, CArrayCount(status), 5000, &changes, false)) Prog_ReadGitChanges(arena, at, folder, changes, &result);
+        String status[Prog_GitStatusMost], changes = {0};
+        u32 statusCount = Prog__GitStatusCommand(arena, folder, S("--untracked-files=normal"), status);
+        if (P_RunCommand(arena, folder, status, statusCount, 5000, &changes, false)) Prog_ReadGitChanges(arena, at, folder, changes, &result);
         break;
     }
     return result;
@@ -3044,9 +3071,9 @@ function void Prog__DirectoryJob(P_Job *job)
             String folder = Prog_JoinPath(&job->arena, input->path, input->names[i]), head = {0};
             if (!Prog__ReadGitHead(&job->arena, folder, &head)) continue;
             Prog_Repo repo = { Prog_GitBranch(head), -1, -1, -1 };
-            String status[] = { S("git"), S("--no-optional-locks"), S("status"), S("--porcelain=v1"), S("-z"), S("--untracked-files=no") };
-            String changes = {0};
-            if (input->offset && P_RunCommand(&job->arena, folder, status, CArrayCount(status), 4000, &changes, false)) {
+            String status[Prog_GitStatusMost], changes = {0};
+            u32 statusCount = input->offset ? Prog__GitStatusCommand(&job->arena, folder, S("--untracked-files=no"), status) : 0;
+            if (input->offset && P_RunCommand(&job->arena, folder, status, statusCount, 4000, &changes, false)) {
                 Prog_GitStatus counted = {0};
                 Prog_ReadGitChanges(&job->arena, folder, folder, changes, &counted);
                 repo.changes = (i32)counted.changes;
