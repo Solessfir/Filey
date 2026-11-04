@@ -3771,6 +3771,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->uiHidden = false;
                 if (!state->sidebarFiltering) state->sidebarFilterBefore = state->sidebarFilter;
                 state->sidebarFiltering = true;
+                // The keyboard goes from the sidebar's rows to the box.
+                state->sidebarKeys = false;
             } break;
             case Prog_CommandKind_QuickAccessFilterRevert: {
                 state->sidebarFiltering = false;
@@ -5610,7 +5612,9 @@ function b32 Prog__SidebarKey(Prog_State *state, const PlatformEvent *event, u64
     // Focus Sidebar's own hotkey goes on to it, to hand the keyboard back.
     const Prog_Hotkey *hotkey = Prog_FindHotkey(state, Prog_HotkeyScope_Browser, Key_None, event->key, mods);
     if (hotkey && hotkey->command == Prog_CommandKind_FocusSidebar) return false;
+    // Escape hands the keyboard back and clears the filter too; Tab only hands it back.
     if (event->key == Key_Escape || (event->key == Key_Tab && plain)) {
+        if (event->key == Key_Escape && state->sidebarFilter.length) Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterCancel, 0, 0, order);
         state->sidebarKeys = false;
         return true;
     }
@@ -5620,6 +5624,21 @@ function b32 Prog__SidebarKey(Prog_State *state, const PlatformEvent *event, u64
     b32 own = stop->group >= Prog_Group_Count && stop->group != Prog_Group_Tree;
     b32 treeOpen = stop->node < state->treeNodes.header.count && state->treeNodes.v[stop->node].open;
     Key key = event->key;
+    // The list's own hotkeys that move its cursor move through the sidebar too, as Ctrl+J and Ctrl+K; keys that type filter it instead.
+    if (hotkey && !Prog__TypesInBox(event->key, event->mods)) {
+        Prog_CommandKind kind = (Prog_CommandKind)hotkey->command;
+        Key as = kind == Prog_CommandKind_ScrollSelectPrev || kind == Prog_CommandKind_ScrollMoveCursorPrev ? Key_Up
+               : kind == Prog_CommandKind_ScrollSelectNext || kind == Prog_CommandKind_ScrollMoveCursorNext ? Key_Down
+               : kind == Prog_CommandKind_ScrollSelectLeft || kind == Prog_CommandKind_ScrollMoveCursorLeft ? Key_Left
+               : kind == Prog_CommandKind_ScrollSelectRight || kind == Prog_CommandKind_ScrollMoveCursorRight ? Key_Right
+               : kind == Prog_CommandKind_ScrollSelectFirst ? Key_Home : kind == Prog_CommandKind_ScrollSelectLast ? Key_End
+               : kind == Prog_CommandKind_ScrollScrollSelectUp ? Key_PageUp : kind == Prog_CommandKind_ScrollScrollSelectDown ? Key_PageDown : Key_None;
+        if (as != Key_None) {
+            key = as;
+            mods = 0;
+            plain = true;
+        }
+    }
     if (mods == KeyMod_Alt && (key == Key_Up || key == Key_Down)) {
         Prog__SidebarMoveRow(state, at, key == Key_Up, order);
         return true;
@@ -6093,9 +6112,11 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     }
                     continue;
                 }
-                // Down or Up goes from the box to what it found, with the keyboard in the sidebar.
-                if ((event->key == Key_Down || event->key == Key_Up) && !(event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super))) {
+                // Down or Up, or the list's own keys for them such as Ctrl+J and Ctrl+K, go from the box to what it found, with the keyboard in the sidebar.
+                b32 plainArrow = (event->key == Key_Down || event->key == Key_Up) && !(event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super));
+                if (plainArrow || Prog__ListCursorKey(state, event)) {
                     state->sidebarKeys = true;
+                    state->sidebarKeysTime = PlatformNowMicroseconds();
                     Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterApply, 0, 0, order);
                     continue;
                 }
@@ -6111,8 +6132,10 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             } else if (event->kind == PlatformEventKind_MouseDown && !UI__Contains(state->sidebarRect, (UI_Vec2){ event->x, event->y })) {
                 state->sidebarKeys = false;
             } else if (event->kind == PlatformEventKind_Text) {
+                // Typing goes into the filter's box, which then has the keyboard.
                 if (!state->sidebarFiltering) state->sidebarFilterBefore = state->sidebarFilter;
                 state->sidebarFiltering = true;
+                state->sidebarKeys = false;
                 Prog__EditInsert(&state->sidebarFilter, event->codepoint);
                 continue;
             } else if (event->kind == PlatformEventKind_KeyDown && Prog__SidebarKey(state, event, order)) {

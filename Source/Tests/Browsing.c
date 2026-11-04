@@ -2260,6 +2260,23 @@ function void TestQuickAccessFilter(TestFileFixture *fixture)
     Prog_SidebarStop stops[] = { { .group = Prog_Group_Bookmarks, .title = true, .node = UINT32_MAX }, { .group = Prog_Group_Bookmarks, .index = 0, .node = UINT32_MAX, .depth = 1 } };
     state.sidebarStops = stops;
     state.sidebarStopCount = CArrayCount(stops);
+    // The list's Ctrl+J and Ctrl+K move through the sidebar as the arrows do.
+    state.sidebarKeys = true;
+    Prog__SidebarGo(&state, 0);
+    TestRenameKey(&state, Key_J, KeyMod_Control);
+    Check(Prog__SidebarAt(&state) == 1);
+    TestRenameKey(&state, Key_K, KeyMod_Control);
+    Check(Prog__SidebarAt(&state) == 0 && state.sidebarKeys);
+    // Filtering takes the keyboard from the sidebar's rows to its box, and from the box Ctrl+J goes back into the sidebar, as Down does.
+    TestBrowsingCommand(&state, Prog_CommandKind_StartQuickAccessFilter, 0);
+    Check(!state.sidebarKeys && state.sidebarFiltering);
+    TestRenameKey(&state, Key_J, KeyMod_Control);
+    Check(state.sidebarKeys && !state.sidebarFiltering);
+    // Escape from a folder found hands the keyboard back and clears the filter.
+    state.sidebarFilter = (Prog_TextEdit){0};
+    Prog__EditInsert(&state.sidebarFilter, 'f');
+    TestRenameKey(&state, Key_Escape, 0);
+    Check(!state.sidebarKeys && !state.sidebarFilter.length);
     TestBrowsingCommand(&state, Prog_CommandKind_StartQuickAccessFilter, 0);
     TestRenameKey(&state, Key_F, 0);
     TestRenameType(&state, S("f"));
