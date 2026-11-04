@@ -1123,7 +1123,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
         StrBuildStr(arena, &text, a == 255 ? StrFormat(arena, "# color.%s = #%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b)
                                            : StrFormat(arena, "# color.%s = #%02x%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b, a));
     }
-    StrBuildStr(arena, &text, S("\n# Whether the shown folder's git repository is fetched now and then, as far as that needs no sign-in, to count the commits to pull.\n"
+    StrBuildStr(arena, &text, S("\n# Whether the shown folder's git repository, and those the Git column lists, are fetched now and then,\n"
+                                "# as far as that needs no sign-in, to count the commits to pull.\n"
                                 "# git.fetch = false\n"));
     StrBuildStr(arena, &text, S("\n# What Compress Video encodes to (hevc, h264 or av1), on the graphics card when it can, and its constant quality, from 0 (best,\n"
                                 "# largest) to 51; 18 to 23 keeps a video looking as it did.\n# video.codec = hevc\n# video.quality = 20\n"
@@ -1245,7 +1246,7 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_ConfirmEmptyTrash] = { TrInit("Confirm Emptying Recycle Bin"), TrInit("Ask before permanently deleting everything in the Recycle Bin."),
                                         Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("trash.confirm") },
     [Prog_Option_GitFetch] = { TrInit("Fetch Repositories"),
-                               TrInit("Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull; one that needs a sign-in is left alone."),
+                               TrInit("Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull, and those the Git column lists; one that needs a sign-in is left alone."),
                                Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("git.fetch") },
     [Prog_Option_CompressionLevel] = { TrInit("Compression Level"), TrInit("How hard archives Filey makes or adds to are compressed: 0 stores, 9 is smallest and slowest."),
                                        Prog_OptionControl_Slider, 0, 9, NULL, 0, SInit("archive.level") },

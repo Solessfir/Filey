@@ -2915,8 +2915,8 @@ git could not pull
 Fetch Repositories
 = 获取仓库更新
 
-Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull; one that needs a sign-in is left alone.
-= 不时获取当前文件夹的 git 仓库更新（最多每五分钟一次），以统计待拉取的提交；需要登录的仓库不会被获取。
+Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull, and those the Git column lists; one that needs a sign-in is left alone.
+= 不时获取当前文件夹的 git 仓库更新（最多每五分钟一次），以统计待拉取的提交，Git 列中列出的仓库也一样；需要登录的仓库不会被获取。
 
 Too many transfers at once
 = 同时进行的传输过多

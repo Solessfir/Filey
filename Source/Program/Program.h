@@ -1548,7 +1548,7 @@ typedef struct Prog_TreeWatches {
     X(Prog_ViewSettings, inspectorView) \
     X(Arena, gitArena) X(Prog_GitStatus, git) X(P_Job *, gitJob) X(b32, gitAgain) X(u64, gitTime) \
     X(P_DirectoryWatch, gitWatch) X(P_DirectoryWatch, gitDirWatch) X(u64, gitWatched) X(b32, gitDirty) \
-    X(Arena, repoArena) X(Prog_Repos, repos) X(String, reposPath) X(P_Job *, reposJob) X(u64, reposNext) X(u64, reposTime) \
+    X(Arena, repoArena) X(Prog_Repos, repos) X(String, reposPath) X(P_Job *, reposJob) X(u64, reposNext) X(u64, reposFetchNext) X(u64, reposTime) \
     X(b32, miller) X(Arena, millerArena) X(Prog_MillerColumns *, millerColumns) \
     X(Arena, pickArena) X(ArrayStr, pickNames) X(f32, pickScroll) X(b32, pickScrollSet) \
     X(u64, pathFlashTime) X(u64, itemsFlashTime) X(u32, columnDrag) X(UI_Key, columnDragKey) X(f32, columnGrab) X(u32, columnDropAt) X(u64, columnSlideUntil)
@@ -1905,8 +1905,8 @@ typedef struct Prog_State {
     b32 mcp;         // the settings' mcp: agents reach the window through `filey --mcp`, on the control channel
     b32 mcpWanted;   // and whether the channel listens, as it was asked to
     u64 mcpRetryAt;  // when a listen that failed, as another window held the channel, is tried again
-    // ponytail: the last few repositories only; one pushed out of them is fetched again on its next visit.
-    struct { u64 hash, time; } gitFetched[8];
+    // ponytail: the last 64 repositories only, a Git column's included; one pushed out of them is fetched again on its next visit.
+    struct { u64 hash, time; } gitFetched[64];
     P_Job *gitFetchJob;
     u64 gitFetchHash;         // the hash of the folder of the repository being fetched
     P_Job *gitPullJob;

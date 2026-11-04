@@ -2915,8 +2915,8 @@ git could not pull
 Fetch Repositories
 = Hacer fetch de repositorios
 
-Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull; one that needs a sign-in is left alone.
-= Hacer fetch del repositorio git de la carpeta mostrada de vez en cuando, como mucho cada cinco minutos, para contar sus commits pendientes de pull; los que piden iniciar sesión no se tocan.
+Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull, and those the Git column lists; one that needs a sign-in is left alone.
+= Hacer fetch del repositorio git de la carpeta mostrada de vez en cuando, como mucho cada cinco minutos, para contar sus commits pendientes de pull, y de los que lista la columna Git; los que piden iniciar sesión no se tocan.
 
 Too many transfers at once
 = Demasiadas transferencias a la vez

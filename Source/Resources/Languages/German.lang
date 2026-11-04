@@ -2915,8 +2915,8 @@ git could not pull
 Fetch Repositories
 = Repositorys abrufen
 
-Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull; one that needs a sign-in is left alone.
-= Das Git-Repository des angezeigten Ordners ab und zu abrufen, höchstens alle fünf Minuten, um die zu pullenden Commits zu zählen; eines, das eine Anmeldung braucht, bleibt unberührt.
+Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull, and those the Git column lists; one that needs a sign-in is left alone.
+= Das Git-Repository des angezeigten Ordners ab und zu abrufen, höchstens alle fünf Minuten, um die zu pullenden Commits zu zählen, ebenso die in der Git-Spalte aufgeführten; eines, das eine Anmeldung braucht, bleibt unberührt.
 
 Too many transfers at once
 = Zu viele Übertragungen gleichzeitig

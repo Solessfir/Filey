@@ -2914,8 +2914,8 @@ git could not pull
 Fetch Repositories
 = Получать изменения репозиториев
 
-Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull; one that needs a sign-in is left alone.
-= Время от времени, не чаще раза в пять минут, выполнять fetch для git-репозитория текущей папки, чтобы считать коммиты для pull; репозитории, требующие входа, не трогаются.
+Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull, and those the Git column lists; one that needs a sign-in is left alone.
+= Время от времени, не чаще раза в пять минут, выполнять fetch для git-репозитория текущей папки, чтобы считать коммиты для pull, а также для репозиториев в столбце Git; репозитории, требующие входа, не трогаются.
 
 Too many transfers at once
 = Слишком много операций сразу

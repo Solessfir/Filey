@@ -131,7 +131,7 @@ global const char *const Prog_Strings[] = {
     "Confirm Emptying Recycle Bin",
     "Ask before permanently deleting everything in the Recycle Bin.",
     "Fetch Repositories",
-    "Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull; one that needs a sign-in is left alone.",
+    "Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull, and those the Git column lists; one that needs a sign-in is left alone.",
     "Compression Level",
     "How hard archives Filey makes or adds to are compressed: 0 stores, 9 is smallest and slowest.",
     "Video Codec",

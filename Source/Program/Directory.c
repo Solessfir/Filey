@@ -4104,11 +4104,11 @@ function b32 Prog__MarkFetched(Prog_State *state, u64 hash)
 
 // Fetches the repository at `root` from its remote in a job, at most every five minutes, after its status shows; one fetch at a time, and none
 // while the same repository is pulled, which would lock the same refs.
-function void Prog__FetchGit(Prog_State *state, String root)
+function b32 Prog__FetchGit(Prog_State *state, String root)
 {
-    if (!state->gitFetch || state->gitFetchJob || !root.length) return;
+    if (!state->gitFetch || state->gitFetchJob || !root.length) return false;
     u64 hash = MapHashBytes(root.value, root.length);
-    if ((state->gitPullJob && state->gitPullHash == hash) || !Prog__MarkFetched(state, hash)) return;
+    if ((state->gitPullJob && state->gitPullHash == hash) || !Prog__MarkFetched(state, hash)) return false;
     state->gitFetchHash = hash;
     P_Job *job = P_JobCreate(&state->toolJobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
@@ -4118,6 +4118,7 @@ function void Prog__FetchGit(Prog_State *state, String root)
     job->input = input;
     state->gitFetchJob = job;
     P_JobSubmit(job);
+    return true;
 }
 
 // Whether the panel's columns have Git, which the repositories among its subfolders are looked for only for.
@@ -4154,7 +4155,7 @@ function void Prog_RequestRepos(Prog_State *state)
     ArenaClear(&state->repoArena);
     state->repos = (Prog_Repos){0};
     state->reposPath = StrCopy(&state->repoArena, state->directory.path);
-    state->reposNext = 0;
+    state->reposNext = state->reposFetchNext = 0;
     state->reposTime = PlatformNowMicroseconds();
     if (!Prog_ShowsGit(state) || StrIsEqual(state->directory.path, Prog_ThisPC) || P_IsTrashFolder(state->directory.path) || state->directory.archive || state->directory.expanded) return;
     Scratch scratch = GetScratch();
@@ -4175,6 +4176,21 @@ function void Prog__NextRepoStatus(Prog_State *state)
         if (state->repos.v[state->reposNext].value.changes >= 0) continue;
         Prog__RepoJob(state, &state->repos.v[state->reposNext].key, 1, true);
         return;
+    }
+}
+
+// With the settings' git.fetch, the Git column's repositories that have an upstream are fetched too, one at a time once every status is
+// known, each at most every five minutes as the shown folder's own is; the status of each is asked again after.
+function void Prog__NextRepoFetch(Prog_State *state)
+{
+    if (!state->gitFetch || state->gitFetchJob || state->reposJob || !Prog_ShowsGit(state) || state->directory.driveKind == P_DriveKind_Network) return;
+    if (state->reposNext < state->repos.header.count) return;
+    for (; state->reposFetchNext < state->repos.header.count; ++state->reposFetchNext) {
+        if (state->repos.v[state->reposFetchNext].value.behind < 0) continue;
+        if (Prog__FetchGit(state, Prog_JoinPath(&state->frameArena, state->reposPath, state->repos.v[state->reposFetchNext].key))) {
+            ++state->reposFetchNext;
+            return;
+        }
     }
 }
 
@@ -8306,6 +8322,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 // A status that failed or timed out counts as nothing to show, and the next one goes on.
                 if (input->offset && state->reposNext < state->repos.header.count && state->repos.v[state->reposNext].value.changes < 0) state->repos.v[state->reposNext].value.changes = 0;
                 Prog__NextRepoStatus(state);
+                Prog__NextRepoFetch(state);
             }
         } else if (input->kind == Prog_JobKind_PdfPage) {
             if (state->pdf.job == job) state->pdf.job = NULL;
@@ -9122,10 +9139,24 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     // to show what came, and another panel's repository is fetched in turn, as none was while it went on.
     for (u32 panel = 0; (fetched || pulled) && panel < state->panelCount; ++panel) {
         Prog__UsePanel(state, panel);
+        // A Git column's repository that was fetched has its status asked again.
+        for (u64 i = 0; Prog_ShowsGit(state) && i < state->repos.header.count; ++i) {
+            String repo = Prog_JoinPath(&state->frameArena, state->reposPath, state->repos.v[i].key);
+            u64 hash = MapHashBytes(repo.value, repo.length);
+            if (hash != fetched && hash != pulled) continue;
+            state->repos.v[i].value.changes = -1;
+            state->reposNext = Min(state->reposNext, i);
+            Prog__NextRepoStatus(state);
+        }
         if (!state->git.branch.length) continue;
         u64 root = MapHashBytes(state->git.root.value, state->git.root.length);
         if (root == fetched || root == pulled) Prog_RequestGitStatus(state, state->directory.path);
         else if (state->git.behind >= 0) Prog__FetchGit(state, state->git.root);
+    }
+    // The shown folders' own repositories go first; the Git columns' after.
+    for (u32 panel = 0; (fetched || pulled) && panel < state->panelCount; ++panel) {
+        Prog__UsePanel(state, panel);
+        Prog__NextRepoFetch(state);
     }
     Prog__UsePanel(state, state->activePanel);
     Prog__PollTorrentProgress(state);

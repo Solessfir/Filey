@@ -2296,6 +2296,40 @@ function void TestPullable(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+// With git.fetch, the Git column fetches the repositories it shows, so that one behind its upstream says so without a fetch by hand.
+function void TestRepoFetch(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String repos = Prog_JoinPath(&arena, fixture->path, S("Fetches")), theirs = Prog_JoinPath(&arena, repos, S("theirs")), made = {0}, output = {0};
+    Check(!P_CreateItem(&arena, fixture->path, S("Fetches"), true, &made).code);
+    String init[] = { S("git"), S("init"), S("-q"), S("--bare"), S("origin.git") }, cloneTheirs[] = { S("git"), S("clone"), S("-q"), S("origin.git"), S("theirs") };
+    String cloneMine[] = { S("git"), S("clone"), S("-q"), S("origin.git"), S("mine") }, push[] = { S("git"), S("push"), S("-q"), S("-u"), S("origin"), S("HEAD") };
+    String commit[] = { S("git"), S("-c"), S("user.name=Test"), S("-c"), S("user.email=test@example.com"), S("-c"), S("commit.gpgsign=false"), S("commit"), S("-q"), S("--allow-empty"), S("-m"), S("c") };
+    b32 ready = P_RunCommand(&arena, repos, init, CArrayCount(init), 10000, &output, false) && P_RunCommand(&arena, repos, cloneTheirs, CArrayCount(cloneTheirs), 10000, &output, false) &&
+                P_RunCommand(&arena, theirs, commit, CArrayCount(commit), 10000, &output, false) && P_RunCommand(&arena, theirs, push, CArrayCount(push), 10000, &output, false) &&
+                P_RunCommand(&arena, repos, cloneMine, CArrayCount(cloneMine), 10000, &output, false) && P_RunCommand(&arena, theirs, commit, CArrayCount(commit), 10000, &output, false) &&
+                P_RunCommand(&arena, theirs, push, CArrayCount(push), 10000, &output, false);
+    Check(ready);
+    if (ready) {
+        Prog_State state = {0};
+        Check(Prog_Init(&state, repos, NULL, NULL) && state.jobs.initialized && TestWaitDirectory(&state));
+        state.gitFetch = true;
+        TestBrowsingCommand(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Git);
+        Check(Prog_ShowsGit(&state));
+        Prog_RequestRepos(&state);
+        const Prog_Repo *mine = NULL;
+        for (u64 start = PlatformNowMicroseconds(); PlatformNowMicroseconds() - start < Millions(30); P__TestPause()) {
+            Prog_TakeCompletions(&state);
+            mine = MapsGetPtrNull(state.repos, S("mine"));
+            if (mine && mine->behind == 1 && !state.gitFetchJob && !state.reposJob) break;
+        }
+        Check(mine && mine->behind == 1 && mine->ahead == 0);
+        Prog_Release(&state);
+    }
+    Check(!P_DeleteItems(&arena, &repos, 1, false, NULL).code && !P_PathExists(repos));
+    ArenaRelease(&arena);
+}
+
 // The Quick Access filter: its hotkey gives its box the keyboard, typing finds sidebar items by their names' letters in order, Enter keeps the
 // filter and hands the keyboard back, Escape takes back what was typed since the box got the keyboard, and the clear button clears it.
 function void TestQuickAccessFilter(TestFileFixture *fixture)
@@ -5621,6 +5655,7 @@ function void TestBrowsing(void)
         TestGitFetchLimit(&fixture);
         TestRepoCommits(&fixture);
         TestPullable(&fixture);
+        TestRepoFetch(&fixture);
         TestTextIndex(&fixture);
         TestEncryptedSevenZip(&fixture);
         TestStaleRunFolders(&fixture);
