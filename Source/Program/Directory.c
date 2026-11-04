@@ -243,6 +243,13 @@ function String Prog_NameProblem(String name)
     return (String){0};
 }
 
+// The focused item by its path, or the folder shown with a slash after it when nothing is focused.
+function String Prog__FocusedPath(const Prog_State *state, Arena *arena)
+{
+    b32 focused = state->hasFocus && state->focusedRow < state->directory.count;
+    return focused ? Prog_JoinPath(arena, state->directory.path, state->directory.entries[state->focusedRow].file.name) : StrFormat(arena, "%S/", state->directory.path);
+}
+
 function b32 Prog_EntryBrokenLink(const Prog_Entry *entry)
 {
     return entry->file.symbolicLink && !entry->file.metadataValid;
@@ -8443,7 +8450,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 if (packed.length) packed = Prog__ListedName(&state->frameArena, state, input->path, packed);
                 if (packed.length && Prog_SelectNext(state, packed)) {
                     state->selectRename = true;
-                } else if (result->placed.header.count && Prog__ListedName(&state->frameArena, state, input->path, Prog__FolderName(result->placed.v[0])).length) {
+                } else if (result->placed.header.count && Prog__ListedName(&state->frameArena, state, input->path, Prog__FolderName(result->placed.v[0])).length &&
+                           StrIsEqual(Prog__FocusedPath(state, &state->frameArena), input->focusedAtStart)) {
+                    // Not while the user has gone on to another item since it started, which they keep.
                     // What was pasted into the folder shown is selected once its listing shows it, all of it; a torrent fetched for its
                     // files to be chosen shows them in the inspector.
                     if (input->transferOp == Prog_TransferOp_TorrentFetch) state->previewShown = true;

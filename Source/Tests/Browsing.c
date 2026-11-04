@@ -3003,6 +3003,14 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);
     TestFileCommand(&state, Prog_CommandKind_Duplicate);
     Check(TestWaitCount(&state, 4) && !state.error.length);
+    // Gone on to another item before it is done, the user keeps it rather than having the copy picked.
+    Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);
+    ArenaClear(&state.frameArena);
+    Prog_QueueCommand(&state, Prog_CommandKind_Duplicate, 0, 1, 0);
+    Prog_ProcessCommands(&state);
+    Prog_SelectRow(&state, TestEntryIndex(&state, S("New folder")), 0);
+    Check(TestWaitCount(&state, 5) && TestWaitDirectory(&state) && !state.error.length);
+    Check(state.hasFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("New folder")) && state.selectedCount == 1);
 
     // Cut and Paste in another folder moves.
     Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);

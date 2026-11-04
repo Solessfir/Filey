@@ -537,6 +537,7 @@ typedef struct Prog_JobInput {
     const atomic_uint *volume;    // what audio plays at, 0 to 100, read as it plays
     u64 panel;  // the panel that asked, whose results these are; 0 for work of the whole window
     String path;
+    String focusedAtStart;  // a transfer's: the item focused as it started, by its path, which it selects what it made in place of only if still focused
     String password;  // a server's, which a mount tries
     u64 generation;
     enum8(Prog_Sort) sort;

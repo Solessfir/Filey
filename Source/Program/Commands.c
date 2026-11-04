@@ -2885,6 +2885,7 @@ function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, co
     input->folder = kind == Prog_JobKind_Create && flag;
     input->confirm = (kind == Prog_JobKind_EmptyTrash || kind == Prog_JobKind_Delete) && flag;
     input->name = StrCopy(&job->arena, name);
+    input->focusedAtStart = Prog__FocusedPath(state, &job->arena);
     // A copy or move takes a free slot for its progress and questions; without one, taken names get numbers.
     if (transfer) {
         String target = Prog_EntryLeaf(directory);
