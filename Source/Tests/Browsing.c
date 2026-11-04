@@ -3739,6 +3739,16 @@ function void TestMcp(TestFileFixture *fixture)
         u64 inside = TestEntryIndex(&state, S("inside.txt"));
         Check(inside != UINT64_MAX && state.directory.entries[inside].selected);
         Check(StrIndexStr(Prog_ControlAnswer(&state, &arena, S("{\"name\":\"open_path\",\"arguments\":{\"path\":\"/no/such/folder\"}}")), S("\"error\""), SSF_None).exists);
+        // A path naming an environment variable opens where it points, as typed in the path bar.
+#if defined(_WIN32)
+        SetEnvironmentVariableW(L"FILEY_TEST_DIR", P__FilePathWide(&arena, fixture->path));
+        String named = S("%FILEY_TEST_DIR%/Folder2");
+#else
+        setenv("FILEY_TEST_DIR", StrFormat(&arena, "%S", fixture->path).value, 1);
+        String named = S("$FILEY_TEST_DIR/Folder2");
+#endif
+        answer = Prog_ControlAnswer(&state, &arena, StrFormat(&arena, "{\"name\":\"open_path\",\"arguments\":{\"path\":%S}}", Prog_JsonQuote(&arena, named)));
+        Check(!StrIndexStr(answer, S("\"error\""), SSF_None).exists && TestWaitDirectory(&state) && TestEndsWith(state.directory.path, S("/Folder2")));
         Check(StrIndexStr(Prog_ControlAnswer(&state, &arena, S("{\"name\":\"search\",\"arguments\":{\"query\":\"documents\"}}")), S("\"results\":["), SSF_None).exists);
         Check(StrIndexStr(Prog_ControlAnswer(&state, &arena, S("{\"name\":\"nope\"}")), S("\"error\""), SSF_None).exists);
     }

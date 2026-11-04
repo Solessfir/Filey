@@ -136,7 +136,8 @@ function String Prog__ToolOpen(Prog_State *state, Arena *arena, const Prog__Json
 {
     String given = Prog_JsonText(arena, Prog__JsonGet(arguments, S("path")));
     if (!given.length) return Prog__ToolError(arena, NoTr("open_path needs a path."));
-    String path = StrIsEqual(given, Prog_ThisPC) ? given : P_AbsolutePath(arena, given);
+    // A leading ~ and the environment's variables mean what they do typed in the path bar.
+    String path = StrIsEqual(given, Prog_ThisPC) ? given : P_AbsolutePath(arena, P_ExpandVariables(arena, given, true));
     if (!StrIsEqual(path, Prog_ThisPC) && !P_PathExists(path)) return Prog__ToolError(arena, StrFormat(arena, "%S does not exist.", given));
     Prog__UsePanel(state, state->activePanel);
     b32 newTab = Prog__JsonTrue(Prog__JsonGet(arguments, S("newTab")));
@@ -310,7 +311,7 @@ function String Prog_ControlAnswer(Prog_State *state, Arena *arena, String reque
     "[{\"name\":\"get_state\",\"description\":\"What Filey shows in its active panel: the folder, the focused item, the selected items (names relative to the folder), the tabs and the panels.\"," \
     "\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}," \
     "{\"name\":\"open_path\",\"description\":\"Shows a folder in Filey, in the active tab or a new one, optionally with some of its items selected; a file opens its folder with it selected.\"," \
-    "\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"An absolute path.\"}," \
+    "\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"An absolute path, or one starting with ~ or naming environment variables, as %APPDATA% on Windows or $HOME on Linux.\"}," \
     "\"newTab\":{\"type\":\"boolean\",\"description\":\"Open in a new tab rather than the active one.\"}," \
     "\"select\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Names of items in the folder to select once it is listed.\"}},\"required\":[\"path\"]}}," \
     "{\"name\":\"select\",\"description\":\"Selects items of the folder Filey shows by their names, replacing the selection.\"," \
