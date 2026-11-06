@@ -4073,6 +4073,17 @@ function void TestTabs(TestFileFixture *fixture)
         state.newTabView = Prog_NewTabView_Details;
         state.zoom = zoom, state.sort = (u8)sort, state.descending = false;
     }
+    // In the same folder too, the order, the folders' place and the grouping start over.
+    {
+        Prog_Sort sort = state.sort;
+        u8 folderSort = state.folderSort, groupBy = state.groupBy;
+        state.sort = Prog_Sort_Size, state.descending = true, state.folderSort = Prog_FolderSort_Mixed, state.groupBy = Prog_GroupBy_Type;
+        state.newTab = Prog_NewTab_Current;
+        TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
+        Check(TestWaitDirectory(&state) && state.sort == Prog_Sort_Name && !state.descending && state.folderSort == Prog_FolderSort_First && state.groupBy == Prog_GroupBy_None);
+        TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+        state.sort = (u8)sort, state.descending = false, state.folderSort = folderSort, state.groupBy = groupBy;
+    }
     state.newTab = Prog_NewTab_Current;
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
     state.newTab = Prog_NewTab_Root;
