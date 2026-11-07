@@ -3728,10 +3728,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     break;
                 }
                 // With no room for its tab, that is said now rather than after the job.
-                if (inTab && state->tabCount >= Prog_MaxTabs) {
-                    Prog_OpenTab(state, path, state->activeTab + 1, true);
-                    break;
-                }
+                if (inTab && !Prog_RoomForTab(state)) break;
                 P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
                 Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
                 input->kind = Prog_JobKind_Reveal;

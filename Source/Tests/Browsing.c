@@ -5495,9 +5495,8 @@ function void TestApps(TestFileFixture *fixture)
             // A shell running a script file takes the name as an argument, as any program does.
             { S("sh ./show.sh %f"), oddName },
             { S("bash -e ./show.sh %f"), oddName },
-            // A shell's command with the name as its argument, and a command substituted with a shell's command in it, whose quotes start anew.
-            { S("sh -c 'printf %%s \"$1\" > printed; echo \"$(date)\" > /dev/null' sh %f"), oddName },
-            { S("printf %%s \"$(sh -c 'printf %%s %f')\" > printed"), oddName },
+            // A shell's command with the name as its argument.
+            { S("sh -c 'printf %%s \"$1\" > printed' sh %f"), oddName },
             // A subshell inside a substitution does not end it.
             { S("printf %%s \"$( (true); printf %%s %f)\" > printed"), oddName },
             { S("sh -c \"printf %%s \"\\'%f\\'\" > printed\""), oddName },
@@ -5534,11 +5533,19 @@ function void TestApps(TestFileFixture *fixture)
             // started through a wrapper not known here inside a shell's command, and a terminal's -e string.
             S("sh -c \"cat $(dirname %f)\""), S("sh -c 'echo \"$(basename %f)\"'"), S("printf %%s %f > y; sh < y"), S("printf %%s %f > y; bash -s < y"),
             S("sh -c \"timeout 9 sh -c 'cat %f'\""), S("xterm -e \"less '%f'\""),
+            // A shell's command beside any command substitution, whose quotes start anew where the tracking here does not follow them.
+            S("sh -c \"a $(true) %f\""), S("sh -c $(basename %f)"), S("printf %%s \"$(sh -c 'printf %%s %f')\""), S("sh -c \"timeout 9 bash --norc -c 'cat %f'\""),
         };
         for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
             P__Action refused = {0};
             Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", refusedExecs[r])).code);
             Check(!P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &refused));
+        }
+        // A terminal given the command as several words runs them as they are, so that is offered.
+        {
+            P__Action argv = {0};
+            Check(!P_WriteFile(&extras, quoting, S("[Nemo Action]\nName=Q\nExec=xterm -e less %f\nSelection=s\nExtensions=any;\n")).code);
+            Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &argv));
         }
         // A script beside the action runs from the actions folder, quoted for the shell, its % no field code.
         {
@@ -5678,6 +5685,7 @@ function void TestApps(TestFileFixture *fixture)
         // One that would hand the value on to a shell the quoting cannot follow is not run.
         String refusedExecs[] = {
             S("sh -c \"sh -c 'cat %f'\""), S("env -S \"sh -c 'cat %f'\""), S("env -S \"cat %f\""), S("sh -c \"cat $(dirname %f)\""), S("watch \"cat %f\""), S("sh -c \"cat ${x:-%f}\""), S("sh -c \"cat %f | exec sh\""),
+            S("sh -c \"a $(true) %f\""), S("sh -c $(basename %f)"), S("sh -c \"timeout 9 bash --norc -c 'cat %f'\""), S("xterm -e \"less '%f'\""),
         };
         for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
             quoting.exec = refusedExecs[r];

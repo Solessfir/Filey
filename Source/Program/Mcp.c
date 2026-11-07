@@ -145,8 +145,11 @@ function String Prog__ToolOpen(Prog_State *state, Arena *arena, const Prog__Json
         if (!Prog_ShowInFolder(state, path, newTab)) return Prog__ToolError(arena, newTab && state->tabCount >= Prog_MaxTabs ? StrFormat(arena, "The panel has its most tabs, %u, open; close one first.", Prog_MaxTabs) : StrFormat(arena, "Filey cannot show %S in its folder.", given));
         return S("{\"opened\":\"file\"}");
     }
-    if (newTab && !Prog_OpenTab(state, path, state->activeTab + 1, true)) return Prog__ToolError(arena, StrFormat(arena, "The panel has its most tabs, %u, open; close one first.", Prog_MaxTabs));
-    else Prog_RequestDirectory(state, path, true, 0);
+    if (newTab) {
+        if (!Prog_OpenTab(state, path, state->activeTab + 1, true)) return Prog__ToolError(arena, StrFormat(arena, "The panel has its most tabs, %u, open; close one first.", Prog_MaxTabs));
+    } else {
+        Prog_RequestDirectory(state, path, true, 0);
+    }
     // What to select comes with the listing, as a paste's new items do.
     const Prog__Json *select = Prog__JsonGet(arguments, S("select"));
     if (select && select->kind == '[' && select->count) {

@@ -7597,14 +7597,17 @@ function void Prog__LeaveLostDrives(Prog_State *state, P_ArrayPlace before, P_Ar
 }
 
 // Opens `path` in a new tab at slot `at`.
-function b32 Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
+function b32 Prog_RoomForTab(Prog_State *state)
 {
     Prog__EnsureTab(state);
-    if (!path.length) return false;
-    if (state->tabCount >= Prog_MaxTabs) {
-        Prog_Notify(state, Prog_NoticeKind_Warning, S("tabs.full"), Tr("No room for another tab"), Tr("Close a tab to open one more."));
-        return false;
-    }
+    if (state->tabCount < Prog_MaxTabs) return true;
+    Prog_Notify(state, Prog_NoticeKind_Warning, S("tabs.full"), Tr("No room for another tab"), Tr("Close a tab to open one more."));
+    return false;
+}
+
+function b32 Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
+{
+    if (!path.length || !Prog_RoomForTab(state)) return false;
     at = Min(at, state->tabCount);
     MemMove(&state->tabs[at + 1], &state->tabs[at], (state->tabCount - at) * sizeof(Prog_Tab));
     ++state->tabCount;
