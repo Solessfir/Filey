@@ -5534,6 +5534,11 @@ function void TestApps(TestFileFixture *fixture)
             S("timeout 9 script /dev/null -c \"cat %f\""), S("xterm -e script out --command=\"less %f\""), S("sh -c \"cat %f\nsh -c 'cat %f'\""),
             // A here-document's <<, whose body the shell expands though the value in it is quoted, a comment a line break in a value would end, and a shell after && or &.
             S("bash -c \"cat <<< %f\""), S("sh -c \"true # %f\""), S("true && sh -c \"printf %%s %f > printed\""), S("x & sh -c \"cat %f\""),
+            // A line continuation, a redirection splitting a command, a backslash inside double quotes, a shell's commands that run or evaluate
+            // a name, script's long option abbreviated, and a shell that evaluates more.
+            S("sh -c \"cat <\\\\\\n<E %f\""), S("timeout 9 script /dev/null >x -c \"cat %f\""), S("sh -c \"echo \\' ; sh -c 'cat %f' \\'\""),
+            S("sh -c \"trap %f EXIT\""), S("bash -c \"unset %f\""), S("bash -c \"printf -vx %%s %f\""), S("timeout 9 script /dev/null --com \"cat %f\""),
+            S("ksh -c \"cat %f\""), S("sh -c \"cat %f\" 2>&1"), S("sh -c \"cat %f\" <<E"), S("timeout 9 script /dev/null --c=\"cat %f\""),
             // An assignment before a command, which the strict reading does not take.
             S("env LANG=C sh -c \"cat %f\""), S("LC_ALL=C bash -c \"wc -l %f\""),
             S("sh -c \"sh -c 'printf %%s %f'\""), S("eval printf %%s %f"), S("env -S \"sh -c 'printf %%s %f'\""), S("env -S \"printf %%s %f\""),
@@ -5575,7 +5580,7 @@ function void TestApps(TestFileFixture *fixture)
         // A terminal given the command as several words runs them as they are, so that is offered.
         {
             P__Action argv = {0};
-            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("cp %F ."), S("convert %f script"), S("sh -c \"cat %f\" 2>/dev/null"), S("sh -c \"cat %f\" 2>&1"), S("convert %f script -quality 90 out.png") };
+            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("cp %F ."), S("convert %f script"), S("sh -c \"cat %f\" 2>/dev/null"), S("cat %f >> log; notify-send done") };
             for (u32 o = 0; o < CArrayCount(offered); ++o) {
                 Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", offered[o])).code);
                 Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &argv));
@@ -5725,7 +5730,8 @@ function void TestApps(TestFileFixture *fixture)
             S("sh -c \"a $(true) %f\""), S("sh -c $(basename %f)"), S("sh -c \"timeout 9 bash --norc -c 'cat %f'\""), S("xterm -e \"less '%f'\""),
             // A shell given as another program's argument, which may run it in ways not followed here.
             S("app --open=\"%f\" sh -c \"cat %f\""),
-
+            // The app's name alone in a shell's command inside another's, checked as a value is.
+            S("sh -c \"sh -c 'echo %c'\""),
             // Words a desktop entry takes as they are that a shell would not, which the check reads as the entry splits them.
             S("alacritty --title='x -e sh -c \"y; sh -c %f\" '"), S("timeout 9 env -u > sh -c \"y; sh -c %f\""),
         };
