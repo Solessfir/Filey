@@ -352,11 +352,13 @@ function b32 P__ShellScriptNext(const String *words, u64 count)
 
 // Whether `text`, a command line a value is put into, is one whose quoting the code here follows whole, so that the value cannot reach a
 // second parse that runs it as code. It is a plain list of commands, of programs and their arguments, joined by ; && || | and redirected
-// with < and >, with nothing that expands: no $ at all, as variables, substitutions and ${...}, and no backtick. A shell in it may be one of
-// three: one at the top given a script with -c, which holds plain commands in turn and no shell of its own given one; one given a script
-// file it did not just write, as "sh ./show.sh %f"; or one started bare to keep a terminal open, as "exec bash". Any other shell, a shell
-// named as an argument, a program that runs its arguments as a command (eval, watch, ssh and the like), env -S, a wrapper given options,
-// and a terminal's -e given one string are refused. What a command could do with a value by itself, a program of its own, is not seen.
+// with < and >, with nothing that expands: no $ at all, as variables, substitutions and ${...}, and no backtick.
+// A shell in it may be one of three, in a line with no < anywhere: one at the top given a script with -c and not fed by a pipe, which holds
+// plain commands in turn and no shell of its own given one; one given a script file as the line's first command, as "sh ./show.sh %f", in a
+// line with no pipe; or one started bare to keep a terminal open, as "exec bash", in a line with no pipe and no >.
+// Any other shell, a shell named as an argument, a program that runs its arguments as a command (eval, watch, ssh and the like), env -S, a
+// wrapper given options, and a terminal's -e given one string are refused. What a command could do with a value by itself, a program of its
+// own, is not seen.
 function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
 {
     if (StrIndexChar(text, '$', SSF_None).exists || StrIndexChar(text, '`', SSF_None).exists) return false;
@@ -387,23 +389,29 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
         toks[count++] = (P__Tok){ .word = StrCopy(arena, word.buffer) };
     }
     // A pipe anywhere, or a group, as ( ... ) or { ...; }, which a pipe may feed as a whole, leaves no shell bare.
-    b32 wrote = false, scripted = false, piping = false;
+    // Any <, which may feed a shell however it is written, any > for a bare shell, which may read a file written by it at its start, and a pipe
+    // or a group, as ( ... ) or { ...; }, which a pipe may feed as a whole, leave a shell out.
+    b32 scripted = false, piping = false, reading = false, writing = false;
     for (u64 i = 0; i < count; ++i) {
         b32 pipe = toks[i].op == '|' && !(i + 1 < count && toks[i + 1].op == '|') && !(i > 0 && toks[i - 1].op == '|');
         piping |= pipe || toks[i].op == '(' || StrIsEqual(toks[i].word, S("{"));
+        reading |= toks[i].op == '<';
+        writing |= toks[i].op == '>';
     }
+    b32 first = true;
     for (u64 i = 0; i < count;) {
         // One command: its words up to the next operator, fed by a pipe, as | or |&, or a < when one comes before or after it.
         b32 piped = (i > 0 && toks[i - 1].op == '|' && !(i > 1 && toks[i - 2].op == '|')) || (i > 1 && toks[i - 1].op == '&' && toks[i - 2].op == '|');
         if (toks[i].op) {
-            if (toks[i].op == '>') wrote = true;
             ++i;
             continue;
         }
         u64 from = i;
         while (i < count && !toks[i].op) ++i;
         u64 end = i;
-        b32 fed = piped || (end < count && toks[end].op == '<');
+        b32 fed = piped || reading;
+        b32 leading = first;
+        first = false;
         // A redirection's target is a file, not a command.
         if (from > 0 && (toks[from - 1].op == '<' || toks[from - 1].op == '>')) {
             if (end - from > 1) from += 1;
@@ -431,9 +439,10 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
                 scripted = true;
                 if (!P__CommandAllowed(arena, words[operand], depth + 1)) return false;
             } else if (operand < n) {
-                // A script file, which takes the values after it as arguments, unless the command wrote it or it is read from a value.
-                if (wrote || fed || StrIndexChar(words[operand], '%', SSF_None).exists) return false;
-            } else if (fed || piping || at + 1 < n) {
+                // A script file, which takes the values after it as arguments: the first command at the top, so that nothing before it wrote it,
+                // and not a value itself.
+                if (depth || !leading || fed || piping || StrIndexChar(words[operand], '%', SSF_None).exists) return false;
+            } else if (fed || piping || writing || at + 1 < n) {
                 return false;
             }
             continue;
@@ -442,12 +451,12 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
             for (u64 k = at + 1; k < n; ++k) {
                 String option = words[k];
                 if (option.length > 2 && option.value[0] == '-' && option.value[1] == 'e' &&
-                    (StrIndexChar(option, ' ', SSF_None).exists || StrIndexChar(option, '%', SSF_None).exists)) return false;
+                    (StrIndexChar(option, ' ', SSF_None).exists || StrIndexChar(option, '\t', SSF_None).exists || StrIndexChar(option, '%', SSF_None).exists)) return false;
                 if (option.length > 10 && StrIsEqual(StrFromTo(option, 0, 10), S("--command="))) return false;
                 if (StrIsEqual(option, S("-x")) || StrIsEqual(option, S("--execute"))) break;
                 if (!StrIsEqual(option, S("-e")) && !StrIsEqual(option, S("--command"))) continue;
                 // -e takes the words after it as the command; given one, the terminal parses it again or runs it in a shell.
-                if (k + 2 >= n || StrIndexChar(words[k + 1], ' ', SSF_None).exists || StrIndexChar(words[k + 1], '%', SSF_None).exists) return false;
+                if (k + 2 >= n || StrIndexChar(words[k + 1], ' ', SSF_None).exists || StrIndexChar(words[k + 1], '\t', SSF_None).exists || StrIndexChar(words[k + 1], '%', SSF_None).exists) return false;
                 break;
             }
         }
@@ -455,7 +464,7 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
         // One whose name is also a common word, as rc, counts when an option or nothing follows it.
         for (u64 k = at + 1; k < n; ++k) {
             b32 optionNext = k + 1 >= n || (words[k + 1].length && words[k + 1].value[0] == '-');
-            if (P__IsPosixShellWord(words[k]) || P__IsForeignShellWord(words[k], true) || P__IsLauncherWord(words[k]) || (P__IsForeignShellWord(words[k], false) && optionNext)) return false;
+            if (P__IsPosixShellWord(words[k]) || P__IsForeignShellWord(words[k], true) || (P__IsForeignShellWord(words[k], false) && optionNext)) return false;
         }
     }
     return true;
@@ -531,7 +540,14 @@ function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths,
         }
         if (any) ArrayPush(arena, *args, argument.buffer);
     }
-    if (valued && !P__CommandAllowed(arena, exec, 0)) {
+    // A desktop entry quotes with double quotes alone, so a single quote outside them, which the check reads as quoting, splits otherwise there.
+    b32 doubled = false, single = false;
+    for (u64 i = 0; i < exec.length; ++i) {
+        if (exec.value[i] == '\\' && doubled && i + 1 < exec.length) ++i;
+        else if (exec.value[i] == '"') doubled = !doubled;
+        else if (exec.value[i] == '\'' && !doubled) single = true;
+    }
+    if (valued && (single || !P__CommandAllowed(arena, exec, 0))) {
         *args = (ArrayStr){0};
         return 0;
     }
@@ -1001,49 +1017,25 @@ function b32 P__ReadAction(Arena *arena, String file, String folder, String dire
             text = StrFormat(scratch.arena, "%S/%S", escaped.buffer, inside);
         }
         StrBuilder out = {0};
-        // The quotes the command line has open, those around each command substituted in it, which starts without any, and its words so far, the one under way as the shell takes it.
-        // `parens`: the parentheses open inside each, as a subshell's, so that only the last ) ends it; a case pattern's lone ) is not followed, so a value with case in a substitution is not offered.
-        char open = 0, around[8];
-        u32 parens[8];
-        u32 depth = 0;
+        // The quotes the command line has open, and its words so far, the one under way as the shell takes it; a line with anything that
+        // expands, as a command substituted, takes no value (P__CommandAllowed), so none is followed here.
+        char open = 0;
         ArrayStr words = {0};
         StrBuilder word = {0};
         b32 inWord = false;
         // Whether the word under way is a shell's command, as the quoted one in sh -c "echo %f", and its quotes as that shell reads them.
         // The command is not offered when a value goes into a line whose quoting the code here does not follow whole (P__CommandAllowed).
-        // A shell's command anywhere beside a command substitution anywhere is not offered either: a substitution starts its quotes anew, and
-        // the one the outer shell runs pastes its output into the inner shell's command, which the word tracking here does not follow.
         b32 script = false, refused = part && !P__CommandAllowed(scratch.arena, text, 0);
         P__ScriptQuotes inner = {0};
         for (u64 at = 0; at <= text.length; ++at) {
             char c = at < text.length ? text.value[at] : ' ', code = at + 1 < text.length ? text.value[at + 1] : 0;
             if (part && ((!open && P__IsShellBreak(c)) || at == text.length)) {
-                if (inWord) {
-                    refused |= depth && StrIsEqual(word.buffer, S("case"));
-                    ArrayPush(scratch.arena, words, word.buffer);
-                }
+                if (inWord) ArrayPush(scratch.arena, words, word.buffer);
                 word = (StrBuilder){0}, inWord = false;
                 if (at < text.length) StrBuildChar(scratch.arena, &out, c);
-                if (c == '(' && depth) ++parens[depth - 1];
-                else if (c == ')' && depth && parens[depth - 1]) --parens[depth - 1];
-                else if (c == ')' && depth) open = around[--depth];
                 continue;
             }
             if (at == text.length) break;
-            // A command substituted starts outside quotes, whatever quotes it is in.
-            if (part && open != '\'' && c == '$' && code == '(') {
-                if (inWord) {
-                    refused |= depth && StrIsEqual(word.buffer, S("case"));
-                    ArrayPush(scratch.arena, words, word.buffer);
-                }
-                word = (StrBuilder){0}, inWord = false;
-                if (depth == CArrayCount(around)) refused = true;
-                else parens[depth] = 0, around[depth++] = open;
-                open = 0;
-                StrBuildStr(scratch.arena, &out, S("$("));
-                ++at;
-                continue;
-            }
             if (part && !inWord) {
                 inWord = true;
                 script = P__ShellScriptNext(words.v, words.header.count);

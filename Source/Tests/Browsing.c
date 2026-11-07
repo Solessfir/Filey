@@ -5494,9 +5494,6 @@ function void TestApps(TestFileFixture *fixture)
             { S("sh -c -e \"printf %%s %f > printed\""), oddName },
             { S("env sh -c \"printf %%s %f > printed\""), oddName },
             { S("true;sh -c \"printf %%s %f > printed\""), oddName },
-            // A shell started with no command, as one that keeps a terminal open, reads none of it.
-            { S("sh -c \"printf %%s %f > printed; true || exec bash\""), oddName },
-            { S("printf %%s %f > printed || bash"), oddName },
             // A shell running a script file takes the name as an argument, as any program does.
             { S("sh ./show.sh %f"), oddName },
             { S("bash -e ./show.sh %f"), oddName },
@@ -5523,6 +5520,10 @@ function void TestApps(TestFileFixture *fixture)
         String refusedExecs[] = {
             // Anything that expands, as a variable, a positional parameter or a command substituted, which the quoting does not follow.
             S("sh -c 'printf %%s \"$1\" > printed' sh %f"), S("printf %%s \"$( (true); printf %%s %f)\" > printed"), S("printf %%s \"$(basename %f)\" > printed"),
+            // A bare shell in a line that writes a file, which it may read as it starts, a shell fed by a < written first, and one running a
+            // file the line wrote, with tee or inside a shell's command.
+            S("sh -c \"printf %%s %f > printed; true || exec bash\""), S("printf %%s %f > printed || bash"), S("printf %%s %f > x; < x sh"),
+            S("printf %%s %f | tee x; sh x"), S("sh -c \"printf %%s %f > x\"; sh x"), S("printf %%s %f > x; sh -c \"sh x\""),
             // An assignment before a command, which the strict reading does not take.
             S("env LANG=C sh -c \"cat %f\""), S("LC_ALL=C bash -c \"wc -l %f\""),
             S("sh -c \"sh -c 'printf %%s %f'\""), S("eval printf %%s %f"), S("env -S \"sh -c 'printf %%s %f'\""), S("env -S \"printf %%s %f\""),
@@ -5564,7 +5565,7 @@ function void TestApps(TestFileFixture *fixture)
         // A terminal given the command as several words runs them as they are, so that is offered.
         {
             P__Action argv = {0};
-            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("printf %%s %f; exec bash") };
+            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("printf %%s %f; exec bash"), S("cp %F ."), S("convert %f script") };
             for (u32 o = 0; o < CArrayCount(offered); ++o) {
                 Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", offered[o])).code);
                 Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &argv));
@@ -5714,6 +5715,8 @@ function void TestApps(TestFileFixture *fixture)
             S("sh -c \"a $(true) %f\""), S("sh -c $(basename %f)"), S("sh -c \"timeout 9 bash --norc -c 'cat %f'\""), S("xterm -e \"less '%f'\""),
             // A shell given as another program's argument, which may run it in ways not followed here.
             S("app --open=\"%f\" sh -c \"cat %f\""),
+            // A single quote, which a desktop entry does not quote with, hiding a shell from the check.
+            S("alacritty --title='x -e sh -c \"y; sh -c %f\" '"),
         };
         for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
             quoting.exec = refusedExecs[r];
