@@ -5512,6 +5512,10 @@ function void TestApps(TestFileFixture *fixture)
             S("printf %%s %f | { true; sh; }"), S("printf %%s %f | if true; then sh; fi"), S("printf %%s %f > y; sh y"), S("printf %%s %f > y; . ./y"), S("printf %%s %f | sh -s x"), S("printf %%s %f | bash - x"),
             // A shell inside a substitution inside a shell's command is nested, even past a quoted ).
             S("sh -c \"x=$(echo ')'; sh -c 'true %f')\""),
+            // A value the outer shell substitutes into a shell's command, one in a substitution the inner shell runs, a shell a < feeds, one
+            // started through a wrapper not known here inside a shell's command, and a terminal's -e string.
+            S("sh -c \"cat $(dirname %f)\""), S("sh -c 'echo \"$(basename %f)\"'"), S("printf %%s %f > y; sh < y"), S("printf %%s %f > y; bash -s < y"),
+            S("sh -c \"timeout 9 sh -c 'cat %f'\""), S("xterm -e \"less '%f'\""),
         };
         for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
             P__Action refused = {0};
