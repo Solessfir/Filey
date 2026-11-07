@@ -5540,6 +5540,8 @@ function void TestApps(TestFileFixture *fixture)
             S("sh -c \"trap %f EXIT\""), S("bash -c \"unset %f\""), S("bash -c \"printf -vx %%s %f\""), S("timeout 9 script /dev/null --com \"cat %f\""),
             // A redirection between a shell and its script, a field code Nemo drops inside a name, and a lone &.
             S("sh >/dev/null -c \"cat %f\""), S("sh -c 2>/dev/null \"cat %f\""), S("ev%Xal %f"), S("s%Xh -c \"s%Xh -c 'cat %f'\""), S("cat %f &"),
+            // A value as the program, as a shell's option, or after a separator that ends the command.
+            S("%N -c \"ls %P\""), S("sh -%ec \"cat %f\""), S("X=%f sh -c \"cat %f\""),
             S("ksh -c \"cat %f\""), S("sh -c \"cat %f\" 2>&1"), S("sh -c \"cat %f\" <<E"), S("timeout 9 script /dev/null --c=\"cat %f\""),
             // An assignment before a command, which the strict reading does not take.
             S("env LANG=C sh -c \"cat %f\""), S("LC_ALL=C bash -c \"wc -l %f\""),
@@ -5582,7 +5584,7 @@ function void TestApps(TestFileFixture *fixture)
         // A terminal given the command as several words runs them as they are, so that is offered.
         {
             P__Action argv = {0};
-            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("cp %F ."), S("convert %f script"), S("sh -c \"cat %f\" 2>/dev/null"), S("cat %f >> log; notify-send done"), S("sh -c \"cp %f x && notify-send done\""), S("cd %P && make"), S("sh -c \"printf %%s -v %f\"") };
+            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("cp %F ."), S("convert %f script"), S("sh -c \"cat %f\" 2>/dev/null"), S("cat %f >> log; notify-send done"), S("sh -c \"cp %f x && notify-send done\""), S("cd %P && make"), S("X=1 cat %f"), S("sh -c \"printf %%s -v %f\"") };
             for (u32 o = 0; o < CArrayCount(offered); ++o) {
                 Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", offered[o])).code);
                 Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &argv));
@@ -5737,15 +5739,15 @@ function void TestApps(TestFileFixture *fixture)
             // Words a desktop entry takes as they are that a shell would not, which the check reads as the entry splits them.
             S("alacritty --title='x -e sh -c \"y; sh -c %f\" '"), S("timeout 9 env -u > sh -c \"y; sh -c %f\""),
             // The app's name in a terminal's one string.
-            S("xterm -e \"echo %c\""),
+            S("xterm -e \"echo %c\""), S("read %f"), S("%f --help"), S("env %f -x"),
         };
         for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
             quoting.exec = refusedExecs[r];
             P__ExpandExec(&arena, &quoting, paths, 1, &args);
             Check(!args.header.count);
         }
-        // Programs named as a shell's own commands are run as they are, with no shell to evaluate them.
-        String plainExecs[] = { S("print %f"), S("test -f %f") };
+        // Variables env sets for the program, as Snap's entries have.
+        String plainExecs[] = { S("env BAMF_DESKTOP_FILE_HINT=/x.desktop /snap/bin/app %u"), S("env A=1 B=2 app %f") };
         for (u32 r = 0; r < CArrayCount(plainExecs); ++r) {
             quoting.exec = plainExecs[r];
             P__ExpandExec(&arena, &quoting, paths, 1, &args);

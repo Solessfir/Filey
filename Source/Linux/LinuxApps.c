@@ -350,6 +350,10 @@ function b32 P__ShellScriptNext(const String *words, u64 count)
     return false;
 }
 
+// What stands for each value in the line checked: a ( a shell takes for code wherever it reaches one unquoted, which the check refuses,
+// and which is refused too where it would name a shell's option, or the program given arguments.
+global const String P__standIn = SInit("a (b");
+
 // Whether `text`, a command line a value is put into, is one whose quoting the code here follows whole, so that the value cannot reach a
 // second parse that runs it as code.
 // It is a list of programs and their arguments, joined by | || ; and &&, and redirected with < > and >> to a file, a descriptor's number before
@@ -455,15 +459,21 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 shell)
             for (u32 r = 0; shell && r < CArrayCount(reserved); ++r) if (StrIsEqual(words[at], reserved[r])) more = true;
             at += more ? 1 : 0;
         }
-        while (at < n && P__IsWrapperWord(words[at])) {
-            if (at + 1 < n && words[at + 1].length && words[at + 1].value[0] == '-') return false;
-            ++at;
+        // Wrappers, and the variables a shell or env sets for the command, as in env NAME=value app.
+        b32 assigned = false;
+        for (; at < n; ++at) {
+            b32 wrapper = P__IsWrapperWord(words[at]);
+            if (wrapper && at + 1 < n && words[at + 1].length && words[at + 1].value[0] == '-') return false;
+            if (!wrapper && (!StrIndexChar(words[at], '=', SSF_None).exists || words[at].value[0] == '-')) break;
+            assigned |= !wrapper;
         }
         if (at >= n) continue;
         String command = words[at];
-        if (P__IsLauncherWord(command) || P__IsForeignShellWord(command, false) || StrIndexChar(command, '=', SSF_None).exists) return false;
-        for (u32 e = 0; shell && e < CArrayCount(evaluating); ++e) if (StrIsEqual(command, evaluating[e])) return false;
-        if (shell && StrIsEqual(command, S("printf")) && at + 1 < n && words[at + 1].length >= 2 && StrIsEqual(StrFromTo(words[at + 1], 0, 2), S("-v"))) return false;
+        // A value may name the program only when it is given nothing, as the program could be a shell its arguments are code to.
+        if (P__IsLauncherWord(command) || P__IsForeignShellWord(command, false) || (at + 1 < n && StrIndexStr(command, P__standIn, SSF_None).exists)) return false;
+        // These are programs of their own too on some systems, scripts that hand their arguments to bash's.
+        for (u32 e = 0; e < CArrayCount(evaluating); ++e) if (StrIsEqual(command, evaluating[e])) return false;
+        if (StrIsEqual(command, S("printf")) && at + 1 < n && words[at + 1].length >= 2 && StrIsEqual(StrFromTo(words[at + 1], 0, 2), S("-v"))) return false;
         if (P__IsPosixShellWord(command)) {
             u64 optionsEnd = 0;
             b32 given = P__ShellOptions(words + at + 1, n - at - 1, &optionsEnd);
@@ -472,9 +482,11 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 shell)
             local_persist const String plainShells[] = { SInit("sh"), SInit("bash"), SInit("dash"), SInit("ash"), SInit("posh") };
             b32 known = false;
             for (u32 k = 0; k < CArrayCount(plainShells); ++k) known |= StrIsEqual(leaf, plainShells[k]);
-            if (!given || depth || operators || operand >= n || !known) return false;
+            // A variable set for the shell, as ENV or BASH_ENV, could have it read a file as it starts.
+            if (!given || depth || operators || assigned || operand >= n || !known) return false;
             for (u64 k = at + 1; k < operand; ++k) {
                 String option = words[k];
+                if (StrIndexStr(option, P__standIn, SSF_None).exists) return false;
                 if (option.length < 2 || option.value[0] != '-') continue;
                 b32 plainLong = StrIsEqual(option, S("--")) || StrIsEqual(option, S("--norc")) || StrIsEqual(option, S("--noprofile")) || StrIsEqual(option, S("--posix"));
                 if (option.value[1] == '-' ? !plainLong : StrIndexChar(option, 'i', SSF_None).exists || StrIndexChar(option, 'l', SSF_None).exists) return false;
@@ -487,12 +499,12 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 shell)
             for (u64 k = at + 1; k < n; ++k) {
                 String option = words[k];
                 if (option.length > 2 && option.value[0] == '-' && option.value[1] == 'e' &&
-                    (StrIndexChar(option, ' ', SSF_None).exists || StrIndexChar(option, '\t', SSF_None).exists || StrIndexChar(option, '%', SSF_None).exists)) return false;
+                    (StrIndexChar(option, ' ', SSF_None).exists || StrIndexChar(option, '\t', SSF_None).exists)) return false;
                 if (option.length > 10 && StrIsEqual(StrFromTo(option, 0, 10), S("--command="))) return false;
                 if (StrIsEqual(option, S("-x")) || StrIsEqual(option, S("--execute"))) break;
                 if (!StrIsEqual(option, S("-e")) && !StrIsEqual(option, S("--command"))) continue;
                 // -e takes the words after it as the command; given one, the terminal parses it again or runs it in a shell.
-                if (k + 2 >= n || StrIndexChar(words[k + 1], ' ', SSF_None).exists || StrIndexChar(words[k + 1], '\t', SSF_None).exists || StrIndexChar(words[k + 1], '%', SSF_None).exists) return false;
+                if (k + 2 >= n || StrIndexChar(words[k + 1], ' ', SSF_None).exists || StrIndexChar(words[k + 1], '\t', SSF_None).exists) return false;
                 break;
             }
         }
@@ -587,9 +599,6 @@ function u64 P__SplitExec(Arena *arena, const P__App *app, const String *paths, 
     }
     return used;
 }
-
-// What stands for each value in the line checked: a ( a shell takes for code wherever it reaches one unquoted, which the check refuses.
-global const String P__standIn = SInit("a (b");
 
 // No arguments come back when a value goes in where it could reach a shell's second parse: the arguments, as the entry splits them with a
 // stand-in for each value, are checked as a command line of their own, each quoted whole (P__CommandAllowed).
@@ -1062,6 +1071,7 @@ function b32 P__ReadAction(Arena *arena, String file, String folder, String dire
     // The name, then the command with stand-ins for the values, checked as the shell will read it, then the command itself.
     for (u32 pass = 0; pass < 3; ++pass) {
         b32 part = pass > 0, stand = pass == 1;
+        if (stand && !StrIndexChar(exec, '%', SSF_None).exists) continue;
         String text = part ? exec : name;
         // A script beside the action, as "<convert.sh %F>", runs from the actions folder.
         if (part && text.length > 2 && text.value[0] == '<') {
