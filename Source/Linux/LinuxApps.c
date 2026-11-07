@@ -357,21 +357,6 @@ global const String P__standIn = SInit("a (b");
 // Whether the last part of `word`'s path is `name`.
 function b32 P__WordLeafIs(String word, String name) { return StrIsEqual(StrFrom(word, StrIndexChar(word, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value), name); }
 
-// Whether `word` has a stand-in among other words or operators, as a command line with a value in it does.
-function b32 P__CodeAroundValue(String word)
-{
-    if (!StrIndexStr(word, P__standIn, SSF_None).exists) return false;
-    for (u64 i = 0; i < word.length;) {
-        if (word.length - i >= P__standIn.length && StrIsEqual(StrFromTo(word, i, (i64)(i + P__standIn.length)), P__standIn)) {
-            i += P__standIn.length;
-            continue;
-        }
-        char c = word.value[i++];
-        if (c == ' ' || c == '\t' || c == ';' || c == '|' || c == '&' || c == '\n') return true;
-    }
-    return false;
-}
-
 // Whether `text`, a command line a value is put into, is one whose quoting the code here follows whole, so that the value cannot reach a
 // second parse that runs it as code.
 // It is a list of programs and their arguments, joined by | || ; and &&, and redirected with < > and >> to a file, a descriptor's number before
@@ -384,6 +369,8 @@ function b32 P__CodeAroundValue(String word)
 // Any other shell, a shell named as an argument, a program that runs its arguments as a command (eval, watch, script, ssh and the like),
 // a shell's own command that evaluates a name or runs a string (trap, unset, read, printf -v and the like), env -S, a wrapper given
 // options, and a terminal's -e given one string are refused.
+// What this keeps is that a shell never parses a value again: each reaches its program as one argument, whole. What a program does with
+// its arguments is its own and not seen here, as one a runner not known here starts from a value, or git's -c core.sshCommand=%f.
 function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 shell)
 {
     // The words and operators, the quotes and escapes taken off each word so that a quoted script is one word.
@@ -495,7 +482,7 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 shell)
                 if (StrIndexStr(word, P__standIn, SSF_None).exists) return false;
                 assigned = true;
             }
-            env |= wrapper && P__WordLeafIs(word, S("env"));
+            env |= wrapper && (P__WordLeafIs(word, S("env")) || P__WordLeafIs(word, S("sudo")) || P__WordLeafIs(word, S("doas")) || P__WordLeafIs(word, S("run0")));
         }
         if (at >= n) continue;
         String command = words[at];
@@ -542,12 +529,8 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 shell)
         // timeout or a terminal's -e. A shell's name that is also a common word, as rc, counts when an option or nothing follows it, as it
         // would read its commands from its input then; script, a common word too, counts when any option comes after it, as it takes its
         // options anywhere and in short forms; and . never does.
-        // A value as a whole word could be the program a runner not known here starts, as timeout does, so no code-like string, a value in
-        // a line with spaces or operators, comes after it.
-        b32 optionLater = false, codeLater = false;
+        b32 optionLater = false;
         for (u64 k = n; k-- > at + 1;) {
-            if (StrIsEqual(words[k], P__standIn) && codeLater) return false;
-            codeLater |= P__CodeAroundValue(words[k]);
             b32 optionNext = k + 1 < n && words[k + 1].length && words[k + 1].value[0] == '-';
             b32 launcher = P__IsLauncherWord(words[k]) && !StrIsEqual(words[k], S(".")) && (!StrIsEqual(words[k], S("script")) || optionLater);
             optionLater |= words[k].length > 1 && words[k].value[0] == '-';
