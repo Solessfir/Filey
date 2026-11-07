@@ -974,7 +974,7 @@ global i64 P__stalePartSeconds = 60;
 // The hidden name it is written under is a new file, so that an item of the archive already out under that name is left alone.
 // ponytail: its data is not flushed before the move, which would cost a wait for the disk on each of an archive's many small files, so a
 // power cut right after can leave a name empty; flush once at the end of an extraction if that matters.
-function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel)
+function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel, const ArrayStr *written)
 {
     P__Archive *a = &P__archive;
     Scratch scratch = GetScratch();
@@ -1025,7 +1025,7 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
             if (held < 0 && errno == EACCES) held = open(native, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
             // The name must still be the file locked, which another remover may have taken and another extraction made anew meanwhile.
             struct stat named;
-            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && time(NULL) - left.st_ctime > P__stalePartSeconds &&
+            if (held >= 0 && !P__ArchiveWrote(written, part) && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && time(NULL) - left.st_ctime > P__stalePartSeconds &&
                 flock(held, LOCK_EX | LOCK_NB) == 0 && lstat(native, &named) == 0 && named.st_ino == left.st_ino && named.st_dev == left.st_dev && unlink(native) == 0) --n;
             if (held >= 0) close(held);
         }

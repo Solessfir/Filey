@@ -1452,6 +1452,28 @@ function void TestFileIcons(TestFileFixture *fixture)
 #endif
             Check(P__TestRemovePath(fixture, S("OutPart"), true));
         }
+        // An archive holding a file under the name another of its files is written under comes out whole, the one out first not taken for one left behind.
+        {
+            String from = {0}, into = {0};
+            Check(!P_CreateItem(&arena, fixture->path, S("PartFrom"), true, &from).code && !P_CreateItem(&arena, fixture->path, S("PartInto"), true, &into).code);
+            from = Prog_JoinPath(&arena, fixture->path, S("PartFrom")), into = Prog_JoinPath(&arena, fixture->path, S("PartInto"));
+            String names[2] = { S(".a.txt.filey.part"), S("a.txt") }, files[2] = { Prog_JoinPath(&arena, from, names[0]), Prog_JoinPath(&arena, from, names[1]) };
+            String packed = Prog_JoinPath(&arena, fixture->path, S("parts.zip"));
+            Check(!P_WriteFile(&arena, files[0], S("part")).code && !P_WriteFile(&arena, files[1], S("hi")).code);
+            Check(!P_AddToArchive(&arena, packed, (String){0}, files, 2, 1, NULL, NULL).code);
+#if !defined(_WIN32)
+            P__stalePartSeconds = -1;
+#endif
+            Check(!P_ExtractArchive(&arena, packed, (String){0}, names, 2, into, NULL, NULL).code);
+#if !defined(_WIN32)
+            P__stalePartSeconds = 60;
+#endif
+            Check(P_ReadFile(&arena, Prog_JoinPath(&arena, into, names[0]), &contents) && StrIsEqual(contents, S("part")));
+            Check(P_ReadFile(&arena, Prog_JoinPath(&arena, into, names[1]), &contents) && StrIsEqual(contents, S("hi")));
+            Check(P__TestRemovePath(fixture, S("PartFrom/.a.txt.filey.part"), false) && P__TestRemovePath(fixture, S("PartFrom/a.txt"), false) && P__TestRemovePath(fixture, S("PartFrom"), true));
+            Check(P__TestRemovePath(fixture, S("PartInto/.a.txt.filey.part"), false) && P__TestRemovePath(fixture, S("PartInto/a.txt"), false) && P__TestRemovePath(fixture, S("PartInto"), true));
+            Check(P__TestRemovePath(fixture, S("parts.zip"), false));
+        }
 #if defined(_WIN32)
         // A device's path keeps its form, has no Win32 one for the file APIs, and one of no device is not there.
         {

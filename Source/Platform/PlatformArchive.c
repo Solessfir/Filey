@@ -7,12 +7,19 @@
 function u32 P__ArchiveWritePath(void *writer, String path, String name, P_Progress *progress, const P_CancelToken *cancel);
 // Writes the data of `reader`'s entry to a new file at `path`, its folders made first, with the time `modified`; nothing is left of it when it
 // fails or is cancelled.
-function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel);
+function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel, const ArrayStr *written);
 function u32 P__ArchiveMakeFolders(String path);
 // Whether two names in one folder name the same item there: on Windows whatever their case, as NTFS folds it beyond ASCII too.
 function b32 P__ArchiveSameName(String a, String b);
 function u64 P__ArchiveFileSize(String path);
 function void P__ArchiveRemove(String path);
+
+// Whether the extraction under way already put out a file at `path`, which an archive may hold under a part file's name, so that it is never taken for one left behind.
+function b32 P__ArchiveWrote(const ArrayStr *written, String path)
+{
+    for (u64 i = 0; i < written->header.count; ++i) if (P__ArchiveSameName(written->v[i], path)) return true;
+    return false;
+}
 
 // Writing, which adds to archives, is loaded with the rest and only needed then.
 typedef struct P__Archive {
@@ -626,6 +633,8 @@ function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner
     u64 read = UINT64_MAX;
     String name = {0};
     b32 folder = false;
+    // The files written so far.
+    ArrayStr written = {0};
     while (!error && P__ArchiveNext(reader, &entry, &name, &folder, cancel)) {
         P__ArchiveAdvance(progress, reader, &read);
         if (!P__Proceed(progress, cancel)) break;
@@ -645,7 +654,14 @@ function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner
         String target = StrFormat(scratch.arena, "%S/%S%S", directory, placed[k], StrFrom(rest, names[k].length));
         P_ProgressName(progress, StrFrom(rest, StrIndexChar(rest, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value));
         if (type == 0040000) error = P__ArchiveMakeFolders(target);
-        else error = P__ArchiveWriteFile(reader, target, a->mtime(entry), &read, progress, cancel);
+        else {
+            error = P__ArchiveWriteFile(reader, target, a->mtime(entry), &read, progress, cancel, &written);
+            // Its path is kept, past the restore below.
+            if (!error) {
+                ArrayPush(scratch.arena, written, target);
+                continue;
+            }
+        }
         ArenaRestore(mark);
     }
     if (!error && P_IsCancelled(cancel)) error = P__ArchiveCancelled;

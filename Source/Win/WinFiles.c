@@ -203,7 +203,7 @@ function u32 P__ArchiveMakeFolders(String path)
 
 // Written beside its place and moved there once complete, so that a file cut short never takes the name.
 // The name it is written under is a new file, so that an item of the archive already out under that name is left alone.
-function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel)
+function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel, const ArrayStr *written)
 {
     P__Archive *a = &P__archive;
     Scratch scratch = GetScratch();
@@ -224,7 +224,7 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         // The extraction writing it holds it open with no sharing, paused or not, until it is moved into place through that same handle, so
         // deleting it fails then; one left by a run cut short goes and its name is taken again.
         WIN32_FILE_ATTRIBUTE_DATA left = {0};
-        if (file == INVALID_HANDLE_VALUE && !error && GetFileAttributesExW(wide, GetFileExInfoStandard, &left) && !(left.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) && DeleteFileW(wide)) --n;
+        if (file == INVALID_HANDLE_VALUE && !error && GetFileAttributesExW(wide, GetFileExInfoStandard, &left) && !(left.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) && !P__ArchiveWrote(written, part) && DeleteFileW(wide)) --n;
     }
     if (!error && file == INVALID_HANDLE_VALUE) error = ERROR_FILE_EXISTS;
     if (error) wide = NULL;
