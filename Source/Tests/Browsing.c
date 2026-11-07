@@ -1432,10 +1432,12 @@ function void TestFileIcons(TestFileFixture *fixture)
             Check(P__TestRemovePath(fixture, S("OutPart/a.txt"), false) && P__TestRemovePath(fixture, S("OutPart/.a.txt.part"), false));
             Check(P__TestRemovePath(fixture, S("OutPart/a.txt.part"), false));
 #if !defined(_WIN32)
-            // One left by an extraction cut short, which no run holds, goes rather than another being made beside it; one an extraction under
-            // way holds stays.
+            // One left by an extraction cut short, which no run holds and none has written to for a minute, goes rather than another being
+            // made beside it; one an extraction under way holds stays.
             String stale = Prog_JoinPath(&arena, again, S(".a.txt.filey.part"));
             Check(!P_WriteFile(&arena, stale, S("stale")).code);
+            const struct timespec old[2] = { { 0, UTIME_OMIT }, { 1, 0 } };
+            Check(utimensat(AT_FDCWD, P__FilePathCString(&arena, stale), old, 0) == 0);
             i32 holder = open(P__FilePathCString(&arena, stale), O_RDONLY | O_CLOEXEC);
             Check(holder >= 0 && flock(holder, LOCK_EX) == 0);
             Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, again, NULL, NULL).code && P_PathExists(stale));

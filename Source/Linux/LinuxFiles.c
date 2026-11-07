@@ -987,17 +987,17 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         native = P__FilePathCString(scratch.arena, part);
         if (!native) error = EINVAL;
         else if ((file = open(native, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666)) < 0 && errno != EEXIST) error = (u32)errno;
-        // The extraction writing it holds a lock on it, paused or not, which goes with the run that held it. One no run holds, left by one cut
-        // short, goes and its name is taken again; one made a moment ago and not locked yet is checked by its maker once locked, below.
+        // The extraction writing it holds a lock on it, paused or not, which goes with the run that held it. One no run holds and no run has
+        // written to for a minute, left by one cut short, goes and its name is taken again; one made a moment ago is left to its maker to lock.
         if (file >= 0) {
-            // The lock is held through a second descriptor of its own, so that the one written through can be closed for the errors a close
-            // reports while the file is still locked. Locked, the name must still be this file: another extraction may have taken it for one
-            // left behind between its making and the lock, and made one of its own there, so this one gives the name up and tries the next.
-            lock = open(native, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+            // The lock is held through a copy of the descriptor, the same open file, so that the one written through can be closed for the
+            // errors a close reports while the file is still locked. Locked, the name must still be this file: another extraction may have
+            // taken it for one left behind between its making and the lock, and made one of its own there, so this one gives the name up and
+            // tries the next. Without a lock, the file is left for a later extraction to take for one left behind, as the name may be another's.
+            lock = fcntl(file, F_DUPFD_CLOEXEC, 0);
             if (lock < 0) {
                 error = (u32)errno;
                 close(file);
-                unlink(native);
                 file = -1;
                 break;
             }
@@ -1010,10 +1010,10 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
             }
         } else if (!error) {
             struct stat left;
-            i32 held = open(native, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+            i32 held = open(native, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
             // The name must still be the file locked, which another remover may have taken and another extraction made anew meanwhile.
             struct stat named;
-            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() &&
+            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && time(NULL) - left.st_mtime > 60 &&
                 flock(held, LOCK_EX | LOCK_NB) == 0 && lstat(native, &named) == 0 && named.st_ino == left.st_ino && named.st_dev == left.st_dev && unlink(native) == 0) --n;
             if (held >= 0) close(held);
         }
