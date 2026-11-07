@@ -353,8 +353,9 @@ function b32 P__ShellScriptNext(const String *words, u64 count)
 // Whether `text`, a command line a value is put into, is one whose quoting the code here follows whole, so that the value cannot reach a
 // second parse that runs it as code.
 // It is a plain list of commands, of programs and their arguments, joined by ; && || | and redirected with < and >, with nothing that
-// expands: no $ at all, as variables, substitutions and ${...}, and no backtick.
-// A shell may be in it only as the whole line: one POSIX shell, after wrappers with no options, given a script with -c, which is a plain
+// expands: no $ at all, as variables, substitutions and ${...}, and no backtick, and none of bash's commands that evaluate a variable's
+// name or an expression, as (( )), [[ ]], unset or printf -v, whose arguments it reads as code.
+// A shell may be in it only as the whole line, with its output sent elsewhere at most: one POSIX shell, after wrappers with no options, given a script with -c, which is a plain
 // list in turn with no shell of its own; nothing else in the line runs before it to write a file it reads as it starts, and no option has it
 // read one, as -i, -l, --login or --rcfile, nor is it zsh, which reads ~/.zshenv always.
 // Any other shell, a shell named as an argument, a program that runs its arguments as a command (eval, watch, script, ssh and the like),
@@ -369,8 +370,9 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
     u64 count = 0;
     for (u64 at = 0; at < text.length;) {
         char c = text.value[at];
-        if (c == ' ' || c == '\t' || c == '\n') { ++at; continue; }
-        if (c == ';' || c == '&' || c == '|' || c == '(' || c == ')' || c == '<' || c == '>') { toks[count++] = (P__Tok){ .op = c }; ++at; continue; }
+        if (c == ' ' || c == '\t') { ++at; continue; }
+        // A line break ends a command, as ; does.
+        if (c == '\n' || c == ';' || c == '&' || c == '|' || c == '(' || c == ')' || c == '<' || c == '>') { toks[count++] = (P__Tok){ .op = c == '\n' ? ';' : c }; ++at; continue; }
         StrBuilder word = {0};
         for (; at < text.length;) {
             char d = text.value[at];
@@ -389,9 +391,12 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
         }
         toks[count++] = (P__Tok){ .word = StrCopy(arena, word.buffer) };
     }
-    // A shell is allowed only as the whole line at the top: its first command, with no operator in the line.
+    // A shell is allowed only as the whole line at the top: its first command, with no operator in the line but those that send its output
+    // somewhere, > and &, as in 2>/dev/null, which come after it has started. bash's (( and [[ evaluate a variable's value as an expression,
+    // which runs a $( ) in it, so they take no value either.
     b32 operators = false;
-    for (u64 i = 0; i < count; ++i) operators |= toks[i].op != 0;
+    for (u64 i = 0; i < count; ++i) operators |= toks[i].op != 0 && toks[i].op != '>' && toks[i].op != '&';
+    if (StrIndexStr(text, S("(("), SSF_None).exists || StrIndexStr(text, S("[["), SSF_None).exists) return false;
     for (u64 i = 0; i < count;) {
         if (toks[i].op) {
             ++i;
@@ -417,16 +422,25 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
         if (at >= n) continue;
         String command = words[at];
         if (P__IsLauncherWord(command) || P__IsForeignShellWord(command, false) || StrIndexChar(command, '=', SSF_None).exists) return false;
+        // The shell's own commands that take a variable's name or an expression, which bash evaluates, as unset's a[$(...)] or printf -v.
+        local_persist const String evaluating[] = {
+            SInit("let"), SInit("unset"), SInit("declare"), SInit("typeset"), SInit("local"), SInit("export"), SInit("readonly"), SInit("read"),
+            SInit("mapfile"), SInit("readarray"), SInit("getopts"), SInit("alias"), SInit("test"), SInit("["), SInit("for"), SInit("select"),
+            SInit("case"), SInit("trap"), SInit("hash"), SInit("type"), SInit("command"), SInit("builtin"), SInit("enable"), SInit("shopt"), SInit("set"),
+        };
+        for (u32 e = 0; e < CArrayCount(evaluating); ++e) if (StrIsEqual(command, evaluating[e])) return false;
+        if (StrIsEqual(command, S("printf"))) for (u64 k = at + 1; k < n; ++k) if (StrIsEqual(words[k], S("-v"))) return false;
         if (P__IsPosixShellWord(command)) {
             u64 optionsEnd = 0;
             b32 given = P__ShellOptions(words + at + 1, n - at - 1, &optionsEnd);
             u64 operand = at + 1 + optionsEnd;
-            if (!given || depth || operators || operand >= n || StrIsEqual(StrFrom(command, StrIndexChar(command, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value), S("zsh"))) return false;
+            String leaf = StrFrom(command, StrIndexChar(command, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value);
+            if (!given || depth || operators || operand >= n || StrIsEqual(leaf, S("zsh"))) return false;
             for (u64 k = at + 1; k < operand; ++k) {
                 String option = words[k];
+                if (option.length < 2 || option.value[0] != '-') continue;
                 b32 plainLong = StrIsEqual(option, S("--")) || StrIsEqual(option, S("--norc")) || StrIsEqual(option, S("--noprofile")) || StrIsEqual(option, S("--posix"));
-                if (option.length > 1 && option.value[0] == '-' && option.value[1] == '-' && !plainLong) return false;
-                if (option.length > 1 && option.value[0] == '-' && option.value[1] != '-' && (StrIndexChar(option, 'i', SSF_None).exists || StrIndexChar(option, 'l', SSF_None).exists)) return false;
+                if (option.value[1] == '-' ? !plainLong : StrIndexChar(option, 'i', SSF_None).exists || StrIndexChar(option, 'l', SSF_None).exists) return false;
             }
             if (!P__CommandAllowed(arena, words[operand], depth + 1)) return false;
             // The words after the script are its name and arguments, values the script cannot use, as it has no $.
@@ -447,10 +461,13 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
         }
         // No shell named among a command's arguments, which it could run, and no program that runs its arguments as a command, as after
         // timeout or a terminal's -e. A shell's name that is also a common word, as rc, counts when an option or nothing follows it, as it
-        // would read its commands from its input then; script, a common word too, counts when an option follows it; and . never does.
+        // would read its commands from its input then; script, a common word too, counts when an option comes after it; and . never does.
         for (u64 k = at + 1; k < n; ++k) {
             b32 optionNext = k + 1 < n && words[k + 1].length && words[k + 1].value[0] == '-';
-            b32 launcher = P__IsLauncherWord(words[k]) && !StrIsEqual(words[k], S(".")) && (!StrIsEqual(words[k], S("script")) || optionNext);
+            // script takes its options anywhere after it, as getopt does.
+            b32 laterOption = false;
+            for (u64 l = k + 1; l < n && !laterOption; ++l) laterOption = words[l].length > 1 && words[l].value[0] == '-';
+            b32 launcher = P__IsLauncherWord(words[k]) && !StrIsEqual(words[k], S(".")) && (!StrIsEqual(words[k], S("script")) || laterOption);
             if (P__IsPosixShellWord(words[k]) || P__IsForeignShellWord(words[k], true) || (P__IsForeignShellWord(words[k], false) && (optionNext || k + 1 >= n)) || launcher) return false;
         }
     }
@@ -515,7 +532,12 @@ function u64 P__SplitExec(Arena *arena, const P__App *app, const String *paths, 
                     StrBuildStr(arena, &argument, script ? P__ScriptValue(arena, &inner, value) : value);
                     used = Max(used, (u64)1);
                     any = *valued = true;
-                } else if (code == 'c') { StrBuildStr(arena, &argument, script ? P__ScriptValue(arena, &inner, name) : name); any = true; }
+                } else if (code == 'c') {
+                    StrBuildStr(arena, &argument, script ? P__ScriptValue(arena, &inner, name) : name);
+                    // The app's name in a shell's command is checked as a value is.
+                    any = true;
+                    *valued = *valued || script;
+                }
                 // %i, %k and the deprecated codes expand to nothing.
                 continue;
             }

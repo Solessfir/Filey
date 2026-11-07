@@ -5530,6 +5530,9 @@ function void TestApps(TestFileFixture *fixture)
             // A shell after another command or with a pipe, a bare one, as one keeping a terminal open, and one fed through a group.
             S("true;sh -c \"printf %%s %f > printed\""), S("printf %%s %f; exec bash"), S("printf %%s %f | (sh -c sh)"), S("sed -i \"1i %f\" x; exec bash"),
             S("exec bash --rcfile %f"),
+            // script with its option after the file, bash's commands that evaluate names and expressions, and a line break that ends a command.
+            S("timeout 9 script /dev/null -c \"cat %f\""), S("xterm -e script out --command=\"less %f\""), S("bash -c \"for x in %f; do ((x)); done\""),
+            S("unset %f"), S("printf -v %f x"), S("bash -c \"[[ -v %f ]]\""), S("sh -c \"cat %f\nsh -c 'cat %f'\""),
             // An assignment before a command, which the strict reading does not take.
             S("env LANG=C sh -c \"cat %f\""), S("LC_ALL=C bash -c \"wc -l %f\""),
             S("sh -c \"sh -c 'printf %%s %f'\""), S("eval printf %%s %f"), S("env -S \"sh -c 'printf %%s %f'\""), S("env -S \"printf %%s %f\""),
@@ -5571,7 +5574,7 @@ function void TestApps(TestFileFixture *fixture)
         // A terminal given the command as several words runs them as they are, so that is offered.
         {
             P__Action argv = {0};
-            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("cp %F ."), S("convert %f script") };
+            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("cp %F ."), S("convert %f script"), S("sh -c \"cat %f\" 2>/dev/null") };
             for (u32 o = 0; o < CArrayCount(offered); ++o) {
                 Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", offered[o])).code);
                 Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &argv));
@@ -5711,7 +5714,7 @@ function void TestApps(TestFileFixture *fixture)
         quoting.exec = S("bash -o pipefail -c -e %F");
         P__ExpandExec(&arena, &quoting, paths, 2, &args);
         Check(args.header.count == 6 && StrIsEqual(args.v[5], P__ShellQuote(&arena, paths[0])));
-        // The shell's own arguments after its command go in as they are, and a shell started with no command reads none of it.
+        // The shell's own arguments after its command go in as they are.
         quoting.exec = S("sh -c \"cat ./notes\" sh %f");
         P__ExpandExec(&arena, &quoting, paths, 1, &args);
         Check(args.header.count == 5 && StrIsEqual(args.v[2], S("cat ./notes")) && StrIsEqual(args.v[4], paths[0]));
@@ -5721,6 +5724,8 @@ function void TestApps(TestFileFixture *fixture)
             S("sh -c \"a $(true) %f\""), S("sh -c $(basename %f)"), S("sh -c \"timeout 9 bash --norc -c 'cat %f'\""), S("xterm -e \"less '%f'\""),
             // A shell given as another program's argument, which may run it in ways not followed here.
             S("app --open=\"%f\" sh -c \"cat %f\""),
+            // The app's name alone in a shell's command inside another's, checked as a value is.
+            S("sh -c \"sh -c 'echo %c'\""),
             // Words a desktop entry takes as they are that a shell would not, which the check reads as the entry splits them.
             S("alacritty --title='x -e sh -c \"y; sh -c %f\" '"), S("timeout 9 env -u > sh -c \"y; sh -c %f\""),
         };
