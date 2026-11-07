@@ -5552,6 +5552,10 @@ function void TestApps(TestFileFixture *fixture)
             S("printf %%s %f > ./-run; sh -- -run"), S("ysh -c \"cat %f\""),
             // A shell behind a wrapper not known here fed by a pipe or a file, a variable's shell, and one that quotes otherwise behind one.
             S("printf %%s %f | timeout 9 sh"), S("printf %%s %f > y; timeout 9 sh y"), S("$SHELL -c \"cat '%f'\""), S("printf %%s %f | timeout 9 fish"),
+            // A shell named in an argument, one whose name is a common word given an option, one in a script's $0, a variable's shell given
+            // options, and a shell with -c and an operator after it.
+            S("notify-send fish %f"), S("kitty rc -c \"cat %f\""), S("sh -c 'timeout 9 \"$0\" \"$@\"' fish -c \"cat %f\""),
+            S("kitty $MYSHELL -c \"cat %f\""), S("$MYSHELL -c \"cat %f\""), S("printf %%s %f > y; timeout 9 sh -c ; sh y"),
         };
         for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
             P__Action refused = {0};
@@ -5561,7 +5565,7 @@ function void TestApps(TestFileFixture *fixture)
         // A terminal given the command as several words runs them as they are, so that is offered.
         {
             P__Action argv = {0};
-            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f") };
+            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("\"$EDITOR\" %f") };
             for (u32 o = 0; o < CArrayCount(offered); ++o) {
                 Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", offered[o])).code);
                 Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &argv));
@@ -5688,9 +5692,12 @@ function void TestApps(TestFileFixture *fixture)
         Check(used == 2 && args.header.count == 6 && StrIsEqual(args.v[1], S("--flag")) && StrIsEqual(args.v[2], S("two words")) && StrIsEqual(args.v[3], S("100%")));
         Check(StrIsEqual(args.v[4], paths[0]) && StrIsEqual(args.v[5], paths[1]));
         // A path in quotes goes in as it is, but in a shell's command quoted for that shell, for the quotes of that command it is in.
-        P__App quoting = { .exec = S("app --open=\"%f\" sh -c \"cat %f\"") };
+        P__App quoting = { .exec = S("app --open=\"%f\"") };
         P__ExpandExec(&arena, &quoting, paths, 1, &args);
-        Check(args.header.count == 5 && StrIsEqual(args.v[1], StrFormat(&arena, "--open=%S", paths[0])) && StrIsEqual(args.v[4], StrFormat(&arena, "cat %S", P__ShellQuote(&arena, paths[0]))));
+        Check(args.header.count == 2 && StrIsEqual(args.v[1], StrFormat(&arena, "--open=%S", paths[0])));
+        quoting.exec = S("sh -c \"cat %f\"");
+        P__ExpandExec(&arena, &quoting, paths, 1, &args);
+        Check(args.header.count == 3 && StrIsEqual(args.v[2], StrFormat(&arena, "cat %S", P__ShellQuote(&arena, paths[0]))));
         quoting.exec = S("env bash -l -c \"cat %f '%f' \\\"%f\\\"\"");
         P__ExpandExec(&arena, &quoting, paths, 1, &args);
         Check(args.header.count == 5 && StrIsEqual(args.v[4], StrFormat(&arena, "cat %S '%S' \"%S\"", P__ShellQuote(&arena, paths[0]), paths[0], P__ShellQuoteInside(&arena, paths[0], '"'))));
@@ -5706,6 +5713,8 @@ function void TestApps(TestFileFixture *fixture)
         String refusedExecs[] = {
             S("sh -c \"sh -c 'cat %f'\""), S("env -S \"sh -c 'cat %f'\""), S("env -S \"cat %f\""), S("sh -c \"cat $(dirname %f)\""), S("watch \"cat %f\""), S("sh -c \"cat ${x:-%f}\""), S("sh -c \"cat %f | exec sh\""),
             S("sh -c \"a $(true) %f\""), S("sh -c $(basename %f)"), S("sh -c \"timeout 9 bash --norc -c 'cat %f'\""), S("xterm -e \"less '%f'\""),
+            // A shell given as another program's argument, which may run it in ways not followed here.
+            S("app --open=\"%f\" sh -c \"cat %f\""),
         };
         for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
             quoting.exec = refusedExecs[r];

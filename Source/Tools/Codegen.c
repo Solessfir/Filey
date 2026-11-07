@@ -329,7 +329,7 @@ function b32 Codegen__ListSources(Arena *arena, String source, const char *folde
     HANDLE find = FindFirstFileA(pattern.value, &found);
     for (b32 more = find != INVALID_HANDLE_VALUE; more; more = FindNextFileA(find, &found)) {
         String name = StrFromCStr(found.cFileName);
-        if ((Codegen__EndsWith(name, S(".c")) || Codegen__EndsWith(name, S(".cpp")))) ArrayPush(arena, *out, StrFormat(arena, "%s/%S", folder, name));
+        if (Codegen__EndsWith(name, S(".c")) || Codegen__EndsWith(name, S(".cpp"))) ArrayPush(arena, *out, StrFormat(arena, "%s/%S", folder, name));
     }
     if (find == INVALID_HANDLE_VALUE) return false;
     FindClose(find);
@@ -339,7 +339,7 @@ function b32 Codegen__ListSources(Arena *arena, String source, const char *folde
     DIR *listing = opendir(path.value);
     for (struct dirent *item; listing && (item = readdir(listing)) != NULL;) {
         String name = StrFromCStr(item->d_name);
-        if ((Codegen__EndsWith(name, S(".c")) || Codegen__EndsWith(name, S(".cpp")))) ArrayPush(arena, *out, StrFormat(arena, "%s/%S", folder, name));
+        if (Codegen__EndsWith(name, S(".c")) || Codegen__EndsWith(name, S(".cpp"))) ArrayPush(arena, *out, StrFormat(arena, "%s/%S", folder, name));
     }
     if (!listing) return false;
     closedir(listing);

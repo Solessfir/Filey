@@ -1026,16 +1026,13 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         futimens(file, times);
         // Closed first for the errors a close reports, as a share's late write, with a copy keeping the lock, then moved into place, or
         // removed when it failed, while still locked, so that no other extraction takes it for one left behind in between.
-        // Without a copy, it is moved into place before it is closed instead, and taken out of it again when the close fails.
+        // Without a copy, as when no more files can be open, the extraction fails rather than move a file whose close could still fail.
         i32 keep = dup(file);
+        if (keep < 0 && !error) error = (u32)errno;
         if (keep >= 0 && close(file) != 0 && !error) error = (u32)errno;
         if (!error) error = P_ReplaceFile(scratch.arena, part, path).code;
         if (error && native) unlink(native);
-        if (close(keep >= 0 ? keep : file) != 0 && keep < 0 && !error) {
-            error = (u32)errno;
-            char *placed = P__FilePathCString(scratch.arena, path);
-            if (placed) unlink(placed);
-        }
+        close(keep >= 0 ? keep : file);
     }
     ReleaseScratch(scratch);
     return error;

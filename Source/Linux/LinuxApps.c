@@ -477,7 +477,6 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
     // `wrote`: the command writes a file with >, which a shell run on a file later in it may then read.
     // `pendStdin`: the shell under way reads its commands from its input, with -s or a lone -, whatever words follow.
     b32 pipedSeen = false, redirSeen = false, wrote = false, expectCmd = true, envHere = false, pendShell = false, pendC = false, pendStdin = false, pendOperands = false, skipNext = false, nameNext = false;
-    String *plain = NULL;
     for (u64 i = 0; i < count; ++i) {
         if (toks[i].op) {
             char c = toks[i].op;
@@ -493,22 +492,14 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
         String w = toks[i].word;
         if (skipNext) { skipNext = false; continue; }
         // A shell anywhere but at a command's place, as after a wrapper or a terminal's -e not known here ("timeout 9 sh"), could be handed the
-        // value in ways not followed here, by a -c, a pipe or a file; so could a variable's shell or one that quotes otherwise. A script's $0,
-        // which names it, is no shell.
-        if (!expectCmd && !pendShell && !nameNext && (P__IsForeignShellWord(w, true) || StrIsEqual(w, S("$SHELL")) || StrIsEqual(w, S("${SHELL}")))) return true;
-        if (!expectCmd && !pendShell && !nameNext && P__IsPosixShellWord(w)) {
-            // One given a script with -c, as a program that runs "sh -c" from its arguments, has the script scanned as any shell's is.
-            if (!plain) {
-                plain = ArenaPushArray(arena, count + 1, String);
-                for (u64 k = 0; k < count; ++k) plain[k] = toks[k].op ? (String){0} : toks[k].word;
-            }
-            u64 end = 0;
-            if (!P__ShellOptions(plain + i + 1, count - i - 1, &end) || depth) return true;
-            u64 script = i + 1 + end;
-            if (script < count && !toks[script].op && P__CommandRisky(arena, toks[script].word, depth + 1)) return true;
-            i = script;
-            nameNext = true;
-            continue;
+        // value in ways not followed here, by a -c, a pipe or a file, so it is refused: one named, a shell whose name is also a common word, as
+        // rc or es, when an option or nothing follows it, and a variable given options or $SHELL. A script's $0, which names it, may be a POSIX
+        // shell's name, which runs nothing.
+        if (!expectCmd && !pendShell) {
+            b32 optionNext = i + 1 >= count || toks[i + 1].op || (toks[i + 1].word.length > 1 && toks[i + 1].word.value[0] == '-');
+            b32 variable = w.length > 1 && w.value[0] == '$' && (w.value[1] == '{' || w.value[1] == '_' || ((w.value[1] | 0x20) >= 'a' && (w.value[1] | 0x20) <= 'z'));
+            if (P__IsForeignShellWord(w, true) || (P__IsForeignShellWord(w, false) && optionNext) || (variable && (optionNext || StrIsEqual(w, S("$SHELL")) || StrIsEqual(w, S("${SHELL}"))))) return true;
+            if (P__IsPosixShellWord(w) && !nameNext) return true;
         }
         nameNext = false;
         if (pendShell) {
@@ -570,9 +561,11 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
                     break;
                 }
             }
-            // A command run by a variable, as $SHELL, may be any shell, and one that quotes otherwise takes the value by rules not followed here.
-            if (P__IsForeignShellWord(w, false) || (w.length && w.value[0] == '$')) return true;
-            if (P__IsShellWord(w)) pendShell = true, pendC = false, pendStdin = false, pendOperands = false;
+            // A shell that quotes otherwise takes the value by rules not followed here, and so may $SHELL or a variable's command given options,
+            // as $MYSHELL -c; one named by a variable alone, as "$EDITOR" %f, is a program like any other.
+            b32 optionNext = i + 1 < count && !toks[i + 1].op && toks[i + 1].word.length > 1 && toks[i + 1].word.value[0] == '-';
+            if (P__IsForeignShellWord(w, false) || (w.length && w.value[0] == '$' && (optionNext || StrIsEqual(w, S("$SHELL")) || StrIsEqual(w, S("${SHELL}"))))) return true;
+            if (P__IsPosixShellWord(w)) pendShell = true, pendC = false, pendStdin = false, pendOperands = false;
         }
     }
     if (pendShell && !pendC && (pipedSeen || redirSeen)) return true;
