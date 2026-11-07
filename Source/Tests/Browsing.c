@@ -2630,6 +2630,14 @@ function void TestContainingPath(TestFileFixture *fixture)
     Check(looped && looped->linkBroken && kept && !kept->linkBroken && (getuid() == 0 || !kept->metadataValid));
     Check(!P_SetMode(&arena, closed, 0755).code && P__TestRemovePath(fixture, S("closed/x.txt"), false) && P__TestRemovePath(fixture, S("closed"), true));
     Check(P__TestRemovePath(fixture, S("loop-link"), false) && P__TestRemovePath(fixture, S("shut-link"), false));
+    // A file written through a link, as dotfiles kept elsewhere are, keeps the link, and the file it points to keeps its permissions.
+    String kept644 = Prog_JoinPath(&arena, fixture->path, S("shared.conf")), keptLink = Prog_JoinPath(&arena, fixture->path, S("shared-link.conf"));
+    Check(!P_WriteFile(&arena, kept644, S("a")).code && !P_SetMode(&arena, kept644, 0644).code);
+    Check(symlink("shared.conf", P__FilePathCString(&arena, keptLink)) == 0 && !P_WriteFile(&arena, keptLink, S("b")).code);
+    struct stat sharedInfo, linkInfo;
+    Check(stat(P__FilePathCString(&arena, kept644), &sharedInfo) == 0 && (sharedInfo.st_mode & 0777) == 0644 && lstat(P__FilePathCString(&arena, keptLink), &linkInfo) == 0 && S_ISLNK(linkInfo.st_mode));
+    Check(P_ReadFile(&arena, kept644, &made) && StrIsEqual(made, S("b")));
+    Check(P__TestRemovePath(fixture, S("shared-link.conf"), false) && P__TestRemovePath(fixture, S("shared.conf"), false));
     Check(P__TestRemovePath(fixture, S("gone-link"), false));
     Check(P__TestRemovePath(fixture, S("inside-link"), false));
 #endif

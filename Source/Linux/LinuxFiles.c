@@ -2739,6 +2739,12 @@ function u32 P__WriteFileAt(Arena *scratch, String path, const char *native, Str
     if (!native || !temporary) return EINVAL;
     i32 fd = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
     u32 code = fd < 0 ? (u32)errno : 0;
+    // The file it replaces keeps its permissions and, where the user may give them, its owner and group, as one shared with a group would.
+    struct stat before;
+    if (!code && stat(native, &before) == 0 && S_ISREG(before.st_mode)) {
+        if (fchown(fd, before.st_uid, before.st_gid) != 0 && fchown(fd, (uid_t)-1, before.st_gid) != 0) {}
+        fchmod(fd, before.st_mode & 07777);
+    }
     for (u64 at = 0; !code && at < contents.length;) {
         ssize_t written = write(fd, contents.value + at, contents.length - at);
         if (written < 0 && errno != EINTR) code = (u32)errno;
