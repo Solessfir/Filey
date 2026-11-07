@@ -350,226 +350,115 @@ function b32 P__ShellScriptNext(const String *words, u64 count)
     return false;
 }
 
-// Whether a command line substitutes a command, with $( or a backtick, anywhere.
-function b32 P__HasSubstitution(String text)
+// Whether `text`, a command line a value is put into, is one whose quoting the code here follows whole, so that the value cannot reach a
+// second parse that runs it as code. It is a plain list of commands, of programs and their arguments, joined by ; && || | and redirected
+// with < and >, with nothing that expands: no $ at all, as variables, substitutions and ${...}, and no backtick. A shell in it may be one of
+// three: one at the top given a script with -c, which holds plain commands in turn and no shell of its own given one; one given a script
+// file it did not just write, as "sh ./show.sh %f"; or one started bare to keep a terminal open, as "exec bash". Any other shell, a shell
+// named as an argument, a program that runs its arguments as a command (eval, watch, ssh and the like), env -S, a wrapper given options,
+// and a terminal's -e given one string are refused. What a command could do with a value by itself, a program of its own, is not seen.
+function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
 {
-    for (u64 i = 0; i < text.length; ++i) if (text.value[i] == '`' || (text.value[i] == '$' && i + 1 < text.length && text.value[i + 1] == '(')) return true;
-    return false;
-}
-
-// Whether a command line gives a shell a command of its own with -c anywhere, quoted or not: its words taken roughly, quotes as breaks, so
-// that a shell inside a quoted script counts too, which errs towards finding one.
-function b32 P__HasShellCommand(Arena *arena, String text)
-{
-    String *words = ArenaPushArray(arena, text.length + 1, String);
-    u64 count = 0;
-    for (u64 at = 0; at < text.length;) {
-        while (at < text.length && (P__IsShellBreak(text.value[at]) || text.value[at] == '"' || text.value[at] == '\'')) ++at;
-        u64 from = at;
-        while (at < text.length && !P__IsShellBreak(text.value[at]) && text.value[at] != '"' && text.value[at] != '\'') ++at;
-        if (at > from) words[count++] = StrFromTo(text, from, (i64)at);
-    }
-    u64 end = 0;
-    for (u64 i = 0; i < count; ++i) if (P__IsShellWord(words[i]) && P__ShellOptions(words + i + 1, count - i - 1, &end)) return true;
-    return false;
-}
-
-// Whether a command line has quoting the tracking here does not follow, which a value in it could slip out of: ${...}, whose own quotes nest inside double ones, and bash's $'...'.
-function b32 P__QuotingUnfollowed(String text)
-{
-    for (u64 at = 0; at + 1 < text.length; ++at) {
-        if (text.value[at] == '$' && (text.value[at + 1] == '{' || text.value[at + 1] == '\'')) return true;
-    }
-    return false;
-}
-
-// The body of the command substitution that starts at `text[*at]` ($( or a backtick), with `*at` left past its close; the opening was already seen.
-function String P__SubBody(Arena *arena, String text, u64 *at)
-{
-    StrBuilder body = {0};
-    u64 j = *at;
-    if (text.value[j] == '`') {
-        for (++j; j < text.length && text.value[j] != '`'; ++j) {
-            if (text.value[j] == '\\' && j + 1 < text.length) ++j;
-            StrBuildChar(arena, &body, text.value[j]);
-        }
-        if (j < text.length) ++j;
-    } else {
-        j += 2;
-        // Parentheses inside quotes are text, not the substitution's.
-        for (u32 par = 1; j < text.length && par;) {
-            char c = text.value[j];
-            if (c == '\'' || c == '"') {
-                StrBuildChar(arena, &body, text.value[j++]);
-                while (j < text.length && text.value[j] != c) {
-                    if (c == '"' && text.value[j] == '\\' && j + 1 < text.length) StrBuildChar(arena, &body, text.value[j++]);
-                    StrBuildChar(arena, &body, text.value[j++]);
-                }
-                if (j < text.length) StrBuildChar(arena, &body, text.value[j++]);
-                continue;
-            }
-            if (c == '\\' && j + 1 < text.length) {
-                StrBuildChar(arena, &body, text.value[j++]);
-                StrBuildChar(arena, &body, text.value[j++]);
-                continue;
-            }
-            if (c == '(') ++par;
-            else if (c == ')' && !--par) { ++j; break; }
-            StrBuildChar(arena, &body, text.value[j++]);
-        }
-    }
-    *at = j;
-    return body.buffer;
-}
-
-// Whether a shell's command `text` may let a value in it, which is always quoted for one level, reach a second parse that runs it as code: a nested shell given a command with -c, a shell a
-// pipe or a file feeds, a program that runs its arguments in a shell, eval, or env -S's re-split string. A value lands in at most one shell's command, so a -c shell found while already inside
-// one (`depth`) is refused. Quotes are honoured, so a -c script stays one word and is scanned on its own, as is each command substitution's body. The scan is rough, erring towards risky.
-// A bare interactive shell, as the "exec bash" that keeps a terminal open, reads only what is typed and is safe.
-function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
-{
-    if (depth > 8) return true;
+    if (StrIndexChar(text, '$', SSF_None).exists || StrIndexChar(text, '`', SSF_None).exists) return false;
+    // The words and operators, the quotes taken off each word so that a quoted script is one word.
     typedef struct P__Tok { String word; char op; } P__Tok;
     P__Tok *toks = ArenaPushArray(arena, text.length + 1, P__Tok);
-    String *subs = ArenaPushArray(arena, text.length + 1, String);
-    u64 count = 0, subCount = 0;
+    u64 count = 0;
     for (u64 at = 0; at < text.length;) {
         char c = text.value[at];
         if (c == ' ' || c == '\t' || c == '\n') { ++at; continue; }
         if (c == ';' || c == '&' || c == '|' || c == '(' || c == ')' || c == '<' || c == '>') { toks[count++] = (P__Tok){ .op = c }; ++at; continue; }
-        // A value inside a backtick is not quoted anew, as it is inside $(), so a backtick that could hold one is risky.
-        if (c == '`') { String body = P__SubBody(arena, text, &at); if (StrIndexChar(body, '%', SSF_None).exists) return true; subs[subCount++] = body; continue; }
-        // A word, with its quotes taken off so a quoted script stays one word; its substitutions are set aside to scan on their own.
         StrBuilder word = {0};
-        b32 any = false;
         for (; at < text.length;) {
             char d = text.value[at];
-            if (d == ' ' || d == '\t' || d == '\n' || d == ';' || d == '&' || d == '|' || d == '(' || d == ')' || d == '<' || d == '>' || d == '`') break;
-            any = true;
-            if (d == '\'') { for (++at; at < text.length && text.value[at] != '\''; ++at) StrBuildChar(arena, &word, text.value[at]); if (at < text.length) ++at; continue; }
-            if (d == '\\' && at + 1 < text.length) { StrBuildChar(arena, &word, text.value[at + 1]); at += 2; continue; }
-            // A substitution stays in the word too, so that a shell's command holding it scans it at that command's depth.
-            if (d == '$' && at + 1 < text.length && text.value[at + 1] == '(') { u64 from = at; subs[subCount++] = P__SubBody(arena, text, &at); StrBuildStr(arena, &word, StrFromTo(text, from, (i64)at)); continue; }
-            if (d == '"') {
-                for (++at; at < text.length && text.value[at] != '"';) {
-                    char e = text.value[at];
-                    if (e == '\\' && at + 1 < text.length) { StrBuildChar(arena, &word, text.value[at + 1]); at += 2; continue; }
-                    if ((e == '$' && at + 1 < text.length && text.value[at + 1] == '(') || e == '`') {
-                        b32 backtick = e == '`';
-                        u64 from = at;
-                        String body = P__SubBody(arena, text, &at);
-                        if (backtick && StrIndexChar(body, '%', SSF_None).exists) return true;
-                        subs[subCount++] = body;
-                        StrBuildStr(arena, &word, StrFromTo(text, from, (i64)at));
-                        continue;
-                    }
-                    StrBuildChar(arena, &word, e), ++at;
+            if (d == ' ' || d == '\t' || d == '\n' || d == ';' || d == '&' || d == '|' || d == '(' || d == ')' || d == '<' || d == '>') break;
+            if (d == '\'' || d == '"') {
+                for (++at; at < text.length && text.value[at] != d; ++at) {
+                    if (d == '"' && text.value[at] == '\\' && at + 1 < text.length) ++at;
+                    StrBuildChar(arena, &word, text.value[at]);
                 }
-                if (at < text.length) ++at;
+                if (at >= text.length) return false;
+                ++at;
                 continue;
             }
-            StrBuildChar(arena, &word, d), ++at;
+            if (d == '\\' && at + 1 < text.length) ++at;
+            StrBuildChar(arena, &word, text.value[at++]);
         }
-        if (any) toks[count++] = (P__Tok){ .word = StrCopy(arena, word.buffer) };
+        toks[count++] = (P__Tok){ .word = StrCopy(arena, word.buffer) };
     }
-    // A substitution runs in its own quoting context, so its depth is this level's, not one deeper.
-    for (u64 i = 0; i < subCount; ++i) if (P__CommandRisky(arena, subs[i], depth)) return true;
-    // `wrote`: the command writes a file with >, which a shell run on a file later in it may then read.
-    // `pendStdin`: the shell under way reads its commands from its input, with -s or a lone -, whatever words follow.
-    b32 pipedSeen = false, redirSeen = false, wrote = false, expectCmd = true, envHere = false, pendShell = false, pendC = false, pendStdin = false, pendOperands = false, skipNext = false, nameNext = false;
+    // A pipe anywhere, or a group, as ( ... ) or { ...; }, which a pipe may feed as a whole, leaves no shell bare.
+    b32 wrote = false, scripted = false, piping = false;
     for (u64 i = 0; i < count; ++i) {
+        b32 pipe = toks[i].op == '|' && !(i + 1 < count && toks[i + 1].op == '|') && !(i > 0 && toks[i - 1].op == '|');
+        piping |= pipe || toks[i].op == '(' || StrIsEqual(toks[i].word, S("{"));
+    }
+    for (u64 i = 0; i < count;) {
+        // One command: its words up to the next operator, fed by a pipe, as | or |&, or a < when one comes before or after it.
+        b32 piped = (i > 0 && toks[i - 1].op == '|' && !(i > 1 && toks[i - 2].op == '|')) || (i > 1 && toks[i - 1].op == '&' && toks[i - 2].op == '|');
         if (toks[i].op) {
-            char c = toks[i].op;
-            // A shell whose options ended here had no operand; a bare one fed by a pipe or a file still runs what it reads.
-            // A < after the shell feeds it too, as "sh < file" does.
-            if (c == '<') redirSeen = true;
-            if (pendShell) { if (!pendC && (pipedSeen || redirSeen)) return true; pendShell = false; }
-            if (c == '|') { if (i + 1 < count && toks[i + 1].op == '|') ++i; else pipedSeen = true; }
-            else if (c == '>') wrote = true;
-            if (c == ';' || c == '&' || c == '|' || c == '(' || c == ')') expectCmd = true, skipNext = false;
+            if (toks[i].op == '>') wrote = true;
+            ++i;
             continue;
         }
-        String w = toks[i].word;
-        if (skipNext) { skipNext = false; continue; }
-        // A shell anywhere but at a command's place, as after a wrapper or a terminal's -e not known here ("timeout 9 sh"), could be handed the
-        // value in ways not followed here, by a -c, a pipe or a file, so it is refused: one named, a shell whose name is also a common word, as
-        // rc or es, when an option or nothing follows it, and a variable given options or $SHELL. A script's $0, which names it, may be a POSIX
-        // shell's name, which runs nothing.
-        if (!expectCmd && !pendShell) {
-            b32 optionNext = i + 1 >= count || toks[i + 1].op || (toks[i + 1].word.length > 1 && toks[i + 1].word.value[0] == '-');
-            b32 variable = w.length > 1 && w.value[0] == '$' && (w.value[1] == '{' || w.value[1] == '_' || ((w.value[1] | 0x20) >= 'a' && (w.value[1] | 0x20) <= 'z'));
-            if (P__IsForeignShellWord(w, true) || (P__IsForeignShellWord(w, false) && optionNext) || (variable && (optionNext || StrIsEqual(w, S("$SHELL")) || StrIsEqual(w, S("${SHELL}"))))) return true;
-            if (P__IsPosixShellWord(w) && !nameNext) return true;
+        u64 from = i;
+        while (i < count && !toks[i].op) ++i;
+        u64 end = i;
+        b32 fed = piped || (end < count && toks[end].op == '<');
+        // A redirection's target is a file, not a command.
+        if (from > 0 && (toks[from - 1].op == '<' || toks[from - 1].op == '>')) {
+            if (end - from > 1) from += 1;
+            else continue;
         }
-        nameNext = false;
-        if (pendShell) {
-            // After "--", the next word is the shell's operand, however it starts.
-            if (!pendOperands && StrIsEqual(w, S("--"))) { pendOperands = true; continue; }
-            if (!pendOperands && w.length && (w.value[0] == '-' || w.value[0] == '+')) {
-                if (P__ShellCommandOption(w)) pendC = true;
-                if (StrIsEqual(w, S("-")) || (w.value[0] == '-' && w.length > 1 && w.value[1] != '-' && StrIndexChar(w, 's', SSF_None).exists)) pendStdin = true;
-                if (P__ShellOptionTakesWord(w)) skipNext = true;
-                continue;
+        String *words = ArenaPushArray(arena, end - from + 1, String);
+        u64 n = 0;
+        for (u64 k = from; k < end; ++k) words[n++] = toks[k].word;
+        // Wrappers that run the command after them, with no options of their own.
+        u64 at = 0;
+        while (at < n && P__IsWrapperWord(words[at])) {
+            if (at + 1 < n && words[at + 1].length && words[at + 1].value[0] == '-') return false;
+            ++at;
+        }
+        if (at >= n) continue;
+        String command = words[at];
+        if (P__IsLauncherWord(command) || P__IsForeignShellWord(command, false) || StrIndexChar(command, '=', SSF_None).exists) return false;
+        if (P__IsPosixShellWord(command)) {
+            u64 optionsEnd = 0;
+            b32 given = P__ShellOptions(words + at + 1, n - at - 1, &optionsEnd);
+            u64 operand = at + 1 + optionsEnd;
+            if (given) {
+                // One script given at the top, holding plain commands.
+                if (depth || scripted || fed || operand >= n) return false;
+                scripted = true;
+                if (!P__CommandAllowed(arena, words[operand], depth + 1)) return false;
+            } else if (operand < n) {
+                // A script file, which takes the values after it as arguments, unless the command wrote it or it is read from a value.
+                if (wrote || fed || StrIndexChar(words[operand], '%', SSF_None).exists) return false;
+            } else if (fed || piping || at + 1 < n) {
+                return false;
             }
-            // The first non-option word is the shell's operand: its -c script, or a script file, which takes the values after it as arguments,
-            // as any program does, unless the command wrote a file before it that the shell may be reading back.
-            pendShell = false;
-            if (!pendC) {
-                if (wrote || (pendStdin && (pipedSeen || redirSeen))) return true;
-                continue;
-            }
-            if (depth) return true;                             // a nested -c shell: the value is quoted for one level only
-            if (P__CommandRisky(arena, w, depth + 1)) return true;
-            nameNext = true;                                    // the word after the script is the name it runs under, $0, then its arguments
             continue;
         }
-        if (expectCmd) {
-            if (w.length && (w.value[0] == '-' || w.value[0] == '+')) {
-                // env -S re-splits its string into a command, which a value in it could escape.
-                if (envHere && (StrIsEqual(w, S("-S")) || (w.length >= 2 && w.value[1] == 'S') || (w.length >= 14 && StrIsEqual(StrFromTo(w, 0, 14), S("--split-string"))))) return true;
-                local_persist const String argOpts[] = { SInit("-u"), SInit("-g"), SInit("-C"), SInit("-h"), SInit("-p"), SInit("-r"), SInit("-t"), SInit("-U"), SInit("-n"), SInit("-R"), SInit("-D") };
-                for (u32 k = 0; k < CArrayCount(argOpts); ++k) if (StrIsEqual(w, argOpts[k])) skipNext = true;
-                continue;
+        if (P__IsTerminalWord(command)) {
+            for (u64 k = at + 1; k < n; ++k) {
+                String option = words[k];
+                if (option.length > 2 && option.value[0] == '-' && option.value[1] == 'e' &&
+                    (StrIndexChar(option, ' ', SSF_None).exists || StrIndexChar(option, '%', SSF_None).exists)) return false;
+                if (option.length > 10 && StrIsEqual(StrFromTo(option, 0, 10), S("--command="))) return false;
+                if (StrIsEqual(option, S("-x")) || StrIsEqual(option, S("--execute"))) break;
+                if (!StrIsEqual(option, S("-e")) && !StrIsEqual(option, S("--command"))) continue;
+                // -e takes the words after it as the command; given one, the terminal parses it again or runs it in a shell.
+                if (k + 2 >= n || StrIndexChar(words[k + 1], ' ', SSF_None).exists || StrIndexChar(words[k + 1], '%', SSF_None).exists) return false;
+                break;
             }
-            // A reserved word is not a command; the command follows it, so the position stays open.
-            local_persist const String keywords[] = {
-                SInit("if"), SInit("then"), SInit("else"), SInit("elif"), SInit("fi"), SInit("do"), SInit("done"), SInit("while"), SInit("until"),
-                SInit("for"), SInit("select"), SInit("case"), SInit("esac"), SInit("{"), SInit("}"), SInit("!"), SInit("coproc"),
-            };
-            b32 keyword = false;
-            for (u32 k = 0; k < CArrayCount(keywords) && !keyword; ++k) keyword = StrIsEqual(w, keywords[k]);
-            if (keyword) continue;
-            if (P__IsWrapperWord(w)) { envHere = envHere || StrIsEqual(StrFrom(w, StrIndexChar(w, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value), S("env")); continue; }
-            expectCmd = false, envHere = false;
-            if (P__IsLauncherWord(w)) return true;
-            // A terminal's -e given one string, as xterm -e "less '%f'", or a value as the program to run, as xterm -e %f, which it hands to a
-            // shell when no such program is found, has that string parsed again; so does one joined to --command.
-            if (P__IsTerminalWord(w)) {
-                for (u64 j = i + 1; j < count && !toks[j].op; ++j) {
-                    String option = toks[j].word;
-                    if (option.length > 10 && StrIsEqual(StrFromTo(option, 0, 10), S("--command="))) return true;
-                    // A string joined to -e, as -e"less %f", is one too; an option of its own, as -en, has no space or value in it.
-                    if (option.length > 2 && option.value[0] == '-' && option.value[1] == 'e' &&
-                        (StrIndexChar(option, ' ', SSF_None).exists || StrIndexChar(option, '\t', SSF_None).exists || StrIndexChar(option, '%', SSF_None).exists)) return true;
-                    // -x and --execute run the words after them as they are.
-                    if (StrIsEqual(option, S("-x")) || StrIsEqual(option, S("--execute"))) break;
-                    if (!StrIsEqual(option, S("-e")) && !StrIsEqual(option, S("--command"))) continue;
-                    if (j + 1 >= count || toks[j + 1].op) break;
-                    String run = toks[j + 1].word;
-                    b32 alone = j + 2 >= count || toks[j + 2].op;
-                    if (alone || StrIndexChar(run, ' ', SSF_None).exists || StrIndexChar(run, '\t', SSF_None).exists || StrIndexChar(run, '%', SSF_None).exists) return true;
-                    break;
-                }
-            }
-            // A shell that quotes otherwise takes the value by rules not followed here, and so may $SHELL or a variable's command given options,
-            // as $MYSHELL -c; one named by a variable alone, as "$EDITOR" %f, is a program like any other.
-            b32 optionNext = i + 1 < count && !toks[i + 1].op && toks[i + 1].word.length > 1 && toks[i + 1].word.value[0] == '-';
-            if (P__IsForeignShellWord(w, false) || (w.length && w.value[0] == '$' && (optionNext || StrIsEqual(w, S("$SHELL")) || StrIsEqual(w, S("${SHELL}"))))) return true;
-            if (P__IsPosixShellWord(w)) pendShell = true, pendC = false, pendStdin = false, pendOperands = false;
+        }
+        // No shell named among a command's arguments, which it could run.
+        // One whose name is also a common word, as rc, counts when an option or nothing follows it.
+        for (u64 k = at + 1; k < n; ++k) {
+            b32 optionNext = k + 1 >= n || (words[k + 1].length && words[k + 1].value[0] == '-');
+            if (P__IsPosixShellWord(words[k]) || P__IsForeignShellWord(words[k], true) || P__IsLauncherWord(words[k]) || (P__IsForeignShellWord(words[k], false) && optionNext)) return false;
         }
     }
-    if (pendShell && !pendC && (pipedSeen || redirSeen)) return true;
-    return false;
+    return true;
 }
 
 // The quotes of a shell's command as that shell reads them: `quote` is 0, '\'' or '"', and `escaped` whether the last character was a backslash that takes the next.
@@ -594,12 +483,12 @@ function String P__ScriptValue(Arena *arena, P__ScriptQuotes *q, String value)
 // Splits a desktop entry's Exec line into arguments, replacing the field codes with `paths`: %f and %u take one, %F and %U all of them.
 // Returns how many paths the command took, so that a %f or %u command is run once for each of several files.
 // In a shell's command, as "sh -c \"foo %f\"", which the spec forbids but some write, a value goes in quoted for that shell, as GLib does.
-// No arguments come back when a value in the line could reach a shell the quoting cannot follow (P__CommandRisky) or quoting it does not follow (P__QuotingUnfollowed).
+// No arguments come back when a value goes into a line whose quoting the code here does not follow whole (P__CommandAllowed).
 function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths, u64 count, ArrayStr *args)
 {
     *args = (ArrayStr){0};
     u64 used = 0;
-    b32 valued = false, scriptValued = false;
+    b32 valued = false;
     String exec = app->exec;
     for (u64 at = 0; at < exec.length;) {
         while (at < exec.length && exec.value[at] == ' ') ++at;
@@ -631,7 +520,6 @@ function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths,
                     StrBuildStr(arena, &argument, script ? P__ScriptValue(arena, &inner, value) : value);
                     used = Max(used, (u64)1);
                     any = valued = true;
-                    scriptValued = scriptValued || script;
                 } else if (code == 'c') { StrBuildStr(arena, &argument, app->name); any = true; }
                 // %i, %k and the deprecated codes expand to nothing.
                 continue;
@@ -643,9 +531,7 @@ function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths,
         }
         if (any) ArrayPush(arena, *args, argument.buffer);
     }
-    // Unlike a Nemo action's command, a desktop entry's shell command does not reset the quotes inside a command substitution, so a value in a shell's command that substitutes one is not offered.
-    b32 sub = P__HasSubstitution(exec);
-    if (valued && (P__QuotingUnfollowed(exec) || P__CommandRisky(arena, exec, 0) || (scriptValued && sub) || (P__HasShellCommand(arena, exec) && sub))) {
+    if (valued && !P__CommandAllowed(arena, exec, 0)) {
         *args = (ArrayStr){0};
         return 0;
     }
@@ -1124,10 +1010,10 @@ function b32 P__ReadAction(Arena *arena, String file, String folder, String dire
         StrBuilder word = {0};
         b32 inWord = false;
         // Whether the word under way is a shell's command, as the quoted one in sh -c "echo %f", and its quotes as that shell reads them.
-        // The command is not offered when a value reaches a shell the quoting cannot follow (P__CommandRisky), quoting it does not follow (P__QuotingUnfollowed), or a case inside a substitution, whose ) the quoting below stops at.
+        // The command is not offered when a value goes into a line whose quoting the code here does not follow whole (P__CommandAllowed).
         // A shell's command anywhere beside a command substitution anywhere is not offered either: a substitution starts its quotes anew, and
         // the one the outer shell runs pastes its output into the inner shell's command, which the word tracking here does not follow.
-        b32 script = false, refused = part && (P__QuotingUnfollowed(text) || P__CommandRisky(scratch.arena, text, 0) || (P__HasShellCommand(scratch.arena, text) && P__HasSubstitution(text)));
+        b32 script = false, refused = part && !P__CommandAllowed(scratch.arena, text, 0);
         P__ScriptQuotes inner = {0};
         for (u64 at = 0; at <= text.length; ++at) {
             char c = at < text.length ? text.value[at] : ' ', code = at + 1 < text.length ? text.value[at + 1] : 0;

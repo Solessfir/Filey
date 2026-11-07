@@ -5500,14 +5500,9 @@ function void TestApps(TestFileFixture *fixture)
             // A shell running a script file takes the name as an argument, as any program does.
             { S("sh ./show.sh %f"), oddName },
             { S("bash -e ./show.sh %f"), oddName },
-            // A shell's command with the name as its argument.
-            { S("sh -c 'printf %%s \"$1\" > printed' sh %f"), oddName },
-            // A subshell inside a substitution does not end it.
-            { S("printf %%s \"$( (true); printf %%s %f)\" > printed"), oddName },
             { S("sh -c \"printf %%s \"\\'%f\\'\" > printed\""), oddName },
             { S("printf %%s \"%f.bak\" > printed"), StrFormat(&extras, "%S.bak", oddName) },
             { S("printf %%s '%f' \\%f > printed"), StrFormat(&extras, "%S%S", oddName, oddName) },
-            { S("printf %%s \"$(basename %f)\" > printed"), oddName },
             // A -c of a program that is not a shell is only an option of its own.
             { S("printf -c 2>/dev/null; printf %%s \"%f\" > printed"), oddName },
         };
@@ -5526,6 +5521,10 @@ function void TestApps(TestFileFixture *fixture)
         // A command that would hand a value on to a shell the quoting cannot follow, through a shell in a shell's command, eval, a command substituted with a shell in it,
         // a shell's command line for another program, a program that runs its arguments in a shell or a backtick, is not offered.
         String refusedExecs[] = {
+            // Anything that expands, as a variable, a positional parameter or a command substituted, which the quoting does not follow.
+            S("sh -c 'printf %%s \"$1\" > printed' sh %f"), S("printf %%s \"$( (true); printf %%s %f)\" > printed"), S("printf %%s \"$(basename %f)\" > printed"),
+            // An assignment before a command, which the strict reading does not take.
+            S("env LANG=C sh -c \"cat %f\""), S("LC_ALL=C bash -c \"wc -l %f\""),
             S("sh -c \"sh -c 'printf %%s %f'\""), S("eval printf %%s %f"), S("env -S \"sh -c 'printf %%s %f'\""), S("env -S \"printf %%s %f\""),
             S("sh -c '$SHELL -c \"printf %%s %f\"'"), S("watch -g \"true %f\""), S("printf %%s \"`basename %f`\""), S("printf %%s %f | sh"),
             S("printf %%s \"${x:-\"%f\"}\""), S("printf %%s $'it\\'s' %f"), S("printf %%s \"$(case x in x) printf %%s %f;; esac)\""),
@@ -5565,7 +5564,7 @@ function void TestApps(TestFileFixture *fixture)
         // A terminal given the command as several words runs them as they are, so that is offered.
         {
             P__Action argv = {0};
-            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("\"$EDITOR\" %f") };
+            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("printf %%s %f; exec bash") };
             for (u32 o = 0; o < CArrayCount(offered); ++o) {
                 Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", offered[o])).code);
                 Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &argv));
@@ -5706,9 +5705,9 @@ function void TestApps(TestFileFixture *fixture)
         P__ExpandExec(&arena, &quoting, paths, 2, &args);
         Check(args.header.count == 6 && StrIsEqual(args.v[5], P__ShellQuote(&arena, paths[0])));
         // The shell's own arguments after its command go in as they are, and a shell started with no command reads none of it.
-        quoting.exec = S("sh -c \"cat \\\"$1\\\"; exec bash\" sh %f");
+        quoting.exec = S("sh -c \"cat ./notes; exec bash\" sh %f");
         P__ExpandExec(&arena, &quoting, paths, 1, &args);
-        Check(args.header.count == 5 && StrIsEqual(args.v[2], S("cat \"$1\"; exec bash")) && StrIsEqual(args.v[4], paths[0]));
+        Check(args.header.count == 5 && StrIsEqual(args.v[2], S("cat ./notes; exec bash")) && StrIsEqual(args.v[4], paths[0]));
         // One that would hand the value on to a shell the quoting cannot follow is not run.
         String refusedExecs[] = {
             S("sh -c \"sh -c 'cat %f'\""), S("env -S \"sh -c 'cat %f'\""), S("env -S \"cat %f\""), S("sh -c \"cat $(dirname %f)\""), S("watch \"cat %f\""), S("sh -c \"cat ${x:-%f}\""), S("sh -c \"cat %f | exec sh\""),
