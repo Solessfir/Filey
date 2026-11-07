@@ -236,8 +236,21 @@ function String P__ShellQuote(Arena *arena, String text);
 
 function String P__ShellQuoteInside(Arena *arena, String text, char quote);
 
+// The last part of `word`'s path, as a program's name.
+function String P__WordLeaf(String word) { return StrFrom(word, StrIndexChar(word, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value); }
+
 // Whether the last part of `word`'s path is `name`.
-function b32 P__WordLeafIs(String word, String name) { return StrIsEqual(StrFrom(word, StrIndexChar(word, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value), name); }
+function b32 P__WordLeafIs(String word, String name) { return StrIsEqual(P__WordLeaf(word), name); }
+
+// Whether `word` names a program that hands a command it is given, or its input, to a shell, by a name common enough as a word to count only
+// as the command or given an option or input.
+function b32 P__IsRunnerWord(String word)
+{
+    local_persist const String runners[] = { SInit("at"), SInit("batch"), SInit("sg"), SInit("entr"), SInit("crontab") };
+    String leaf = P__WordLeaf(word);
+    for (u32 i = 0; i < CArrayCount(runners); ++i) if (StrIsEqual(leaf, runners[i])) return true;
+    return false;
+}
 
 // Whether `word` names a POSIX shell, by its path's last part, whose quoting is the one here.
 function b32 P__IsPosixShellWord(String word)
@@ -246,7 +259,8 @@ function b32 P__IsPosixShellWord(String word)
         SInit("sh"), SInit("bash"), SInit("dash"), SInit("zsh"), SInit("ksh"), SInit("mksh"), SInit("ash"), SInit("yash"), SInit("posh"), SInit("osh"),
         SInit("rbash"), SInit("ksh93"), SInit("lksh"), SInit("pdksh"), SInit("oksh"), SInit("loksh"),
     };
-    for (u32 i = 0; i < CArrayCount(shells); ++i) if (P__WordLeafIs(word, shells[i])) return true;
+    String leaf = P__WordLeaf(word);
+    for (u32 i = 0; i < CArrayCount(shells); ++i) if (StrIsEqual(leaf, shells[i])) return true;
     return false;
 }
 
@@ -258,8 +272,9 @@ function b32 P__IsForeignShellWord(String word, b32 plain)
         SInit("fish"), SInit("csh"), SInit("tcsh"), SInit("elvish"), SInit("xonsh"), SInit("pwsh"), SInit("powershell"), SInit("ysh"), SInit("murex"),
     };
     local_persist const String words[] = { SInit("rc"), SInit("es"), SInit("nu"), SInit("ion") };
-    for (u32 i = 0; i < CArrayCount(shells); ++i) if (P__WordLeafIs(word, shells[i])) return true;
-    for (u32 i = 0; !plain && i < CArrayCount(words); ++i) if (P__WordLeafIs(word, words[i])) return true;
+    String leaf = P__WordLeaf(word);
+    for (u32 i = 0; i < CArrayCount(shells); ++i) if (StrIsEqual(leaf, shells[i])) return true;
+    for (u32 i = 0; !plain && i < CArrayCount(words); ++i) if (StrIsEqual(leaf, words[i])) return true;
     return false;
 }
 
@@ -273,7 +288,8 @@ function b32 P__IsLauncherWord(String word)
         SInit("eval"), SInit("."), SInit("source"), SInit("su"), SInit("runuser"), SInit("watch"), SInit("script"), SInit("flock"), SInit("ssh"), SInit("tmux"), SInit("screen"), SInit("parallel"), SInit("xargs"),
         SInit("busybox"), SInit("toybox"), SInit("capsh"),
     };
-    for (u32 i = 0; i < CArrayCount(launchers); ++i) if (P__WordLeafIs(word, launchers[i])) return true;
+    String leaf = P__WordLeaf(word);
+    for (u32 i = 0; i < CArrayCount(launchers); ++i) if (StrIsEqual(leaf, launchers[i])) return true;
     return false;
 }
 
@@ -284,7 +300,8 @@ function b32 P__IsTerminalWord(String word)
         SInit("xterm"), SInit("uxterm"), SInit("x-terminal-emulator"), SInit("xfce4-terminal"), SInit("mate-terminal"), SInit("gnome-terminal"), SInit("lxterminal"),
         SInit("terminator"), SInit("tilix"), SInit("konsole"), SInit("urxvt"), SInit("rxvt"), SInit("qterminal"), SInit("sakura"), SInit("terminology"),
     };
-    for (u32 i = 0; i < CArrayCount(terminals); ++i) if (P__WordLeafIs(word, terminals[i])) return true;
+    String leaf = P__WordLeaf(word);
+    for (u32 i = 0; i < CArrayCount(terminals); ++i) if (StrIsEqual(leaf, terminals[i])) return true;
     return false;
 }
 
@@ -298,7 +315,8 @@ function b32 P__IsWrapperWord(String word)
         SInit("env"), SInit("sudo"), SInit("doas"), SInit("pkexec"), SInit("run0"), SInit("nice"), SInit("nohup"), SInit("setsid"),
         SInit("ionice"), SInit("chrt"), SInit("exec"), SInit("command"), SInit("builtin"), SInit("time"), SInit("setpriv"), SInit("stdbuf"),
     };
-    for (u32 i = 0; i < CArrayCount(wrappers); ++i) if (P__WordLeafIs(word, wrappers[i])) return true;
+    String leaf = P__WordLeaf(word);
+    for (u32 i = 0; i < CArrayCount(wrappers); ++i) if (StrIsEqual(leaf, wrappers[i])) return true;
     return false;
 }
 
@@ -419,10 +437,11 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 shell)
     }
     // A redirection takes the word after it, a file, out of its command, which goes on after it; >> appends, and anything else after a
     // < or > is refused, as << and >&.
-    b32 operators = false;
+    b32 operators = false, input = false;
     u64 kept = 0;
     for (u64 i = 0; i < count; ++i) {
         if (toks[i].op == '<' || toks[i].op == '>') {
+            input |= toks[i].op == '<';
             if (toks[i].op == '>' && i + 1 < count && toks[i + 1].op == '>' && (i == 0 || toks[i - 1].op != '>')) continue;
             if (i + 1 >= count || toks[i + 1].op) return false;
             ++i;
@@ -488,9 +507,7 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 shell)
         String command = words[at];
         // A value may name the program only when it is given nothing, as the program could be a shell its arguments are code to.
         if (P__IsLauncherWord(command) || P__IsForeignShellWord(command, false) || (at + 1 < n && StrIndexStr(command, P__standIn, SSF_None).exists)) return false;
-        // Programs that hand a command they are given, or their input, to a shell, by names common enough as words to count only as the command.
-        local_persist const String runners[] = { SInit("at"), SInit("batch"), SInit("sg"), SInit("entr"), SInit("crontab") };
-        for (u32 r = 0; r < CArrayCount(runners); ++r) if (P__WordLeafIs(command, runners[r])) return false;
+        if (P__IsRunnerWord(command)) return false;
         // These are programs of their own too on some systems, scripts that hand their arguments to bash's.
         for (u32 e = 0; e < CArrayCount(evaluating); ++e) if (P__WordLeafIs(command, evaluating[e])) return false;
         if (StrIsEqual(command, S("printf")) && at + 1 < n && words[at + 1].length >= 2 && StrIsEqual(StrFromTo(words[at + 1], 0, 2), S("-v"))) return false;
@@ -532,9 +549,11 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 shell)
         // timeout or a terminal's -e. A shell's name that is also a common word, as rc, counts when an option or nothing follows it, as it
         // would read its commands from its input then; script, a common word too, counts when any option comes after it, as it takes its
         // options anywhere and in short forms; and . never does.
-        b32 optionLater = false;
+        // A runner started by another program counts when it is given an option or input, as only then does it take a command.
+        b32 optionLater = false, fed = input || (from > 0 && toks[from - 1].op == '|');
         for (u64 k = n; k-- > at + 1;) {
             b32 optionNext = k + 1 < n && words[k + 1].length && words[k + 1].value[0] == '-';
+            if (P__IsRunnerWord(words[k]) && (optionNext || fed)) return false;
             b32 launcher = P__IsLauncherWord(words[k]) && !StrIsEqual(words[k], S(".")) && (!StrIsEqual(words[k], S("script")) || optionLater);
             optionLater |= words[k].length > 1 && words[k].value[0] == '-';
             if (P__IsPosixShellWord(words[k]) || P__IsForeignShellWord(words[k], true) || (P__IsForeignShellWord(words[k], false) && (optionNext || k + 1 >= n)) || launcher) return false;

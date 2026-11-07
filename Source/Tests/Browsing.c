@@ -5548,7 +5548,7 @@ function void TestApps(TestFileFixture *fixture)
             S("env GIT_SSH_COMMAND=%f git fetch"), S("PAGER=%f man ls"), S("/usr/bin/read %f"),
             // Shells and runners known by other names, and a loop setting a variable to the value.
             S("rbash -c \"cat %f\""), S("echo %f | ksh93"), S("echo cat %f | at now"), S("sg users -c \"cat %f\""), S("entr -s \"cat %f\""),
-            S("echo %f | crontab -"), S("busybox sh -c \"cat %f\""), S("for PAGER in %f; do man ls; done"),
+            S("echo %f | crontab -"), S("echo cat %f | timeout 9 at now"), S("timeout 9 entr -s \"cat %f\""), S("busybox sh -c \"cat %f\""), S("for PAGER in %f; do man ls; done"),
             S("ksh -c \"cat %f\""), S("sh -c \"cat %f\" 2>&1"), S("sh -c \"cat %f\" <<E"), S("timeout 9 script /dev/null --c=\"cat %f\""),
             // An assignment before a command, which the strict reading does not take.
             S("env LANG=C sh -c \"cat %f\""), S("LC_ALL=C bash -c \"wc -l %f\""),
@@ -5591,7 +5591,7 @@ function void TestApps(TestFileFixture *fixture)
         // A terminal given the command as several words runs them as they are, so that is offered.
         {
             P__Action argv = {0};
-            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("cp %F ."), S("convert %f script"), S("sh -c \"cat %f\" 2>/dev/null"), S("cat %f >> log; notify-send done"), S("sh -c \"cp %f x && notify-send done\""), S("cd %P && make"), S("X=1 cat %f"), S("cp %f %f.bak"), S("notify-send look at %f"), S("sh -c \"printf %%s -v %f\"") };
+            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("cp %F ."), S("convert %f script"), S("sh -c \"cat %f\" 2>/dev/null"), S("cat %f >> log; notify-send done"), S("sh -c \"cp %f x && notify-send done\""), S("cd %P && make"), S("X=1 cat %f"), S("cp %f %f.bak"), S("notify-send look at %f"), S("timeout 9 notify-send at %f"), S("sh -c \"printf %%s -v %f\"") };
             for (u32 o = 0; o < CArrayCount(offered); ++o) {
                 Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", offered[o])).code);
                 Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &argv));
