@@ -352,14 +352,16 @@ function b32 P__ShellScriptNext(const String *words, u64 count)
 
 // Whether `text`, a command line a value is put into, is one whose quoting the code here follows whole, so that the value cannot reach a
 // second parse that runs it as code. It is a plain list of commands, of programs and their arguments, joined by ; && || | and redirected
-// with < and >, with nothing that expands: no $ at all, as variables, substitutions and ${...}, and no backtick.
+// with < and >, with nothing that expands: no $ at all, as variables, substitutions and ${...}, and no backtick. `writes` is whether the
+// line around it, for a shell's script, writes a file.
 // A shell in it may be one of three, in a line with no < anywhere: one at the top given a script with -c and not fed by a pipe, which holds
-// plain commands in turn and no shell of its own given one; one given a script file as the line's first command, as "sh ./show.sh %f", in a
-// line with no pipe; or one started bare to keep a terminal open, as "exec bash", in a line with no pipe and no >.
-// Any other shell, a shell named as an argument, a program that runs its arguments as a command (eval, watch, ssh and the like), env -S, a
-// wrapper given options, and a terminal's -e given one string are refused. What a command could do with a value by itself, a program of its
-// own, is not seen.
-function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
+// plain commands in turn and no shell of its own given one, and no option to read startup files when the line around it writes a file;
+// one given a script file in a line with no pipe that writes no file, as "sh ./show.sh %f"; or one started bare to keep a terminal open,
+// as "exec bash", in a line with no pipe that writes no file.
+// Any other shell, a shell named as an argument, a program that runs its arguments as a command (eval, watch, ssh and the like) anywhere
+// but as . or script, env -S, a wrapper given options, and a terminal's -e given one string are refused. What a command could do with a
+// value by itself, a program of its own, is not seen.
+function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 writes)
 {
     if (StrIndexChar(text, '$', SSF_None).exists || StrIndexChar(text, '`', SSF_None).exists) return false;
     // The words and operators, the quotes taken off each word so that a quoted script is one word.
@@ -388,19 +390,33 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
         }
         toks[count++] = (P__Tok){ .word = StrCopy(arena, word.buffer) };
     }
-    // A pipe anywhere, or a group, as ( ... ) or { ...; }, which a pipe may feed as a whole, leaves no shell bare.
-    // Any <, which may feed a shell however it is written, any > for a bare shell, which may read a file written by it at its start, and a pipe
-    // or a group, as ( ... ) or { ...; }, which a pipe may feed as a whole, leave a shell out.
-    b32 scripted = false, piping = false, reading = false, writing = false;
+    // Any <, which may feed a shell however it is written, and a pipe or a group, as ( ... ) or { ...; }, which a pipe may feed as a whole,
+    // leave a shell out; so does a > for a shell that may read a file the line wrote, as one started bare reads its startup files, or one
+    // that runs a script file after it. A > to /dev/null or to another descriptor, as 2>&1, writes no file.
+    b32 scripted = false, piping = false, reading = false;
     for (u64 i = 0; i < count; ++i) {
         b32 pipe = toks[i].op == '|' && !(i + 1 < count && toks[i + 1].op == '|') && !(i > 0 && toks[i - 1].op == '|');
         piping |= pipe || toks[i].op == '(' || StrIsEqual(toks[i].word, S("{"));
         reading |= toks[i].op == '<';
-        writing |= toks[i].op == '>';
     }
-    b32 first = true;
+    // Whether this level itself writes a file, before any shell given a script here starts, and whether the text does anywhere, inside a
+    // shell's script too, rough as the quotes are not followed, but for a > to /dev/null or a descriptor.
+    b32 around = writes;
+    for (u64 i = 0; i + 1 < count; ++i) {
+        b32 harmless = toks[i + 1].op == '&' || toks[i + 1].op == '>' || StrIsEqual(toks[i + 1].word, S("/dev/null"));
+        around |= toks[i].op == '>' && !harmless;
+    }
+    for (u64 k = 0; k < text.length; ++k) {
+        if (text.value[k] != '>') continue;
+        u64 next = k + 1;
+        while (next < text.length && (text.value[next] == ' ' || text.value[next] == '\t' || text.value[next] == '"' || text.value[next] == '\'')) ++next;
+        b32 harmless = next < text.length && (text.value[next] == '&' || text.value[next] == '>' ||
+                       (text.length - next >= 9 && StrIsEqual(StrFromTo(text, next, (i64)(next + 9)), S("/dev/null"))));
+        if (text.value[k + 1 < text.length ? k + 1 : k] == '>') ++k;
+        writes |= !harmless;
+    }
     for (u64 i = 0; i < count;) {
-        // One command: its words up to the next operator, fed by a pipe, as | or |&, or a < when one comes before or after it.
+        // One command: its words up to the next operator, fed by a pipe, as | or |&, or by any < in the line.
         b32 piped = (i > 0 && toks[i - 1].op == '|' && !(i > 1 && toks[i - 2].op == '|')) || (i > 1 && toks[i - 1].op == '&' && toks[i - 2].op == '|');
         if (toks[i].op) {
             ++i;
@@ -410,8 +426,6 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
         while (i < count && !toks[i].op) ++i;
         u64 end = i;
         b32 fed = piped || reading;
-        b32 leading = first;
-        first = false;
         // A redirection's target is a file, not a command.
         if (from > 0 && (toks[from - 1].op == '<' || toks[from - 1].op == '>')) {
             if (end - from > 1) from += 1;
@@ -433,16 +447,21 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
             u64 optionsEnd = 0;
             b32 given = P__ShellOptions(words + at + 1, n - at - 1, &optionsEnd);
             u64 operand = at + 1 + optionsEnd;
+            // Options that have it read startup files, interactive or a login's or one named, in a line that writes one.
+            for (u64 k = at + 1; around && k < at + 1 + optionsEnd; ++k) {
+                String option = words[k];
+                if (StrIsEqual(option, S("--login")) || StrIsEqual(option, S("--rcfile")) || StrIsEqual(option, S("--init-file")) ||
+                    (option.length > 1 && option.value[0] == '-' && option.value[1] != '-' && (StrIndexChar(option, 'i', SSF_None).exists || StrIndexChar(option, 'l', SSF_None).exists))) return false;
+            }
             if (given) {
                 // One script given at the top, holding plain commands.
                 if (depth || scripted || fed || operand >= n) return false;
                 scripted = true;
-                if (!P__CommandAllowed(arena, words[operand], depth + 1)) return false;
+                if (!P__CommandAllowed(arena, words[operand], depth + 1, writes)) return false;
             } else if (operand < n) {
-                // A script file, which takes the values after it as arguments: the first command at the top, so that nothing before it wrote it,
-                // and not a value itself.
-                if (depth || !leading || fed || piping || StrIndexChar(words[operand], '%', SSF_None).exists) return false;
-            } else if (fed || piping || writing || at + 1 < n) {
+                // A script file, which takes the values after it as arguments, in a line that writes no file, and not a value itself.
+                if (depth || writes || fed || piping || StrIndexChar(words[operand], '%', SSF_None).exists) return false;
+            } else if (fed || piping || writes || at + 1 < n) {
                 return false;
             }
             continue;
@@ -461,10 +480,12 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
             }
         }
         // No shell named among a command's arguments, which it could run.
-        // One whose name is also a common word, as rc, counts when an option or nothing follows it.
+        // One whose name is also a common word, as rc, counts when an option or nothing follows it, and so do the programs that run their
+        // arguments as a command, as after timeout or a terminal's -e, but for . and script, which are common words too.
         for (u64 k = at + 1; k < n; ++k) {
             b32 optionNext = k + 1 >= n || (words[k + 1].length && words[k + 1].value[0] == '-');
-            if (P__IsPosixShellWord(words[k]) || P__IsForeignShellWord(words[k], true) || (P__IsForeignShellWord(words[k], false) && optionNext)) return false;
+            b32 launcher = P__IsLauncherWord(words[k]) && !StrIsEqual(words[k], S(".")) && !StrIsEqual(words[k], S("script"));
+            if (P__IsPosixShellWord(words[k]) || P__IsForeignShellWord(words[k], true) || (P__IsForeignShellWord(words[k], false) && optionNext) || launcher) return false;
         }
     }
     return true;
@@ -492,12 +513,11 @@ function String P__ScriptValue(Arena *arena, P__ScriptQuotes *q, String value)
 // Splits a desktop entry's Exec line into arguments, replacing the field codes with `paths`: %f and %u take one, %F and %U all of them.
 // Returns how many paths the command took, so that a %f or %u command is run once for each of several files.
 // In a shell's command, as "sh -c \"foo %f\"", which the spec forbids but some write, a value goes in quoted for that shell, as GLib does.
-// No arguments come back when a value goes into a line whose quoting the code here does not follow whole (P__CommandAllowed).
-function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths, u64 count, ArrayStr *args)
+function u64 P__SplitExec(Arena *arena, const P__App *app, const String *paths, u64 count, ArrayStr *args, b32 *valued)
 {
     *args = (ArrayStr){0};
     u64 used = 0;
-    b32 valued = false;
+    *valued = false;
     String exec = app->exec;
     for (u64 at = 0; at < exec.length;) {
         while (at < exec.length && exec.value[at] == ' ') ++at;
@@ -523,12 +543,12 @@ function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths,
                 else if ((code == 'F' || code == 'U') && alone && !script) {
                     for (u64 i = 0; i < count; ++i) ArrayPush(arena, *args, code == 'U' ? P__FileUri(arena, paths[i]) : paths[i]);
                     used = count;
-                    valued = valued || count;
+                    *valued = *valued || count;
                 } else if ((code == 'f' || code == 'u' || code == 'F' || code == 'U') && count) {
                     String value = code == 'u' || code == 'U' ? P__FileUri(arena, paths[0]) : paths[0];
                     StrBuildStr(arena, &argument, script ? P__ScriptValue(arena, &inner, value) : value);
                     used = Max(used, (u64)1);
-                    any = valued = true;
+                    any = *valued = true;
                 } else if (code == 'c') { StrBuildStr(arena, &argument, app->name); any = true; }
                 // %i, %k and the deprecated codes expand to nothing.
                 continue;
@@ -540,14 +560,23 @@ function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths,
         }
         if (any) ArrayPush(arena, *args, argument.buffer);
     }
-    // A desktop entry quotes with double quotes alone, so a single quote outside them, which the check reads as quoting, splits otherwise there.
-    b32 doubled = false, single = false;
-    for (u64 i = 0; i < exec.length; ++i) {
-        if (exec.value[i] == '\\' && doubled && i + 1 < exec.length) ++i;
-        else if (exec.value[i] == '"') doubled = !doubled;
-        else if (exec.value[i] == '\'' && !doubled) single = true;
-    }
-    if (valued && (single || !P__CommandAllowed(arena, exec, 0))) {
+    return used;
+}
+
+// No arguments come back when a value goes in where it could reach a shell's second parse: the arguments, as the entry splits them with a
+// stand-in for each value, are checked as a command line of their own, each quoted whole (P__CommandAllowed).
+function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths, u64 count, ArrayStr *args)
+{
+    b32 valued = false;
+    u64 used = P__SplitExec(arena, app, paths, count, args, &valued);
+    if (!valued) return used;
+    String *stand = ArenaPushArray(arena, Max(count, (u64)1), String);
+    for (u64 i = 0; i < count; ++i) stand[i] = S("%f");
+    ArrayStr template = {0};
+    P__SplitExec(arena, app, stand, count, &template, &valued);
+    StrBuilder line = {0};
+    for (u64 i = 0; i < template.header.count; ++i) StrBuildF(arena, &line, "%s%S", i ? " " : "", P__ShellQuote(arena, template.v[i]));
+    if (!P__CommandAllowed(arena, line.buffer, 0, false)) {
         *args = (ArrayStr){0};
         return 0;
     }
@@ -1025,7 +1054,7 @@ function b32 P__ReadAction(Arena *arena, String file, String folder, String dire
         b32 inWord = false;
         // Whether the word under way is a shell's command, as the quoted one in sh -c "echo %f", and its quotes as that shell reads them.
         // The command is not offered when a value goes into a line whose quoting the code here does not follow whole (P__CommandAllowed).
-        b32 script = false, refused = part && !P__CommandAllowed(scratch.arena, text, 0);
+        b32 script = false, refused = part && !P__CommandAllowed(scratch.arena, text, 0, false);
         P__ScriptQuotes inner = {0};
         for (u64 at = 0; at <= text.length; ++at) {
             char c = at < text.length ? text.value[at] : ' ', code = at + 1 < text.length ? text.value[at + 1] : 0;
