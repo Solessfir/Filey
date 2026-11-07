@@ -287,30 +287,57 @@ function b32 P__IsWrapperWord(String word)
     return false;
 }
 
-// Whether the word after `words` is the command a shell runs: its first operand, after options of which one is -c, as "sh -c", "bash -lc", "bash -o pipefail -c", "sh -c -e" or "sh -c --".
+// Whether `word`, an option of a shell's, gives it a command to run: a short one holding c, as -c or -lc, or C, as fish's -C and pwsh's
+// -Command, and the long ones fish and nu take. Taking an option for one that is not, as bash's -C, is the safe mistake.
+function b32 P__ShellCommandOption(String word)
+{
+    if (word.length < 2 || word.value[0] != '-') return false;
+    if (word.value[1] != '-') return StrIndexChar(word, 'c', SSF_None).exists || StrIndexChar(word, 'C', SSF_None).exists;
+    local_persist const String longs[] = { SInit("--command"), SInit("--commands"), SInit("--init-command") };
+    for (u32 i = 0; i < CArrayCount(longs); ++i) {
+        if (StrIsEqual(word, longs[i]) || (word.length > longs[i].length && StrIsEqual(StrFromTo(word, 0, (i64)longs[i].length), longs[i]) && word.value[longs[i].length] == '=')) return true;
+    }
+    return false;
+}
+
+// Whether a shell's option `word` takes the word after it as its argument: -o and -O an option's name, as "-o pipefail", and --rcfile and
+// --init-file a file.
+function b32 P__ShellOptionTakesWord(String word)
+{
+    if (StrIsEqual(word, S("--rcfile")) || StrIsEqual(word, S("--init-file"))) return true;
+    return word.length >= 2 && word.value[1] != '-' && (word.value[word.length - 1] == 'o' || word.value[word.length - 1] == 'O');
+}
+
+// Walks the options of a shell, the words from `words` up to `count` or an empty one, which stands for an operator: whether one gives it a
+// command, with `*end` at its first operand, past a "--".
+function b32 P__ShellOptions(const String *words, u64 count, u64 *end)
+{
+    b32 command = false;
+    u64 at = 0;
+    for (; at < count && words[at].length; ++at) {
+        String word = words[at];
+        if (StrIsEqual(word, S("--"))) {
+            ++at;
+            break;
+        }
+        if (word.length < 2 || (word.value[0] != '-' && word.value[0] != '+')) break;
+        command |= P__ShellCommandOption(word);
+        if (P__ShellOptionTakesWord(word)) ++at;
+    }
+    *end = Min(at, count);
+    return command;
+}
+
+// Whether the word after `words` is the command a shell runs: its first operand, after options of which one gives it a command, as "sh -c",
+// "bash -lc", "bash -o pipefail -c", "sh -c -e" or "sh -c --".
 // The last word naming a shell counts, wherever it is, as in "env sh -c" or "sudo bash -c"; taking a word for a shell's command that is not one is the safe mistake.
 function b32 P__ShellScriptNext(const String *words, u64 count)
 {
     for (u64 s = count; s-- > 0;) {
         if (!P__IsShellWord(words[s])) continue;
-        b32 command = false;
-        u64 at = s + 1;
-        for (; at < count; ++at) {
-            String word = words[at];
-            if (StrIsEqual(word, S("--"))) {
-                ++at;
-                break;
-            }
-            if (word.length < 2 || (word.value[0] != '-' && word.value[0] != '+')) break;
-            if (word.value[1] == '-') {
-                if (StrIsEqual(word, S("--rcfile")) || StrIsEqual(word, S("--init-file"))) ++at;
-                continue;
-            }
-            command |= word.value[0] == '-' && StrIndexChar(word, 'c', SSF_None).exists;
-            // -o and -O take an option's name, as "-o pipefail".
-            if (word.value[word.length - 1] == 'o' || word.value[word.length - 1] == 'O') ++at;
-        }
-        return command && at == count;
+        u64 end = 0;
+        b32 command = P__ShellOptions(words + s + 1, count - s - 1, &end);
+        return command && s + 1 + end == count;
     }
     return false;
 }
@@ -319,23 +346,6 @@ function b32 P__ShellScriptNext(const String *words, u64 count)
 function b32 P__HasSubstitution(String text)
 {
     for (u64 i = 0; i < text.length; ++i) if (text.value[i] == '`' || (text.value[i] == '$' && i + 1 < text.length && text.value[i + 1] == '(')) return true;
-    return false;
-}
-
-// Whether the words after a shell's, `words` up to `count`, give it a command with -c among its options, past those that take an argument, as
-// -o pipefail, -O extglob or --rcfile file.
-function b32 P__ShellOptionsGiveCommand(const String *words, u64 count)
-{
-    for (u64 at = 0; at < count; ++at) {
-        String word = words[at];
-        if (StrIsEqual(word, S("--")) || word.length < 2 || (word.value[0] != '-' && word.value[0] != '+')) return false;
-        if (word.value[1] == '-') {
-            if (StrIsEqual(word, S("--rcfile")) || StrIsEqual(word, S("--init-file"))) ++at;
-            continue;
-        }
-        if (word.value[0] == '-' && StrIndexChar(word, 'c', SSF_None).exists) return true;
-        if (word.value[word.length - 1] == 'o' || word.value[word.length - 1] == 'O') ++at;
-    }
     return false;
 }
 
@@ -351,7 +361,8 @@ function b32 P__HasShellCommand(Arena *arena, String text)
         while (at < text.length && !P__IsShellBreak(text.value[at]) && text.value[at] != '"' && text.value[at] != '\'') ++at;
         if (at > from) words[count++] = StrFromTo(text, from, (i64)at);
     }
-    for (u64 i = 0; i < count; ++i) if (P__IsShellWord(words[i]) && P__ShellOptionsGiveCommand(words + i + 1, count - i - 1)) return true;
+    u64 end = 0;
+    for (u64 i = 0; i < count; ++i) if (P__IsShellWord(words[i]) && P__ShellOptions(words + i + 1, count - i - 1, &end)) return true;
     return false;
 }
 
@@ -455,13 +466,17 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
     }
     // A substitution runs in its own quoting context, so its depth is this level's, not one deeper.
     for (u64 i = 0; i < subCount; ++i) if (P__CommandRisky(arena, subs[i], depth)) return true;
-    // Inside a shell's command, a shell given a command of its own anywhere, as after a wrapper not known here ("timeout 9 sh -c"), would parse the value a third time.
-    for (u64 i = 0; depth && i < count; ++i) {
+    // A shell given a command of its own anywhere, as after a wrapper or a terminal's -e not known here ("timeout 9 sh -c"): inside a shell's
+    // command it would parse the value a third time, and at the top its command is scanned as one, as one at a command's place is below.
+    String *plain = ArenaPushArray(arena, count + 1, String);
+    for (u64 i = 0; i < count; ++i) plain[i] = toks[i].op ? (String){0} : toks[i].word;
+    for (u64 i = 0; i < count; ++i) {
         if (toks[i].op || !P__IsShellWord(toks[i].word)) continue;
-        String *after = ArenaPushArray(arena, count - i, String);
-        u64 words = 0;
-        for (u64 j = i + 1; j < count && !toks[j].op; ++j) after[words++] = toks[j].word;
-        if (P__ShellOptionsGiveCommand(after, words)) return true;
+        u64 end = 0;
+        if (!P__ShellOptions(plain + i + 1, count - i - 1, &end)) continue;
+        if (depth) return true;
+        u64 script = i + 1 + end;
+        if (script < count && !toks[script].op && P__CommandRisky(arena, toks[script].word, depth + 1)) return true;
     }
 
     // `wrote`: the command writes a file with >, which a shell run on a file later in it may then read.
@@ -483,10 +498,9 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
         if (skipNext) { skipNext = false; continue; }
         if (pendShell) {
             if (w.length && (w.value[0] == '-' || w.value[0] == '+')) {
-                if (w.value[0] == '-' && w.length > 1 && w.value[1] != '-' && StrIndexChar(w, 'c', SSF_None).exists) pendC = true;
+                if (P__ShellCommandOption(w)) pendC = true;
                 if (StrIsEqual(w, S("-")) || (w.value[0] == '-' && w.length > 1 && w.value[1] != '-' && StrIndexChar(w, 's', SSF_None).exists)) pendStdin = true;
-                char tail = w.value[w.length - 1];
-                if (tail == 'o' || tail == 'O' || StrIsEqual(w, S("--rcfile")) || StrIsEqual(w, S("--init-file"))) skipNext = true;
+                if (P__ShellOptionTakesWord(w)) skipNext = true;
                 continue;
             }
             // The first non-option word is the shell's operand: its -c script, or a script file, which takes the values after it as arguments,
@@ -520,14 +534,14 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
             expectCmd = false, envHere = false;
             if (P__IsLauncherWord(w)) return true;
             // A terminal's -e given one string, as xterm -e "less '%f'", or a value as the program to run, as xterm -e %f, which it hands to a
-            // shell when no such program is found, has that string parsed again; so does one joined to its option, as --command="less %f".
+            // shell when no such program is found, has that string parsed again; so does one joined to --command.
             if (P__IsTerminalWord(w)) {
                 for (u64 j = i + 1; j < count && !toks[j].op; ++j) {
                     String option = toks[j].word;
-                    b32 joined = (option.length > 10 && StrIsEqual(StrFromTo(option, 0, 10), S("--command="))) || (option.length > 10 && StrIsEqual(StrFromTo(option, 0, 10), S("--execute="))) ||
-                                 (option.length > 2 && option.value[0] == '-' && option.value[1] == 'e');
-                    if (joined) return true;
-                    if (!StrIsEqual(option, S("-e")) && !StrIsEqual(option, S("--command")) && !StrIsEqual(option, S("-x")) && !StrIsEqual(option, S("--execute"))) continue;
+                    if (option.length > 10 && StrIsEqual(StrFromTo(option, 0, 10), S("--command="))) return true;
+                    // -x and --execute run the words after them as they are.
+                    if (StrIsEqual(option, S("-x")) || StrIsEqual(option, S("--execute"))) break;
+                    if (!StrIsEqual(option, S("-e")) && !StrIsEqual(option, S("--command"))) continue;
                     if (j + 1 >= count || toks[j + 1].op) break;
                     String run = toks[j + 1].word;
                     b32 alone = j + 2 >= count || toks[j + 2].op;

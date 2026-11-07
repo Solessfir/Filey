@@ -1436,7 +1436,7 @@ function void TestFileIcons(TestFileFixture *fixture)
             // way holds stays.
             String stale = Prog_JoinPath(&arena, again, S(".a.txt.filey.part"));
             Check(!P_WriteFile(&arena, stale, S("stale")).code);
-            for (u64 start = PlatformNowMicroseconds(); PlatformNowMicroseconds() - start < Millions(3);) P__TestPause();
+            for (u64 start = PlatformNowMicroseconds(); PlatformNowMicroseconds() - start < 400000;) P__TestPause();
             i32 holder = open(P__FilePathCString(&arena, stale), O_RDONLY | O_CLOEXEC);
             Check(holder >= 0 && flock(holder, LOCK_EX) == 0);
             Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, again, NULL, NULL).code && P_PathExists(stale));
@@ -5544,6 +5544,9 @@ function void TestApps(TestFileFixture *fixture)
             // Past a shell's options that take an argument, a value as a terminal's program, and a terminal's string joined to its option or before another.
             S("sh -c \"timeout 9 bash -o pipefail -c 'cat %f'\""), S("bash -O extglob -c \"a $(true) %f\""), S("xterm -e %f"),
             S("xfce4-terminal --command=\"less '%f'\""), S("xfce4-terminal -e \"less '%f'\" --hold"),
+            // A shell's command behind a wrapper or a terminal not known here, at the top, and other shells' ways of being given one.
+            S("timeout 9 sh -c \"sh -c 'cat %f'\""), S("xterm -e sh -c \"sh -c 'cat %f'\""), S("sh -c \"timeout 9 fish --command 'cat %f'\""),
+            S("sh -c \"timeout 9 pwsh -Command 'cat %f'\""), S("sh -c \"timeout 9 fish -C 'cat %f'\""),
         };
         for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
             P__Action refused = {0};
@@ -5553,8 +5556,11 @@ function void TestApps(TestFileFixture *fixture)
         // A terminal given the command as several words runs them as they are, so that is offered.
         {
             P__Action argv = {0};
-            Check(!P_WriteFile(&extras, quoting, S("[Nemo Action]\nName=Q\nExec=xterm -e less %f\nSelection=s\nExtensions=any;\n")).code);
-            Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &argv));
+            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f") };
+            for (u32 o = 0; o < CArrayCount(offered); ++o) {
+                Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", offered[o])).code);
+                Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &argv));
+            }
         }
         // A script beside the action runs from the actions folder, quoted for the shell, its % no field code.
         {

@@ -988,7 +988,7 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         if (!native) error = EINVAL;
         else if ((file = open(native, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666)) < 0 && errno != EEXIST) error = (u32)errno;
         // The extraction writing it holds a lock on it, paused or not, which goes with the run that held it. One no run holds, left by one cut
-        // short, goes and its name is taken again, once a moment old, past the instant between another's making it and locking it.
+        // short, goes and its name is taken again, once a quarter of a second old, past the instant between another's making it and locking it.
         if (file >= 0) {
             flock(file, LOCK_EX);
         } else if (!error) {
@@ -996,7 +996,11 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
             i32 held = open(native, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
             // The name must still be the file locked, which another remover may have taken and another extraction made anew meanwhile.
             struct stat named;
-            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && time(NULL) - left.st_ctime > 2 &&
+            struct timespec now;
+            clock_gettime(CLOCK_REALTIME, &now);
+            i64 age = 0;
+            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() &&
+                (age = (i64)(now.tv_sec - left.st_ctim.tv_sec) * 1000 + (now.tv_nsec - left.st_ctim.tv_nsec) / 1000000) > 250 &&
                 flock(held, LOCK_EX | LOCK_NB) == 0 && lstat(native, &named) == 0 && named.st_ino == left.st_ino && named.st_dev == left.st_dev && unlink(native) == 0) --n;
             if (held >= 0) close(held);
         }
@@ -1017,11 +1021,11 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
     if (file >= 0) {
         const struct timespec times[2] = { { 0, UTIME_OMIT }, { modified, 0 } };
         futimens(file, times);
-        // Moved into place while still locked, so that no other extraction takes it for one left behind in between.
+        // Moved into place, or removed when it failed, while still locked, so that no other extraction takes it for one left behind in between.
         if (!error) error = P_ReplaceFile(scratch.arena, part, path).code;
-        if (close(file) != 0 && !error) error = (u32)errno;
+        if (error && native) unlink(native);
+        close(file);
     }
-    if (error && native) unlink(native);
     ReleaseScratch(scratch);
     return error;
 }

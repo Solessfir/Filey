@@ -473,8 +473,12 @@ int main(int argc, char **argv)
         }
         if (untranslated.header.count) return 1;
     }
-    // The platform's own messages, which the Program translates where it shows them.
-    const char *platform[] = { "Platform/PlatformArchive.c", "Linux/LinuxApps.c", "Linux/LinuxFiles.c", "Win/WinFiles.c", "Win/WinShell.c" };
+    // The platform's own messages, which the Program translates where it shows them, from every platform file; a new one is added here.
+    const char *platform[] = {
+        "Platform/PlatformArchive.c", "Platform/PlatformEvents.c", "Platform/PlatformJobs.c", "Platform/PlatformProfile.c",
+        "Linux/LinuxApps.c", "Linux/LinuxAudio.c", "Linux/LinuxFiles.c", "Linux/LinuxFont.c", "Linux/LinuxIcons.c", "Linux/LinuxPlatform.c", "Linux/LinuxThreads.c", "Linux/LinuxWindow.c",
+        "Win/WinAudio.c", "Win/WinFiles.c", "Win/WinFont.c", "Win/WinIcons.c", "Win/WinLaunch.c", "Win/WinPlatform.c", "Win/WinShell.c", "Win/WinThreads.c", "Win/WinWindow.c",
+    };
     for (u32 i = 0; i < CArrayCount(platform); ++i) {
         String path = StrFormat(&arena, "%S/%s%c", source, platform[i], 0);
         String text = Codegen__ReadFile(&arena, path.value);
