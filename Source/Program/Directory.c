@@ -7597,10 +7597,14 @@ function void Prog__LeaveLostDrives(Prog_State *state, P_ArrayPlace before, P_Ar
 }
 
 // Opens `path` in a new tab at slot `at`.
-function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
+function b32 Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
 {
     Prog__EnsureTab(state);
-    if (state->tabCount >= Prog_MaxTabs || !path.length) return;
+    if (!path.length) return false;
+    if (state->tabCount >= Prog_MaxTabs) {
+        Prog_Notify(state, Prog_NoticeKind_Warning, S("tabs.full"), Tr("No room for another tab"), Tr("Close a tab to open one more."));
+        return false;
+    }
     at = Min(at, state->tabCount);
     MemMove(&state->tabs[at + 1], &state->tabs[at], (state->tabCount - at) * sizeof(Prog_Tab));
     ++state->tabCount;
@@ -7611,6 +7615,7 @@ function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
     // The tab lists its folder when it is first shown.
     ArrayPush(&tab->historyArena, tab->history, StrCopy(&tab->historyArena, path));
     if (activate) Prog_SelectTab(state, at);
+    return true;
 }
 
 // A window of its own for `path`, the run started for it told This PC by a flag, as it is no folder, and the tab's `traits` by another.
@@ -7725,16 +7730,12 @@ function void Prog_OpenPaths(Prog_State *state, String text)
     }
 }
 
-// Shows the item at `path` selected in its folder, in a new tab after the active one with `inTab`; false when it cannot, as with no room for another tab, which a notice says.
+// Shows the item at `path` selected in its folder, in a new tab after the active one with `inTab`; false when it cannot, as with no room for another tab, which Prog_OpenTab's notice says.
 function b32 Prog_ShowInFolder(Prog_State *state, String path, b32 inTab)
 {
     String parent = Prog_ParentPath(path), name = Prog__FolderName(path);
     if (!parent.length || StrIsEqual(parent, path) || name.length > sizeof(state->selectText)) return false;
-    if (inTab && state->tabCount >= Prog_MaxTabs) {
-        Prog_Notify(state, Prog_NoticeKind_Warning, S("tabs.full"), Tr("No room for another tab"), Tr("Close a tab to open one more."));
-        return false;
-    }
-    if (inTab) Prog_OpenTab(state, parent, state->activeTab + 1, true);
+    if (inTab && !Prog_OpenTab(state, parent, state->activeTab + 1, true)) return false;
     Prog_SelectNext(state, name);
     // It scrolls into sight, though a tab from the session would start scrolled where it was.
     state->pickScrollSet = false;

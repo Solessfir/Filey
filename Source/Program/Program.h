@@ -2578,7 +2578,8 @@ function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop);
 function void Prog_FocusPanelToward(Prog_State *state, i32 dx, i32 dy);
 function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group);
 function String Prog_TabPath(const Prog_State *state, u32 index);
-function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate);
+// Opens a tab on `path` at `at`; false with no path or, saying so in a notice, no room for another.
+function b32 Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate);
 function b32 Prog_ShowInFolder(Prog_State *state, String path, b32 inTab);
 function b32 Prog_TreeIsOpen(const Prog_State *state, String name);
 function void Prog__SetList(Arena *arena, ArrayStr *list, const String *items, u64 count);

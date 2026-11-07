@@ -4857,6 +4857,22 @@ function void TestPanels(TestFileFixture *fixture)
         state.revealFocus = false;
         Prog_ShowInFolder(&state, Prog_JoinPath(&state.frameArena, fixture->path, S("Folder2")), false);
         Check(TestWaitDirectory(&state) && state.revealFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("Folder2")));
+        // With no room for another tab, showing an item in one says so and leaves the shown tab as it was.
+        Arena full = {0};
+        u32 tabs = state.tabCount, active = state.activeTab;
+        while (state.tabCount < Prog_MaxTabs) Check(Prog_OpenTab(&state, fixture->path, state.tabCount, false));
+        String shown = StrCopy(&full, state.directory.path);
+        u32 notices = state.noticeCount;
+        Check(!Prog_ShowInFolder(&state, Prog_JoinPath(&full, fixture->path, S("Folder2/inside.txt")), true));
+        Check(state.tabCount == Prog_MaxTabs && StrIsEqual(state.directory.path, shown) && !state.selectLength && state.noticeCount == notices + 1);
+        Check(StrIsEqual(StrMake((const char *)state.notices[state.noticeCount - 1].title, state.notices[state.noticeCount - 1].titleLength), S("No room for another tab")));
+        while (state.tabCount > tabs) {
+            Prog_SelectTab(&state, state.tabCount - 1);
+            TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+        }
+        Prog_SelectTab(&state, active);
+        Check(TestWaitDirectory(&state) && state.tabCount == tabs);
+        ArenaRelease(&full);
     }
     // The palette lists its groups, opens one from its title, finds commands across them by their label and description, and runs the highlighted one.
     {
