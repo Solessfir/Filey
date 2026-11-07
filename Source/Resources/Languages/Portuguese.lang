@@ -2722,6 +2722,51 @@ No room for another tab
 Close a tab to open one more.
 = Feche uma aba para abrir mais uma.
 
+The app's command could run a file's name as a command, so it is not run.
+= O comando do aplicativo poderia executar o nome de um arquivo como comando, por isso não é executado.
+
+Some items stayed in the Trash, as something else is where they came from.
+= Alguns itens ficaram na lixeira, pois há outra coisa onde eles estavam.
+
+Some items stayed in the Recycle Bin, as something else is where they came from.
+= Alguns itens ficaram na lixeira, pois há outra coisa onde eles estavam.
+
+The Recycle Bin could not be emptied.
+= Não foi possível esvaziar a lixeira.
+
+A name can't hold any of these characters: \ / : * ? " < > |
+= Um nome não pode conter nenhum destes caracteres: \ / : * ? " < > |
+
+A name can't end with a dot or a space.
+= Um nome não pode terminar com ponto ou espaço.
+
+That name is one Windows keeps for a device.
+= Esse nome é reservado pelo Windows para um dispositivo.
+
+A name can be at most 255 characters long.
+= Um nome pode ter no máximo 255 caracteres.
+
+The drive could not be mounted
+= Não foi possível montar a unidade
+
+The server could not be reached
+= Não foi possível alcançar o servidor
+
+7-Zip could not read the archive, or its password is wrong.
+= O 7-Zip não conseguiu ler o arquivo compactado, ou a senha está errada.
+
+The archive is encrypted; 7-Zip opens it once installed.
+= O arquivo compactado está criptografado; o 7-Zip o abre depois de instalado.
+
+The archive's password is missing or wrong.
+= A senha do arquivo compactado está faltando ou errada.
+
+7-Zip could not take the items out, or the archive's password is wrong.
+= O 7-Zip não conseguiu extrair os itens, ou a senha do arquivo compactado está errada.
+
+The archive could not be read; an encrypted 7z or RAR one opens with 7-Zip installed.
+= Não foi possível ler o arquivo compactado; um 7z ou RAR criptografado abre com o 7-Zip instalado.
+
 Broken link
 = Link quebrado
 

@@ -4537,8 +4537,29 @@ function String Prog_UrlEncode(Arena *arena, String text)
     return out.buffer;
 }
 
+// The messages the platform's errors carry, in English, listed so that they are translated as the notices show them; the system's own, as
+// strerror's or a tool's output, are shown as they come.
+global const String Prog__PlatformMessages[] = {
+    TrInit("The app's command could run a file's name as a command, so it is not run."),
+    TrInit("Some items stayed in the Trash, as something else is where they came from."),
+    TrInit("Some items stayed in the Recycle Bin, as something else is where they came from."),
+    TrInit("The Recycle Bin could not be emptied."),
+    TrInit("A name can't hold any of these characters: \\ / : * ? \" < > |"),
+    TrInit("A name can't end with a dot or a space."),
+    TrInit("That name is one Windows keeps for a device."),
+    TrInit("A name can be at most 255 characters long."),
+    TrInit("The drive could not be mounted"),
+    TrInit("The server could not be reached"),
+    TrInit("7-Zip could not read the archive, or its password is wrong."),
+    TrInit("The archive is encrypted; 7-Zip opens it once installed."),
+    TrInit("The archive's password is missing or wrong."),
+    TrInit("7-Zip could not take the items out, or the archive's password is wrong."),
+    TrInit("The archive could not be read; an encrypted 7z or RAR one opens with 7-Zip installed."),
+};
+
 function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, String title, String message)
 {
+    (void)Prog__PlatformMessages;
     // Those below the kinds the settings show are not shown, nor a kind muted.
     if (kind < state->noticeLevel) return;
     for (u64 i = 0; i < state->mutedNotices.header.count; ++i) if (StrIsEqual(state->mutedNotices.v[i], key)) return;
@@ -9125,7 +9146,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 } else if (result->error.code) {
                     state->errorListing = true;
                     // The path as the system writes it.
-                    state->error = StrFormat(&state->errorArena, "%S: %S", P_NativePath(&state->frameArena, input->path), result->error.message);
+                    state->error = StrFormat(&state->errorArena, "%S: %S", P_NativePath(&state->frameArena, input->path), Prog_Tr(result->error.message));
                     state->sort = state->directory.sort;
                     state->descending = state->directory.descending;
                     state->folderSort = state->directory.folderSort;

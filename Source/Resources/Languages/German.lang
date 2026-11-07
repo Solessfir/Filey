@@ -2721,6 +2721,51 @@ No room for another tab
 Close a tab to open one more.
 = Schließen Sie einen Tab, um einen weiteren zu öffnen.
 
+The app's command could run a file's name as a command, so it is not run.
+= Der Befehl der App könnte den Namen einer Datei als Befehl ausführen, daher wird er nicht ausgeführt.
+
+Some items stayed in the Trash, as something else is where they came from.
+= Einige Elemente sind im Papierkorb geblieben, da sich an ihrem Herkunftsort etwas anderes befindet.
+
+Some items stayed in the Recycle Bin, as something else is where they came from.
+= Einige Elemente sind im Papierkorb geblieben, da sich an ihrem Herkunftsort etwas anderes befindet.
+
+The Recycle Bin could not be emptied.
+= Der Papierkorb konnte nicht geleert werden.
+
+A name can't hold any of these characters: \ / : * ? " < > |
+= Ein Name darf keines dieser Zeichen enthalten: \ / : * ? " < > |
+
+A name can't end with a dot or a space.
+= Ein Name darf nicht mit einem Punkt oder Leerzeichen enden.
+
+That name is one Windows keeps for a device.
+= Diesen Namen hält Windows für ein Gerät frei.
+
+A name can be at most 255 characters long.
+= Ein Name darf höchstens 255 Zeichen lang sein.
+
+The drive could not be mounted
+= Das Laufwerk konnte nicht eingehängt werden
+
+The server could not be reached
+= Der Server war nicht erreichbar
+
+7-Zip could not read the archive, or its password is wrong.
+= 7-Zip konnte das Archiv nicht lesen, oder sein Passwort ist falsch.
+
+The archive is encrypted; 7-Zip opens it once installed.
+= Das Archiv ist verschlüsselt; 7-Zip öffnet es, sobald es installiert ist.
+
+The archive's password is missing or wrong.
+= Das Passwort des Archivs fehlt oder ist falsch.
+
+7-Zip could not take the items out, or the archive's password is wrong.
+= 7-Zip konnte die Elemente nicht entpacken, oder das Passwort des Archivs ist falsch.
+
+The archive could not be read; an encrypted 7z or RAR one opens with 7-Zip installed.
+= Das Archiv konnte nicht gelesen werden; ein verschlüsseltes 7z- oder RAR-Archiv öffnet sich mit installiertem 7-Zip.
+
 Broken link
 = Defekte Verknüpfung
 

@@ -2720,6 +2720,51 @@ No room for another tab
 Close a tab to open one more.
 = Закройте вкладку, чтобы открыть ещё одну.
 
+The app's command could run a file's name as a command, so it is not run.
+= Команда приложения может выполнить имя файла как команду, поэтому она не запускается.
+
+Some items stayed in the Trash, as something else is where they came from.
+= Некоторые элементы остались в корзине, так как на их прежнем месте уже что-то есть.
+
+Some items stayed in the Recycle Bin, as something else is where they came from.
+= Некоторые элементы остались в корзине, так как на их прежнем месте уже что-то есть.
+
+The Recycle Bin could not be emptied.
+= Не удалось очистить корзину.
+
+A name can't hold any of these characters: \ / : * ? " < > |
+= Имя не может содержать эти символы: \ / : * ? " < > |
+
+A name can't end with a dot or a space.
+= Имя не может заканчиваться точкой или пробелом.
+
+That name is one Windows keeps for a device.
+= Это имя Windows резервирует для устройства.
+
+A name can be at most 255 characters long.
+= Имя может быть не длиннее 255 символов.
+
+The drive could not be mounted
+= Не удалось подключить диск
+
+The server could not be reached
+= Сервер недоступен
+
+7-Zip could not read the archive, or its password is wrong.
+= 7-Zip не смог прочитать архив, или его пароль неверен.
+
+The archive is encrypted; 7-Zip opens it once installed.
+= Архив зашифрован; 7-Zip откроет его после установки.
+
+The archive's password is missing or wrong.
+= Пароль архива не указан или неверен.
+
+7-Zip could not take the items out, or the archive's password is wrong.
+= 7-Zip не смог извлечь элементы, или пароль архива неверен.
+
+The archive could not be read; an encrypted 7z or RAR one opens with 7-Zip installed.
+= Не удалось прочитать архив; зашифрованный 7z или RAR открывается при установленном 7-Zip.
+
 Broken link
 = Битая ссылка
 

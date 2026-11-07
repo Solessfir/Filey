@@ -2721,6 +2721,51 @@ No room for another tab
 Close a tab to open one more.
 = 关闭一个标签页后才能再打开。
 
+The app's command could run a file's name as a command, so it is not run.
+= 该应用的命令可能会把文件名当作命令执行，因此不会运行。
+
+Some items stayed in the Trash, as something else is where they came from.
+= 部分项目留在了回收站中，因为它们原来的位置已有其他内容。
+
+Some items stayed in the Recycle Bin, as something else is where they came from.
+= 部分项目留在了回收站中，因为它们原来的位置已有其他内容。
+
+The Recycle Bin could not be emptied.
+= 无法清空回收站。
+
+A name can't hold any of these characters: \ / : * ? " < > |
+= 名称不能包含以下字符：\ / : * ? " < > |
+
+A name can't end with a dot or a space.
+= 名称不能以点或空格结尾。
+
+That name is one Windows keeps for a device.
+= 该名称被 Windows 保留给设备使用。
+
+A name can be at most 255 characters long.
+= 名称最多只能有 255 个字符。
+
+The drive could not be mounted
+= 无法挂载驱动器
+
+The server could not be reached
+= 无法连接到服务器
+
+7-Zip could not read the archive, or its password is wrong.
+= 7-Zip 无法读取该压缩包，或密码错误。
+
+The archive is encrypted; 7-Zip opens it once installed.
+= 该压缩包已加密；安装 7-Zip 后即可打开。
+
+The archive's password is missing or wrong.
+= 压缩包的密码缺失或错误。
+
+7-Zip could not take the items out, or the archive's password is wrong.
+= 7-Zip 无法解压这些项目，或压缩包的密码错误。
+
+The archive could not be read; an encrypted 7z or RAR one opens with 7-Zip installed.
+= 无法读取该压缩包；加密的 7z 或 RAR 压缩包需安装 7-Zip 才能打开。
+
 Broken link
 = 失效的链接
 

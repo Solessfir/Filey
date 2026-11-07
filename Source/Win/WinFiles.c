@@ -561,7 +561,7 @@ function P_FileError P_NameError(Arena *arena, String name)
     b32 device = false;
     for (u32 d = 0; d < CArrayCount(devices) && !device; ++d) device = stem.length == 3 && !_strnicmp(stem.value, devices[d], 3);
     if (stem.length == 4 && (!_strnicmp(stem.value, "COM", 3) || !_strnicmp(stem.value, "LPT", 3)) && stem.value[3] >= '0' && stem.value[3] <= '9') device = true;
-    if (device) return (P_FileError){ .code = ERROR_INVALID_NAME, .message = StrFormat(arena, "%S is a name Windows keeps for a device.", stem) };
+    if (device) return (P_FileError){ .code = ERROR_INVALID_NAME, .message = S("That name is one Windows keeps for a device.") };
     // Counted as Windows counts it, in UTF-16 units.
     u64 units = 0;
     for (u64 at = 0; at < name.length;) units += StrDecodeUtf8(name, &at) > 0xFFFF ? 2 : 1;

@@ -1346,7 +1346,7 @@ function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *path
     }
     ReleaseScratch(scratch);
     if (error) return P__FileError(arena, error);
-    if (taken) return (P_FileError){ .code = ERROR_ALREADY_EXISTS, .message = StrFormat(arena, "%u item%s stayed in the Recycle Bin, as something else is where %s came from.", taken, taken == 1 ? "" : "s", taken == 1 ? "it" : "they") };
+    if (taken) return (P_FileError){ .code = ERROR_ALREADY_EXISTS, .message = S("Some items stayed in the Recycle Bin, as something else is where they came from.") };
     return (P_FileError){0};
 }
 

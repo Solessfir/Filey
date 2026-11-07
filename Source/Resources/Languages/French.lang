@@ -2722,6 +2722,51 @@ No room for another tab
 Close a tab to open one more.
 = Fermez un onglet pour en ouvrir un autre.
 
+The app's command could run a file's name as a command, so it is not run.
+= La commande de l'application pourrait exécuter le nom d'un fichier comme une commande, elle n'est donc pas lancée.
+
+Some items stayed in the Trash, as something else is where they came from.
+= Certains éléments sont restés dans la corbeille, car autre chose se trouve à leur emplacement d'origine.
+
+Some items stayed in the Recycle Bin, as something else is where they came from.
+= Certains éléments sont restés dans la corbeille, car autre chose se trouve à leur emplacement d'origine.
+
+The Recycle Bin could not be emptied.
+= La corbeille n'a pas pu être vidée.
+
+A name can't hold any of these characters: \ / : * ? " < > |
+= Un nom ne peut contenir aucun de ces caractères : \ / : * ? " < > |
+
+A name can't end with a dot or a space.
+= Un nom ne peut pas se terminer par un point ou une espace.
+
+That name is one Windows keeps for a device.
+= Ce nom est réservé par Windows à un périphérique.
+
+A name can be at most 255 characters long.
+= Un nom peut compter au plus 255 caractères.
+
+The drive could not be mounted
+= Le lecteur n'a pas pu être monté
+
+The server could not be reached
+= Le serveur n'a pas pu être joint
+
+7-Zip could not read the archive, or its password is wrong.
+= 7-Zip n'a pas pu lire l'archive, ou son mot de passe est incorrect.
+
+The archive is encrypted; 7-Zip opens it once installed.
+= L'archive est chiffrée ; 7-Zip l'ouvre une fois installé.
+
+The archive's password is missing or wrong.
+= Le mot de passe de l'archive est manquant ou incorrect.
+
+7-Zip could not take the items out, or the archive's password is wrong.
+= 7-Zip n'a pas pu extraire les éléments, ou le mot de passe de l'archive est incorrect.
+
+The archive could not be read; an encrypted 7z or RAR one opens with 7-Zip installed.
+= L'archive n'a pas pu être lue ; une archive 7z ou RAR chiffrée s'ouvre avec 7-Zip installé.
+
 Broken link
 = Lien rompu
 

@@ -722,7 +722,7 @@ function P_FileError P__LaunchApp(Arena *arena, const P__App *app, const String 
         done += used ? used : Max(count - done, (u64)1);
     }
     ReleaseScratch(scratch);
-    if (refused) return (P_FileError){ .code = error, .message = StrFormat(arena, "%S's command could run a file's name as a command, so it is not run.", app->name) };
+    if (refused) return (P_FileError){ .code = error, .message = S("The app's command could run a file's name as a command, so it is not run.") };
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 

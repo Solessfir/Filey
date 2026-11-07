@@ -2721,6 +2721,51 @@ No room for another tab
 Close a tab to open one more.
 = Cierra una pestaña para abrir otra.
 
+The app's command could run a file's name as a command, so it is not run.
+= El comando de la aplicación podría ejecutar el nombre de un archivo como un comando, así que no se ejecuta.
+
+Some items stayed in the Trash, as something else is where they came from.
+= Algunos elementos se quedaron en la papelera, porque hay otra cosa donde estaban.
+
+Some items stayed in the Recycle Bin, as something else is where they came from.
+= Algunos elementos se quedaron en la papelera, porque hay otra cosa donde estaban.
+
+The Recycle Bin could not be emptied.
+= No se pudo vaciar la papelera.
+
+A name can't hold any of these characters: \ / : * ? " < > |
+= Un nombre no puede contener ninguno de estos caracteres: \ / : * ? " < > |
+
+A name can't end with a dot or a space.
+= Un nombre no puede terminar en punto o espacio.
+
+That name is one Windows keeps for a device.
+= Windows reserva ese nombre para un dispositivo.
+
+A name can be at most 255 characters long.
+= Un nombre puede tener como máximo 255 caracteres.
+
+The drive could not be mounted
+= No se pudo montar la unidad
+
+The server could not be reached
+= No se pudo conectar con el servidor
+
+7-Zip could not read the archive, or its password is wrong.
+= 7-Zip no pudo leer el archivo comprimido, o su contraseña es incorrecta.
+
+The archive is encrypted; 7-Zip opens it once installed.
+= El archivo comprimido está cifrado; 7-Zip lo abre una vez instalado.
+
+The archive's password is missing or wrong.
+= Falta la contraseña del archivo comprimido o es incorrecta.
+
+7-Zip could not take the items out, or the archive's password is wrong.
+= 7-Zip no pudo extraer los elementos, o la contraseña del archivo comprimido es incorrecta.
+
+The archive could not be read; an encrypted 7z or RAR one opens with 7-Zip installed.
+= No se pudo leer el archivo comprimido; uno 7z o RAR cifrado se abre con 7-Zip instalado.
+
 Broken link
 = Vínculo roto
 
