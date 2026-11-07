@@ -5492,7 +5492,6 @@ function void TestApps(TestFileFixture *fixture)
             { S("bash -o pipefail -c \"printf %%s %f > printed\""), oddName },
             { S("sh -c -e \"printf %%s %f > printed\""), oddName },
             { S("env sh -c \"printf %%s %f > printed\""), oddName },
-            { S("true;sh -c \"printf %%s %f > printed\""), oddName },
             { S("sh -c \"printf %%s \"\\'%f\\'\" > printed\""), oddName },
             { S("printf %%s \"%f.bak\" > printed"), StrFormat(&extras, "%S.bak", oddName) },
             { S("printf %%s '%f' \\%f > printed"), StrFormat(&extras, "%S%S", oddName, oddName) },
@@ -5528,6 +5527,9 @@ function void TestApps(TestFileFixture *fixture)
             // Other ways a line writes a file a shell then reads, and script, which runs its -c in a shell.
             S("printf %%s %f >> x; exec bash"), S("printf %%s %f >\"&\"; exec bash"), S("printf %%s %f >&x; exec bash"), S("cp %f x; sh x"),
             S("xterm -e script -qc \"less %f\" /dev/null"), S("timeout 9 script -c \"cat %f\""),
+            // A shell after another command or with a pipe, a bare one, as one keeping a terminal open, and one fed through a group.
+            S("true;sh -c \"printf %%s %f > printed\""), S("printf %%s %f; exec bash"), S("printf %%s %f | (sh -c sh)"), S("sed -i \"1i %f\" x; exec bash"),
+            S("exec bash --rcfile %f"),
             // An assignment before a command, which the strict reading does not take.
             S("env LANG=C sh -c \"cat %f\""), S("LC_ALL=C bash -c \"wc -l %f\""),
             S("sh -c \"sh -c 'printf %%s %f'\""), S("eval printf %%s %f"), S("env -S \"sh -c 'printf %%s %f'\""), S("env -S \"printf %%s %f\""),
@@ -5569,7 +5571,7 @@ function void TestApps(TestFileFixture *fixture)
         // A terminal given the command as several words runs them as they are, so that is offered.
         {
             P__Action argv = {0};
-            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("printf %%s %f; exec bash"), S("cp %F .") };
+            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("trans es %f"), S("sh -c \"cat %f | wc -l\""), S("convert %f out.png"), S("cp %F ."), S("convert %f script") };
             for (u32 o = 0; o < CArrayCount(offered); ++o) {
                 Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", offered[o])).code);
                 Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &argv));
@@ -5710,9 +5712,9 @@ function void TestApps(TestFileFixture *fixture)
         P__ExpandExec(&arena, &quoting, paths, 2, &args);
         Check(args.header.count == 6 && StrIsEqual(args.v[5], P__ShellQuote(&arena, paths[0])));
         // The shell's own arguments after its command go in as they are, and a shell started with no command reads none of it.
-        quoting.exec = S("sh -c \"cat ./notes; exec bash\" sh %f");
+        quoting.exec = S("sh -c \"cat ./notes\" sh %f");
         P__ExpandExec(&arena, &quoting, paths, 1, &args);
-        Check(args.header.count == 5 && StrIsEqual(args.v[2], S("cat ./notes; exec bash")) && StrIsEqual(args.v[4], paths[0]));
+        Check(args.header.count == 5 && StrIsEqual(args.v[2], S("cat ./notes")) && StrIsEqual(args.v[4], paths[0]));
         // One that would hand the value on to a shell the quoting cannot follow is not run.
         String refusedExecs[] = {
             S("sh -c \"sh -c 'cat %f'\""), S("env -S \"sh -c 'cat %f'\""), S("env -S \"cat %f\""), S("sh -c \"cat $(dirname %f)\""), S("watch \"cat %f\""), S("sh -c \"cat ${x:-%f}\""), S("sh -c \"cat %f | exec sh\""),
@@ -5727,6 +5729,10 @@ function void TestApps(TestFileFixture *fixture)
             P__ExpandExec(&arena, &quoting, paths, 1, &args);
             Check(!args.header.count);
         }
+        // The app's name in a shell's command is quoted for that shell, as a value is.
+        P__App named = { .exec = S("sh -c \"echo %c %f\""), .name = S("Tom's Viewer") };
+        P__ExpandExec(&arena, &named, paths, 1, &args);
+        Check(args.header.count == 3 && StrIsEqual(args.v[2], StrFormat(&arena, "echo %S %S", P__ShellQuote(&arena, S("Tom's Viewer")), P__ShellQuote(&arena, paths[0]))));
         // A single quote is a letter to a desktop entry, so a name with one is offered.
         quoting.exec = S("app --label=Bob's %f");
         P__ExpandExec(&arena, &quoting, paths, 1, &args);

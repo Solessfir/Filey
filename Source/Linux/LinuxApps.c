@@ -351,15 +351,16 @@ function b32 P__ShellScriptNext(const String *words, u64 count)
 }
 
 // Whether `text`, a command line a value is put into, is one whose quoting the code here follows whole, so that the value cannot reach a
-// second parse that runs it as code. It is a plain list of commands, of programs and their arguments, joined by ; && || | and redirected
-// with < and >, with nothing that expands: no $ at all, as variables, substitutions and ${...}, and no backtick. `redirected` is whether
-// the line around it, for a shell's script, redirects.
-// A shell in it reads no file of its own: one at the top given a script with -c, which holds plain commands in turn, or one started bare to
-// keep a terminal open; nothing that could feed it or write a file it reads (P__CommandAllowed's shell case below).
+// second parse that runs it as code.
+// It is a plain list of commands, of programs and their arguments, joined by ; && || | and redirected with < and >, with nothing that
+// expands: no $ at all, as variables, substitutions and ${...}, and no backtick.
+// A shell may be in it only as the whole line: one POSIX shell, after wrappers with no options, given a script with -c, which is a plain
+// list in turn with no shell of its own; nothing else in the line runs before it to write a file it reads as it starts, and no option has it
+// read one, as -i, -l, --login or --rcfile, nor is it zsh, which reads ~/.zshenv always.
 // Any other shell, a shell named as an argument, a program that runs its arguments as a command (eval, watch, script, ssh and the like),
 // env -S, a wrapper given options, and a terminal's -e given one string are refused. What a command could do with a value by itself, a
 // program of its own, is not seen.
-function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 redirected)
+function b32 P__CommandAllowed(Arena *arena, String text, u32 depth)
 {
     if (StrIndexChar(text, '$', SSF_None).exists || StrIndexChar(text, '`', SSF_None).exists) return false;
     // The words and operators, the quotes taken off each word so that a quoted script is one word.
@@ -388,16 +389,10 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 redirec
         }
         toks[count++] = (P__Tok){ .word = StrCopy(arena, word.buffer) };
     }
-    // A pipe or a group, as ( ... ) or { ...; }, which a pipe may feed as a whole, a < anywhere, which may feed a shell however it is written,
-    // and a > anywhere, which may write a file a shell then reads, as a script or its startup file, leave out a shell started bare.
-    b32 scripted = false, piping = false, redirecting = redirected || StrIndexChar(text, '<', SSF_None).exists || StrIndexChar(text, '>', SSF_None).exists;
-    for (u64 i = 0; i < count; ++i) {
-        b32 pipe = toks[i].op == '|' && !(i + 1 < count && toks[i + 1].op == '|') && !(i > 0 && toks[i - 1].op == '|');
-        piping |= pipe || toks[i].op == '(' || StrIsEqual(toks[i].word, S("{"));
-    }
+    // A shell is allowed only as the whole line at the top: its first command, with no operator in the line.
+    b32 operators = false;
+    for (u64 i = 0; i < count; ++i) operators |= toks[i].op != 0;
     for (u64 i = 0; i < count;) {
-        // One command: its words up to the next operator, fed by a pipe, as | or |&.
-        b32 piped = (i > 0 && toks[i - 1].op == '|' && !(i > 1 && toks[i - 2].op == '|')) || (i > 1 && toks[i - 1].op == '&' && toks[i - 2].op == '|');
         if (toks[i].op) {
             ++i;
             continue;
@@ -423,26 +418,18 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 redirec
         String command = words[at];
         if (P__IsLauncherWord(command) || P__IsForeignShellWord(command, false) || StrIndexChar(command, '=', SSF_None).exists) return false;
         if (P__IsPosixShellWord(command)) {
-            // A shell that reads no file of its own as it starts, a script or a startup file: given a script with -c at the top, not fed by a
-            // pipe nor in a line with a <, its options none that read startup files, as -i, -l, --login or --rcfile, nor zsh, which reads
-            // ~/.zshenv always; or started bare to keep a terminal open, as "exec bash", in a line that redirects nothing and has no pipe.
             u64 optionsEnd = 0;
             b32 given = P__ShellOptions(words + at + 1, n - at - 1, &optionsEnd);
             u64 operand = at + 1 + optionsEnd;
-            if (given) {
-                if (depth || scripted || piped || StrIndexChar(text, '<', SSF_None).exists || operand >= n || StrIsEqual(command, S("zsh")) ||
-                    StrIsEqual(StrFrom(command, StrIndexChar(command, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value), S("zsh"))) return false;
-                for (u64 k = at + 1; k < operand; ++k) {
-                    String option = words[k];
-                    if (option.length > 1 && option.value[0] == '-' && option.value[1] == '-' && !StrIsEqual(option, S("--")) &&
-                        !StrIsEqual(option, S("--norc")) && !StrIsEqual(option, S("--noprofile")) && !StrIsEqual(option, S("--posix"))) return false;
-                    if (option.length > 1 && option.value[0] == '-' && option.value[1] != '-' && (StrIndexChar(option, 'i', SSF_None).exists || StrIndexChar(option, 'l', SSF_None).exists)) return false;
-                }
-                scripted = true;
-                if (!P__CommandAllowed(arena, words[operand], depth + 1, redirecting)) return false;
-            } else if (operand < n || piped || piping || redirecting) {
-                return false;
+            if (!given || depth || operators || operand >= n || StrIsEqual(StrFrom(command, StrIndexChar(command, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value), S("zsh"))) return false;
+            for (u64 k = at + 1; k < operand; ++k) {
+                String option = words[k];
+                b32 plainLong = StrIsEqual(option, S("--")) || StrIsEqual(option, S("--norc")) || StrIsEqual(option, S("--noprofile")) || StrIsEqual(option, S("--posix"));
+                if (option.length > 1 && option.value[0] == '-' && option.value[1] == '-' && !plainLong) return false;
+                if (option.length > 1 && option.value[0] == '-' && option.value[1] != '-' && (StrIndexChar(option, 'i', SSF_None).exists || StrIndexChar(option, 'l', SSF_None).exists)) return false;
             }
+            if (!P__CommandAllowed(arena, words[operand], depth + 1)) return false;
+            // The words after the script are its name and arguments, values the script cannot use, as it has no $.
             continue;
         }
         if (P__IsTerminalWord(command)) {
@@ -459,12 +446,12 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 redirec
             }
         }
         // No shell named among a command's arguments, which it could run, and no program that runs its arguments as a command, as after
-        // timeout or a terminal's -e, but for ., a common word; a shell whose name is also a common word, as rc, counts when an option or
-        // nothing follows it.
+        // timeout or a terminal's -e. A shell's name that is also a common word, as rc, counts when an option or nothing follows it, as it
+        // would read its commands from its input then; script, a common word too, counts when an option follows it; and . never does.
         for (u64 k = at + 1; k < n; ++k) {
-            b32 optionNext = k + 1 >= n || (words[k + 1].length && words[k + 1].value[0] == '-');
-            b32 launcher = P__IsLauncherWord(words[k]) && !StrIsEqual(words[k], S("."));
-            if (P__IsPosixShellWord(words[k]) || P__IsForeignShellWord(words[k], true) || (P__IsForeignShellWord(words[k], false) && optionNext) || launcher) return false;
+            b32 optionNext = k + 1 < n && words[k + 1].length && words[k + 1].value[0] == '-';
+            b32 launcher = P__IsLauncherWord(words[k]) && !StrIsEqual(words[k], S(".")) && (!StrIsEqual(words[k], S("script")) || optionNext);
+            if (P__IsPosixShellWord(words[k]) || P__IsForeignShellWord(words[k], true) || (P__IsForeignShellWord(words[k], false) && (optionNext || k + 1 >= n)) || launcher) return false;
         }
     }
     return true;
@@ -528,7 +515,7 @@ function u64 P__SplitExec(Arena *arena, const P__App *app, const String *paths, 
                     StrBuildStr(arena, &argument, script ? P__ScriptValue(arena, &inner, value) : value);
                     used = Max(used, (u64)1);
                     any = *valued = true;
-                } else if (code == 'c') { StrBuildStr(arena, &argument, name); any = true; }
+                } else if (code == 'c') { StrBuildStr(arena, &argument, script ? P__ScriptValue(arena, &inner, name) : name); any = true; }
                 // %i, %k and the deprecated codes expand to nothing.
                 continue;
             }
@@ -556,7 +543,7 @@ function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths,
     P__SplitExec(arena, app, stand, count, &template, &ignored, S("Name"));
     StrBuilder line = {0};
     for (u64 i = 0; i < template.header.count; ++i) StrBuildF(arena, &line, "%s%S", i ? " " : "", P__ShellQuote(arena, template.v[i]));
-    if (!P__CommandAllowed(arena, line.buffer, 0, false)) {
+    if (!P__CommandAllowed(arena, line.buffer, 0)) {
         *args = (ArrayStr){0};
         return 0;
     }
@@ -1034,7 +1021,7 @@ function b32 P__ReadAction(Arena *arena, String file, String folder, String dire
         b32 inWord = false;
         // Whether the word under way is a shell's command, as the quoted one in sh -c "echo %f", and its quotes as that shell reads them.
         // The command is not offered when a value goes into a line whose quoting the code here does not follow whole (P__CommandAllowed).
-        b32 script = false, refused = part && !P__CommandAllowed(scratch.arena, text, 0, false);
+        b32 script = false, refused = part && !P__CommandAllowed(scratch.arena, text, 0);
         P__ScriptQuotes inner = {0};
         for (u64 at = 0; at <= text.length; ++at) {
             char c = at < text.length ? text.value[at] : ' ', code = at + 1 < text.length ? text.value[at + 1] : 0;

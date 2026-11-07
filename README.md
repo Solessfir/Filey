@@ -21,7 +21,7 @@
 - **Phones and cameras**: browse a phone or camera connected by USB, under This PC on Windows and through GVFS on Linux (with `gvfs-mtp`), and copy, move, rename and delete on it as in any folder, which updates as the phone changes. On Linux, Filey mounts them as they connect, and Eject in the right-click menu takes them and USB drives away. Partitions nothing has mounted, such as a Windows one, are listed under Storage too and mounted when opened, as Nemo does.
 - **Git**: the branch, the commits to push and pull, the changed files colored in the list, branch switching and a safe pull that only fast-forwards.
 - **Themes**: Catppuccin, Nord, Gruvbox, Tokyo Night, One Dark and Filey Dark built in, schemes of your own, starting from the system's light or dark mode until you pick one, and a transparent glass look in any of them.
-- **Linux desktop**: the file manager other programs open for Show in Folder, New from your Templates folder, Set as Default in Open With, your Nemo actions and scripts in the right-click menu, and Open as Root.
+- **Linux desktop**: the file manager other programs open for Show in Folder, New from your Templates folder, Set as Default in Open With, your Nemo actions and scripts in the right-click menu (an action that puts a file's name into a command Filey cannot quote safely, such as one with `$` or a shell inside another, is left out), and Open as Root.
 - **Languages**: English, Chinese, French, German, Polish, Portuguese, Russian and Spanish, plus your own through a translation file.
 - **AI agents**: an [MCP server](#ai-agents-mcp), `filey --mcp`, through which an agent sees the folder and selection you are looking at, shows you what it found or made, and runs Filey's commands.
 
