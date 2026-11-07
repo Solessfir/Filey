@@ -5550,6 +5550,8 @@ function void TestApps(TestFileFixture *fixture)
             S("fish -c \"cat %f\""), S("pwsh -NoLogo -Command \"Get-Item '%f'\""), S("fish -C init -c \"cat %f\""), S("gnome-terminal -e\"less %f\""),
             // A shell given, after "--", a file the command wrote, and another shell that quotes otherwise.
             S("printf %%s %f > ./-run; sh -- -run"), S("ysh -c \"cat %f\""),
+            // A shell behind a wrapper not known here fed by a pipe or a file, a variable's shell, and one that quotes otherwise behind one.
+            S("printf %%s %f | timeout 9 sh"), S("printf %%s %f > y; timeout 9 sh y"), S("$SHELL -c \"cat '%f'\""), S("printf %%s %f | timeout 9 fish"),
         };
         for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
             P__Action refused = {0};
@@ -5559,7 +5561,7 @@ function void TestApps(TestFileFixture *fixture)
         // A terminal given the command as several words runs them as they are, so that is offered.
         {
             P__Action argv = {0};
-            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f"), S("notify-send fish %f") };
+            String offered[] = { S("xterm -e less %f"), S("xterm -en UTF-8 -e less %f"), S("xfce4-terminal -x %f") };
             for (u32 o = 0; o < CArrayCount(offered); ++o) {
                 Check(!P_WriteFile(&extras, quoting, StrFormat(&extras, "[Nemo Action]\nName=Q\nExec=%S\nSelection=s\nExtensions=any;\n", offered[o])).code);
                 Check(P__ReadAction(&extras, quoting, actions, work, odd, 1, (String){0}, &argv));

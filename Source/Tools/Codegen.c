@@ -320,8 +320,7 @@ function i32 Codegen__ComparePaths(const void *a, const void *b)
     return order ? order : x->length < y->length ? -1 : x->length > y->length;
 }
 
-// The C and C++ sources in `source`/`folder`, as "folder/name", into `out`, in no set order, but for the tests' own helpers; false when the
-// folder cannot be listed.
+// The C and C++ sources in `source`/`folder`, as "folder/name", into `out`, in no set order; false when the folder cannot be listed.
 function b32 Codegen__ListSources(Arena *arena, String source, const char *folder, ArrayStr *out)
 {
 #if defined(_WIN32)
@@ -330,7 +329,7 @@ function b32 Codegen__ListSources(Arena *arena, String source, const char *folde
     HANDLE find = FindFirstFileA(pattern.value, &found);
     for (b32 more = find != INVALID_HANDLE_VALUE; more; more = FindNextFileA(find, &found)) {
         String name = StrFromCStr(found.cFileName);
-        if ((Codegen__EndsWith(name, S(".c")) || Codegen__EndsWith(name, S(".cpp"))) && !Codegen__EndsWith(name, S("TestFiles.c"))) ArrayPush(arena, *out, StrFormat(arena, "%s/%S", folder, name));
+        if ((Codegen__EndsWith(name, S(".c")) || Codegen__EndsWith(name, S(".cpp")))) ArrayPush(arena, *out, StrFormat(arena, "%s/%S", folder, name));
     }
     if (find == INVALID_HANDLE_VALUE) return false;
     FindClose(find);
@@ -340,7 +339,7 @@ function b32 Codegen__ListSources(Arena *arena, String source, const char *folde
     DIR *listing = opendir(path.value);
     for (struct dirent *item; listing && (item = readdir(listing)) != NULL;) {
         String name = StrFromCStr(item->d_name);
-        if ((Codegen__EndsWith(name, S(".c")) || Codegen__EndsWith(name, S(".cpp"))) && !Codegen__EndsWith(name, S("TestFiles.c"))) ArrayPush(arena, *out, StrFormat(arena, "%s/%S", folder, name));
+        if ((Codegen__EndsWith(name, S(".c")) || Codegen__EndsWith(name, S(".cpp")))) ArrayPush(arena, *out, StrFormat(arena, "%s/%S", folder, name));
     }
     if (!listing) return false;
     closedir(listing);
@@ -519,8 +518,12 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    // In order of their names, so that the strings come out the same whatever order the folders list them in.
+    // In order of their names, so that the strings come out the same whatever order the folders list them in, without the tests' own
+    // helpers, which are named *TestFiles.c and show nothing to the user.
     qsort(platform.v, platform.header.count, sizeof(String), Codegen__ComparePaths);
+    u64 kept = 0;
+    for (u64 i = 0; i < platform.header.count; ++i) if (!Codegen__EndsWith(platform.v[i], S("TestFiles.c"))) platform.v[kept++] = platform.v[i];
+    platform.header.count = kept;
     for (u64 i = 0; i < platform.header.count; ++i) {
         String path = StrFormat(&arena, "%S/%S%c", source, platform.v[i], 0);
         String text = Codegen__ReadFile(&arena, path.value);

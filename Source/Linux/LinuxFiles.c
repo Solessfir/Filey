@@ -988,20 +988,22 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         if (!native) error = EINVAL;
         else if ((file = open(native, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666)) < 0 && errno != EEXIST) error = (u32)errno;
         // The extraction writing it holds a lock on it, paused or not, which goes with the run that held it. One no run holds, left by one cut
-        // short, goes and its name is taken again.
+        // short, goes and its name is taken again; one made a moment ago and not locked yet is checked by its maker once locked, below.
         if (file >= 0) {
+            // Locked, the name must still be this file: another extraction may have taken it for one left behind between its making and the
+            // lock, and made one of its own there, so this one gives the name up and tries the next.
             flock(file, LOCK_EX);
+            struct stat mine, named;
+            if (fstat(file, &mine) != 0 || lstat(native, &named) != 0 || mine.st_ino != named.st_ino || mine.st_dev != named.st_dev) {
+                close(file);
+                file = -1;
+            }
         } else if (!error) {
             struct stat left;
             i32 held = open(native, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
             // The name must still be the file locked, which another remover may have taken and another extraction made anew meanwhile.
             struct stat named;
-            // One with data in it was written by an extraction that held its lock, as it locks before writing, so one now unlocked is left; an
-            // empty one may be another's made a moment ago and not locked yet, so it goes only once its change is a few seconds old, longer
-            // than any file system rounds that time.
-            struct timespec now;
-            clock_gettime(CLOCK_REALTIME, &now);
-            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && (left.st_size > 0 || now.tv_sec - left.st_ctim.tv_sec > 5) &&
+            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() &&
                 flock(held, LOCK_EX | LOCK_NB) == 0 && lstat(native, &named) == 0 && named.st_ino == left.st_ino && named.st_dev == left.st_dev && unlink(native) == 0) --n;
             if (held >= 0) close(held);
         }
@@ -1024,12 +1026,16 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         futimens(file, times);
         // Closed first for the errors a close reports, as a share's late write, with a copy keeping the lock, then moved into place, or
         // removed when it failed, while still locked, so that no other extraction takes it for one left behind in between.
-        // Without a copy, it is moved into place before it is closed instead.
+        // Without a copy, it is moved into place before it is closed instead, and taken out of it again when the close fails.
         i32 keep = dup(file);
         if (keep >= 0 && close(file) != 0 && !error) error = (u32)errno;
         if (!error) error = P_ReplaceFile(scratch.arena, part, path).code;
         if (error && native) unlink(native);
-        close(keep >= 0 ? keep : file);
+        if (close(keep >= 0 ? keep : file) != 0 && keep < 0 && !error) {
+            error = (u32)errno;
+            char *placed = P__FilePathCString(scratch.arena, path);
+            if (placed) unlink(placed);
+        }
     }
     ReleaseScratch(scratch);
     return error;
