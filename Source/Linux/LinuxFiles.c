@@ -955,6 +955,8 @@ function u32 P__ArchiveWritePath(void *writer, String path, String name, P_Progr
     return error;
 }
 
+function b32 P__ArchiveSameName(String a, String b) { return StrIsEqual(a, b); }
+
 function u32 P__ArchiveMakeFolders(String path)
 {
     Scratch scratch = GetScratch();

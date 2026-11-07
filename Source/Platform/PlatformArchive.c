@@ -9,6 +9,8 @@ function u32 P__ArchiveWritePath(void *writer, String path, String name, P_Progr
 // fails or is cancelled.
 function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel);
 function u32 P__ArchiveMakeFolders(String path);
+// Whether two names in one folder name the same item there: on Windows whatever their case, as NTFS folds it beyond ASCII too.
+function b32 P__ArchiveSameName(String a, String b);
 function u64 P__ArchiveFileSize(String path);
 function void P__ArchiveRemove(String path);
 
@@ -587,18 +589,6 @@ function P_FileError P__SevenZipExtract(Arena *arena, String program, String arc
     return result.code && !result.message.value ? P__FileError(arena, result.code) : result;
 }
 
-// Whether two names in a folder name the same item, whatever their ASCII letters' case where the system ignores it.
-function b32 P__SameName(String a, String b)
-{
-    if (a.length != b.length) return false;
-    for (u64 i = 0; i < a.length; ++i) {
-        u8 x = (u8)a.value[i], y = (u8)b.value[i];
-        if (P_PathsIgnoreCase() && x >= 'A' && x <= 'Z') x += 32;
-        if (P_PathsIgnoreCase() && y >= 'A' && y <= 'Z') y += 32;
-        if (x != y) return false;
-    }
-    return true;
-}
 
 function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner, const String *names, u64 count, String directory, P_Progress *progress,
                                       const P_CancelToken *cancel)
@@ -613,7 +603,7 @@ function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner
             placed[k] = P__NumberedString(scratch.arena, names[k], false, n);
             // Nor one an item before took, as "report" and "report (2)" with a "report" already there would both be "report (2)".
             b32 taken = false;
-            for (u64 j = 0; j < k && !taken; ++j) taken = P__SameName(placed[j], placed[k]);
+            for (u64 j = 0; j < k && !taken; ++j) taken = P__ArchiveSameName(placed[j], placed[k]);
             if (!taken && !P_PathExists(StrFormat(scratch.arena, "%S/%S", directory, placed[k]))) break;
         }
     }

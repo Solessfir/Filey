@@ -113,6 +113,15 @@ enum { P__ArchiveCancelled = ERROR_CANCELLED, P__ArchiveUnsupported = ERROR_NOT_
 
 #include "Platform/PlatformArchive.c"
 
+function b32 P__ArchiveSameName(String a, String b)
+{
+    Scratch scratch = GetScratch();
+    wchar *x = P__FilePathWide(scratch.arena, a), *y = P__FilePathWide(scratch.arena, b);
+    b32 result = x && y ? CompareStringOrdinal(x, -1, y, -1, TRUE) == CSTR_EQUAL : StrIsEqual(a, b);
+    ReleaseScratch(scratch);
+    return result;
+}
+
 // Linked folders are left out, as they can lead in circles.
 function u32 P__ArchiveWritePath(void *writer, String path, String name, P_Progress *progress, const P_CancelToken *cancel)
 {
