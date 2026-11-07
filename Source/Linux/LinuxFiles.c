@@ -981,7 +981,7 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
     while (kept < leaf.length && kept && ((u8)leaf.value[kept] & 0xC0) == 0x80) --kept;
     leaf = StrFromTo(leaf, 0, (i64)kept);
     char *native = NULL;
-    i32 file = -1;
+    i32 file = -1, lock = -1;
     for (u32 n = 1; !error && file < 0 && n < 100; ++n) {
         String part = n == 1 ? StrFormat(scratch.arena, "%S.%S.filey.part", folder, leaf) : StrFormat(scratch.arena, "%S.%S.filey-%u.part", folder, leaf, n);
         native = P__FilePathCString(scratch.arena, part);
@@ -990,13 +990,23 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         // The extraction writing it holds a lock on it, paused or not, which goes with the run that held it. One no run holds, left by one cut
         // short, goes and its name is taken again; one made a moment ago and not locked yet is checked by its maker once locked, below.
         if (file >= 0) {
-            // Locked, the name must still be this file: another extraction may have taken it for one left behind between its making and the
-            // lock, and made one of its own there, so this one gives the name up and tries the next.
-            flock(file, LOCK_EX);
+            // The lock is held through a second descriptor of its own, so that the one written through can be closed for the errors a close
+            // reports while the file is still locked. Locked, the name must still be this file: another extraction may have taken it for one
+            // left behind between its making and the lock, and made one of its own there, so this one gives the name up and tries the next.
+            lock = open(native, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+            if (lock < 0) {
+                error = (u32)errno;
+                close(file);
+                unlink(native);
+                file = -1;
+                break;
+            }
+            flock(lock, LOCK_EX);
             struct stat mine, named;
             if (fstat(file, &mine) != 0 || lstat(native, &named) != 0 || mine.st_ino != named.st_ino || mine.st_dev != named.st_dev) {
                 close(file);
-                file = -1;
+                close(lock);
+                file = lock = -1;
             }
         } else if (!error) {
             struct stat left;
@@ -1024,15 +1034,12 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
     if (file >= 0) {
         const struct timespec times[2] = { { 0, UTIME_OMIT }, { modified, 0 } };
         futimens(file, times);
-        // Closed first for the errors a close reports, as a share's late write, with a copy keeping the lock, then moved into place, or
-        // removed when it failed, while still locked, so that no other extraction takes it for one left behind in between.
-        // Without a copy, as when no more files can be open, the extraction fails rather than move a file whose close could still fail.
-        i32 keep = dup(file);
-        if (keep < 0 && !error) error = (u32)errno;
-        if (keep >= 0 && close(file) != 0 && !error) error = (u32)errno;
+        // Closed first for the errors a close reports, as a share's late write, with the lock's own descriptor keeping it locked, then moved
+        // into place, or removed when it failed, while still locked, so that no other extraction takes it for one left behind in between.
+        if (close(file) != 0 && !error) error = (u32)errno;
         if (!error) error = P_ReplaceFile(scratch.arena, part, path).code;
         if (error && native) unlink(native);
-        close(keep >= 0 ? keep : file);
+        close(lock);
     }
     ReleaseScratch(scratch);
     return error;
