@@ -651,11 +651,13 @@ function P_FileError P__LaunchApp(Arena *arena, const P__App *app, const String 
 {
     Scratch scratch = GetScratchEx(arena);
     u32 error = 0;
+    b32 refused = false;
     char *folder = P__FilePathCString(scratch.arena, directory);
     for (u64 done = 0; !error && (done < count || (!count && !done));) {
         ArrayStr args = {0};
         u64 used = P__ExpandExec(scratch.arena, app, paths + done, count - done, &args);
-        if (!args.header.count) { error = ENOEXEC; break; }
+        // A command that is there but gave nothing was refused for how it hands the file to a shell, which is said rather than a format error.
+        if (!args.header.count) { error = ENOEXEC; refused = P__Trim(app->exec).length != 0; break; }
         ArrayStr command = {0};
         const char *run[2] = {0};
         char *terminal = app->terminal ? P__FindTerminal(scratch.arena, run) : NULL;
@@ -673,6 +675,7 @@ function P_FileError P__LaunchApp(Arena *arena, const P__App *app, const String 
         done += used ? used : Max(count - done, (u64)1);
     }
     ReleaseScratch(scratch);
+    if (refused) return (P_FileError){ .code = error, .message = StrFormat(arena, "%S's command could run a file's name as a command, so it is not run.", app->name) };
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 

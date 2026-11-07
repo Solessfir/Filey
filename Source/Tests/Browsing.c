@@ -5684,6 +5684,10 @@ function void TestApps(TestFileFixture *fixture)
             P__ExpandExec(&arena, &quoting, paths, 1, &args);
             Check(!args.header.count);
         }
+        // Opening one with a refused command says why, rather than giving a format error.
+        quoting.name = S("Refused");
+        P_FileError refusedLaunch = P__LaunchApp(&arena, &quoting, paths, 1, root);
+        Check(refusedLaunch.code && StrIndexStr(refusedLaunch.message, S("Refused's command"), SSF_None).exists);
         Check(!P__LaunchApp(&arena, test, paths, 2, root).code);
         String opened = TestWaitText(&arena, fixture, S("Apps/opened"));
         Check(StrIsEqual(opened, StrFormat(&arena, "%S\n--flag|two words|100%%|%S|%S|\n", root, paths[0], paths[1])));
