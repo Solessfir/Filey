@@ -251,7 +251,7 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         if (!error) {
             u64 units = (u64)lstrlenW(target);
             DWORD bytes = (DWORD)(sizeof(FILE_RENAME_INFO) + (units + 1) * sizeof(wchar));
-            FILE_RENAME_INFO *rename = (FILE_RENAME_INFO *)ArenaPushArray(scratch.arena, bytes, u8);
+            FILE_RENAME_INFO *rename = (FILE_RENAME_INFO *)ArenaPushArray(scratch.arena, (bytes + 7) / 8, u64);
             rename->ReplaceIfExists = TRUE;
             rename->RootDirectory = NULL;
             rename->FileNameLength = (DWORD)(units * sizeof(wchar));
