@@ -316,7 +316,7 @@ function b32 Codegen__EndsWith(String s, String end) { return s.length >= end.le
 function i32 Codegen__ComparePaths(const void *a, const void *b)
 {
     const String *x = a, *y = b;
-    i32 order = memcmp(x->value, y->value, Min(x->length, y->length));
+    i32 order = MemCompare(x->value, y->value, Min(x->length, y->length));
     return order ? order : x->length < y->length ? -1 : x->length > y->length;
 }
 
