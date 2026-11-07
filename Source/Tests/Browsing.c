@@ -1430,7 +1430,17 @@ function void TestFileIcons(TestFileFixture *fixture)
             Check(P_ReadFile(&arena, Prog_JoinPath(&arena, again, S("a.txt")), &contents) && StrIsEqual(contents, S("hi")));
             Check(P_ReadFile(&arena, hidden, &contents) && StrIsEqual(contents, S("keep")) && P_ReadFile(&arena, beside, &contents) && StrIsEqual(contents, S("keep")));
             Check(P__TestRemovePath(fixture, S("OutPart/a.txt"), false) && P__TestRemovePath(fixture, S("OutPart/.a.txt.part"), false));
-            Check(P__TestRemovePath(fixture, S("OutPart/a.txt.part"), false) && P__TestRemovePath(fixture, S("OutPart"), true));
+            Check(P__TestRemovePath(fixture, S("OutPart/a.txt.part"), false));
+#if !defined(_WIN32)
+            // One left by an extraction cut short, untouched for ten minutes, goes rather than another being made beside it.
+            Check(!P_WriteFile(&arena, hidden, S("stale")).code);
+            struct timespec old[2] = { { time(NULL) - 3600, 0 }, { time(NULL) - 3600, 0 } };
+            Check(utimensat(AT_FDCWD, P__FilePathCString(&arena, hidden), old, 0) == 0);
+            Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, again, NULL, NULL).code);
+            Check(!P_PathExists(hidden) && !P_PathExists(Prog_JoinPath(&arena, again, S(".a.txt.2.part"))) && P_EnumerateDirectory(&arena, again, NULL).files.header.count == 1);
+            Check(P__TestRemovePath(fixture, S("OutPart/a.txt"), false));
+#endif
+            Check(P__TestRemovePath(fixture, S("OutPart"), true));
         }
 #if defined(_WIN32)
         // A device's path keeps its form, has no Win32 one for the file APIs, and one of no device is not there.

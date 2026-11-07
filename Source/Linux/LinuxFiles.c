@@ -984,6 +984,10 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         native = P__FilePathCString(scratch.arena, part);
         if (!native) error = EINVAL;
         else if ((file = open(native, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666)) < 0 && errno != EEXIST) error = (u32)errno;
+        // One left by an extraction cut short, a file of the user's untouched for ten minutes, goes and its name is taken again; another
+        // extraction's under way stays.
+        struct stat left;
+        if (file < 0 && !error && lstat(native, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && time(NULL) - left.st_mtime > 600 && unlink(native) == 0) --n;
     }
     if (!error && file < 0) error = EEXIST;
     if (error) native = NULL;

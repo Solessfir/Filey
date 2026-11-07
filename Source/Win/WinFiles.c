@@ -200,6 +200,13 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         wide = P__FilePathWide(scratch.arena, part);
         if (!wide) error = ERROR_INVALID_NAME;
         else if ((file = CreateFileW(wide, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE && GetLastError() != ERROR_FILE_EXISTS) error = GetLastError();
+        // One left by an extraction cut short, a file untouched for ten minutes, goes and its name is taken again; another extraction's under way stays.
+        WIN32_FILE_ATTRIBUTE_DATA left = {0};
+        FILETIME now = {0};
+        GetSystemTimeAsFileTime(&now);
+        u64 nowTicks = ((u64)now.dwHighDateTime << 32) | now.dwLowDateTime;
+        if (file == INVALID_HANDLE_VALUE && !error && GetFileAttributesExW(wide, GetFileExInfoStandard, &left) && !(left.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) &&
+            nowTicks - (((u64)left.ftLastWriteTime.dwHighDateTime << 32) | left.ftLastWriteTime.dwLowDateTime) > UINT64_C(6000000000) && DeleteFileW(wide)) --n;
     }
     if (!error && file == INVALID_HANDLE_VALUE) error = ERROR_FILE_EXISTS;
     if (error) wide = NULL;
