@@ -1436,7 +1436,6 @@ function void TestFileIcons(TestFileFixture *fixture)
             // way holds stays.
             String stale = Prog_JoinPath(&arena, again, S(".a.txt.filey.part"));
             Check(!P_WriteFile(&arena, stale, S("stale")).code);
-            for (u64 start = PlatformNowMicroseconds(); PlatformNowMicroseconds() - start < 400000;) P__TestPause();
             i32 holder = open(P__FilePathCString(&arena, stale), O_RDONLY | O_CLOEXEC);
             Check(holder >= 0 && flock(holder, LOCK_EX) == 0);
             Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, again, NULL, NULL).code && P_PathExists(stale));
@@ -5547,6 +5546,8 @@ function void TestApps(TestFileFixture *fixture)
             // A shell's command behind a wrapper or a terminal not known here, at the top, and other shells' ways of being given one.
             S("timeout 9 sh -c \"sh -c 'cat %f'\""), S("xterm -e sh -c \"sh -c 'cat %f'\""), S("sh -c \"timeout 9 fish --command 'cat %f'\""),
             S("sh -c \"timeout 9 pwsh -Command 'cat %f'\""), S("sh -c \"timeout 9 fish -C 'cat %f'\""),
+            // Shells that quote otherwise, and a terminal's string joined to its -e.
+            S("fish -c \"cat %f\""), S("pwsh -NoLogo -Command \"Get-Item '%f'\""), S("fish -C init -c \"cat %f\""), S("gnome-terminal -e\"less %f\""),
         };
         for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
             P__Action refused = {0};

@@ -236,6 +236,17 @@ function String P__ShellQuote(Arena *arena, String text);
 
 function String P__ShellQuoteInside(Arena *arena, String text, char quote);
 
+// Whether `word` names a shell whose quoting is not the POSIX shell's, which the quoting here is for, so that a value is never handed to one.
+function b32 P__IsForeignShellWord(String word)
+{
+    local_persist const String shells[] = {
+        SInit("fish"), SInit("csh"), SInit("tcsh"), SInit("rc"), SInit("nu"), SInit("elvish"), SInit("xonsh"), SInit("pwsh"), SInit("powershell"),
+    };
+    String leaf = StrFrom(word, StrIndexChar(word, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value);
+    for (u32 i = 0; i < CArrayCount(shells); ++i) if (StrIsEqual(leaf, shells[i])) return true;
+    return false;
+}
+
 // Whether `word` names a shell, by its path's last part, or is a variable's value run as one, as $SHELL is.
 function b32 P__IsShellWord(String word)
 {
@@ -287,17 +298,10 @@ function b32 P__IsWrapperWord(String word)
     return false;
 }
 
-// Whether `word`, an option of a shell's, gives it a command to run: a short one holding c, as -c or -lc, or C, as fish's -C and pwsh's
-// -Command, and the long ones fish and nu take. Taking an option for one that is not, as bash's -C, is the safe mistake.
+// Whether `word`, an option of a POSIX shell's, gives it a command to run: a short one holding c, as -c or -lc.
 function b32 P__ShellCommandOption(String word)
 {
-    if (word.length < 2 || word.value[0] != '-') return false;
-    if (word.value[1] != '-') return StrIndexChar(word, 'c', SSF_None).exists || StrIndexChar(word, 'C', SSF_None).exists;
-    local_persist const String longs[] = { SInit("--command"), SInit("--commands"), SInit("--init-command") };
-    for (u32 i = 0; i < CArrayCount(longs); ++i) {
-        if (StrIsEqual(word, longs[i]) || (word.length > longs[i].length && StrIsEqual(StrFromTo(word, 0, (i64)longs[i].length), longs[i]) && word.value[longs[i].length] == '=')) return true;
-    }
-    return false;
+    return word.length >= 2 && word.value[0] == '-' && word.value[1] != '-' && StrIndexChar(word, 'c', SSF_None).exists;
 }
 
 // Whether a shell's option `word` takes the word after it as its argument: -o and -O an option's name, as "-o pipefail", and --rcfile and
@@ -466,6 +470,8 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
     }
     // A substitution runs in its own quoting context, so its depth is this level's, not one deeper.
     for (u64 i = 0; i < subCount; ++i) if (P__CommandRisky(arena, subs[i], depth)) return true;
+    // A shell that quotes otherwise than the POSIX one, anywhere, could be handed the value, which is quoted for the POSIX shell alone.
+    for (u64 i = 0; i < count; ++i) if (!toks[i].op && P__IsForeignShellWord(toks[i].word)) return true;
     // A shell given a command of its own anywhere, as after a wrapper or a terminal's -e not known here ("timeout 9 sh -c"): inside a shell's
     // command it would parse the value a third time, and at the top its command is scanned as one, as one at a command's place is below.
     String *plain = ArenaPushArray(arena, count + 1, String);
@@ -510,9 +516,7 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
                 if (wrote || (pendStdin && (pipedSeen || redirSeen))) return true;
                 continue;
             }
-            if (depth) return true;                             // a nested -c shell: the value is quoted for one level only
-            if (P__CommandRisky(arena, w, depth + 1)) return true;
-            continue;                                           // words after the script are its positional arguments, not commands
+            continue;                                           // its script was scanned above, and the words after it are its positional arguments
         }
         if (expectCmd) {
             if (w.length && (w.value[0] == '-' || w.value[0] == '+')) {
@@ -539,6 +543,9 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
                 for (u64 j = i + 1; j < count && !toks[j].op; ++j) {
                     String option = toks[j].word;
                     if (option.length > 10 && StrIsEqual(StrFromTo(option, 0, 10), S("--command="))) return true;
+                    // A string joined to -e, as -e"less %f", is one too; an option of its own, as -en, has no space or value in it.
+                    if (option.length > 2 && option.value[0] == '-' && option.value[1] == 'e' &&
+                        (StrIndexChar(option, ' ', SSF_None).exists || StrIndexChar(option, '\t', SSF_None).exists || StrIndexChar(option, '%', SSF_None).exists)) return true;
                     // -x and --execute run the words after them as they are.
                     if (StrIsEqual(option, S("-x")) || StrIsEqual(option, S("--execute"))) break;
                     if (!StrIsEqual(option, S("-e")) && !StrIsEqual(option, S("--command"))) continue;
