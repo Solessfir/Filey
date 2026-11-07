@@ -969,6 +969,9 @@ function u32 P__ArchiveMakeFolders(String path)
 
 // Written beside its place and moved there once complete, so that a file cut short never takes the name.
 // The hidden name it is written under is a new file, so that an item of the archive already out under that name is left alone.
+// How long a part file no extraction holds is left alone after its last change, for its maker to lock.
+global i64 P__stalePartSeconds = 60;
+
 function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel)
 {
     P__Archive *a = &P__archive;
@@ -987,8 +990,11 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         native = P__FilePathCString(scratch.arena, part);
         if (!native) error = EINVAL;
         else if ((file = open(native, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666)) < 0 && errno != EEXIST) error = (u32)errno;
-        // The extraction writing it holds a lock on it, paused or not, which goes with the run that held it. One no run holds and no run has
-        // written to for a minute, left by one cut short, goes and its name is taken again; one made a moment ago is left to its maker to lock.
+        // The extraction writing it holds a lock on it, paused or not, which goes with the run that held it. One no run holds and none has
+        // changed for a while, by its change time, which setting its modified time does not take back, left by one cut short, goes and its
+        // name is taken again; one made a moment ago is left to its maker to lock.
+        // ponytail: NFS emulates flock with a process's record locks, so two extractions in one run to the same name there do not exclude
+        // each other, and the lock goes with the first close; a registry of the run's own part files would close that if it matters.
         if (file >= 0) {
             // The lock is held through a copy of the descriptor, the same open file, so that the one written through can be closed for the
             // errors a close reports while the file is still locked. Locked, the name must still be this file: another extraction may have
@@ -1011,11 +1017,12 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
             }
         } else if (!error) {
             struct stat left;
-            // Opened for writing too, as NFS takes an exclusive lock only on a file open for writing.
+            // Opened for writing too where it can be, as NFS takes an exclusive lock only on a file open for writing.
             i32 held = open(native, O_RDWR | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+            if (held < 0 && errno == EACCES) held = open(native, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
             // The name must still be the file locked, which another remover may have taken and another extraction made anew meanwhile.
             struct stat named;
-            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && time(NULL) - left.st_mtime > 60 &&
+            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && time(NULL) - left.st_ctime > P__stalePartSeconds &&
                 flock(held, LOCK_EX | LOCK_NB) == 0 && lstat(native, &named) == 0 && named.st_ino == left.st_ino && named.st_dev == left.st_dev && unlink(native) == 0) --n;
             if (held >= 0) close(held);
         }
@@ -1036,6 +1043,10 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
     if (file >= 0) {
         const struct timespec times[2] = { { 0, UTIME_OMIT }, { modified, 0 } };
         if (modified > 0) futimens(file, times);
+        // A file it replaces is kept until this one's data is on the disk, as a crash could leave the name empty otherwise; a new one is not
+        // waited for, which would slow an archive of many small files.
+        struct stat existing;
+        if (!error && lstat(P__FilePathCString(scratch.arena, path), &existing) == 0 && fdatasync(file) != 0) error = (u32)errno;
         // Closed first for the errors a close reports, as a share's late write, with the lock's own descriptor keeping it locked, then moved
         // into place, or removed when it failed, while still locked, so that no other extraction takes it for one left behind in between.
         if (close(file) != 0 && !error) error = (u32)errno;

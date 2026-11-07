@@ -248,6 +248,9 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         // Moved over its place while still held, so that no other extraction takes it for one left behind in between.
         wchar *target = !error ? P__FilePathWide(scratch.arena, path) : NULL;
         if (!error && !target) error = ERROR_INVALID_NAME;
+        // A file it replaces is kept until this one's data is on the disk, as a crash could leave the name empty otherwise; a new one is not
+        // waited for, which would slow an archive of many small files.
+        if (!error && GetFileAttributesW(target) != INVALID_FILE_ATTRIBUTES && !FlushFileBuffers(file)) error = GetLastError();
         if (!error) {
             u64 units = (u64)lstrlenW(target);
             DWORD bytes = (DWORD)(sizeof(FILE_RENAME_INFO) + (units + 1) * sizeof(wchar));
