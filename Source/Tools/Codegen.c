@@ -19,6 +19,7 @@
 
 #include "Base/Base.c"
 #endif
+#include <stdlib.h>
 
 typedef struct Codegen_Hotkey {
     String key;    // Key_ name without the prefix
@@ -312,8 +313,16 @@ function void Codegen_CollectStrings(Arena *arena, String text, ArrayStr *string
 
 function b32 Codegen__EndsWith(String s, String end) { return s.length >= end.length && StrIsEqual(StrFrom(s, s.length - end.length), end); }
 
-// The C and C++ sources in `source`/`folder`, as "folder/name", into `out`, in no set order.
-function void Codegen__ListSources(Arena *arena, String source, const char *folder, ArrayStr *out)
+function i32 Codegen__ComparePaths(const void *a, const void *b)
+{
+    const String *x = a, *y = b;
+    i32 order = memcmp(x->value, y->value, Min(x->length, y->length));
+    return order ? order : x->length < y->length ? -1 : x->length > y->length;
+}
+
+// The C and C++ sources in `source`/`folder`, as "folder/name", into `out`, in no set order, but for the tests' own helpers; false when the
+// folder cannot be listed.
+function b32 Codegen__ListSources(Arena *arena, String source, const char *folder, ArrayStr *out)
 {
 #if defined(_WIN32)
     String pattern = StrFormat(arena, "%S/%s/*%c", source, folder, 0);
@@ -321,17 +330,21 @@ function void Codegen__ListSources(Arena *arena, String source, const char *fold
     HANDLE find = FindFirstFileA(pattern.value, &found);
     for (b32 more = find != INVALID_HANDLE_VALUE; more; more = FindNextFileA(find, &found)) {
         String name = StrFromCStr(found.cFileName);
-        if (Codegen__EndsWith(name, S(".c")) || Codegen__EndsWith(name, S(".cpp"))) ArrayPush(arena, *out, StrFormat(arena, "%s/%S", folder, name));
+        if ((Codegen__EndsWith(name, S(".c")) || Codegen__EndsWith(name, S(".cpp"))) && !Codegen__EndsWith(name, S("TestFiles.c"))) ArrayPush(arena, *out, StrFormat(arena, "%s/%S", folder, name));
     }
-    if (find != INVALID_HANDLE_VALUE) FindClose(find);
+    if (find == INVALID_HANDLE_VALUE) return false;
+    FindClose(find);
+    return true;
 #else
     String path = StrFormat(arena, "%S/%s%c", source, folder, 0);
     DIR *listing = opendir(path.value);
     for (struct dirent *item; listing && (item = readdir(listing)) != NULL;) {
         String name = StrFromCStr(item->d_name);
-        if (Codegen__EndsWith(name, S(".c")) || Codegen__EndsWith(name, S(".cpp"))) ArrayPush(arena, *out, StrFormat(arena, "%s/%S", folder, name));
+        if ((Codegen__EndsWith(name, S(".c")) || Codegen__EndsWith(name, S(".cpp"))) && !Codegen__EndsWith(name, S("TestFiles.c"))) ArrayPush(arena, *out, StrFormat(arena, "%s/%S", folder, name));
     }
-    if (listing) closedir(listing);
+    if (!listing) return false;
+    closedir(listing);
+    return true;
 #endif
 }
 
@@ -500,16 +513,14 @@ int main(int argc, char **argv)
     // The platform's own messages, which the Program translates where it shows them, from every source file of the platform's folders.
     const char *folders[] = { "Platform", "Linux", "Win" };
     ArrayStr platform = {0};
-    for (u32 f = 0; f < CArrayCount(folders); ++f) Codegen__ListSources(&arena, source, folders[f], &platform);
-    // In order of their names, so that the strings come out the same whatever order the folders list them in.
-    for (u64 i = 1; i < platform.header.count; ++i) {
-        for (u64 j = i; j > 0; --j) {
-            String a = platform.v[j - 1], b = platform.v[j];
-            i32 order = memcmp(a.value, b.value, Min(a.length, b.length));
-            if (order < 0 || (!order && a.length <= b.length)) break;
-            platform.v[j - 1] = b, platform.v[j] = a;
+    for (u32 f = 0; f < CArrayCount(folders); ++f) {
+        if (!Codegen__ListSources(&arena, source, folders[f], &platform)) {
+            fprintf(stderr, "%.*s/%s: cannot list\n", (int)source.length, source.value, folders[f]);
+            return 1;
         }
     }
+    // In order of their names, so that the strings come out the same whatever order the folders list them in.
+    qsort(platform.v, platform.header.count, sizeof(String), Codegen__ComparePaths);
     for (u64 i = 0; i < platform.header.count; ++i) {
         String path = StrFormat(&arena, "%S/%S%c", source, platform.v[i], 0);
         String text = Codegen__ReadFile(&arena, path.value);

@@ -997,8 +997,11 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
             // The name must still be the file locked, which another remover may have taken and another extraction made anew meanwhile.
             struct stat named;
             // One with data in it was written by an extraction that held its lock, as it locks before writing, so one now unlocked is left; an
-            // empty one may be another's made a moment ago and not locked yet.
-            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && left.st_size > 0 &&
+            // empty one may be another's made a moment ago and not locked yet, so it goes only once its change is a few seconds old, longer
+            // than any file system rounds that time.
+            struct timespec now;
+            clock_gettime(CLOCK_REALTIME, &now);
+            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && (left.st_size > 0 || now.tv_sec - left.st_ctim.tv_sec > 5) &&
                 flock(held, LOCK_EX | LOCK_NB) == 0 && lstat(native, &named) == 0 && named.st_ino == left.st_ino && named.st_dev == left.st_dev && unlink(native) == 0) --n;
             if (held >= 0) close(held);
         }
@@ -1021,11 +1024,12 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         futimens(file, times);
         // Closed first for the errors a close reports, as a share's late write, with a copy keeping the lock, then moved into place, or
         // removed when it failed, while still locked, so that no other extraction takes it for one left behind in between.
+        // Without a copy, it is moved into place before it is closed instead.
         i32 keep = dup(file);
-        if (close(file) != 0 && !error) error = (u32)errno;
+        if (keep >= 0 && close(file) != 0 && !error) error = (u32)errno;
         if (!error) error = P_ReplaceFile(scratch.arena, part, path).code;
         if (error && native) unlink(native);
-        if (keep >= 0) close(keep);
+        close(keep >= 0 ? keep : file);
     }
     ReleaseScratch(scratch);
     return error;

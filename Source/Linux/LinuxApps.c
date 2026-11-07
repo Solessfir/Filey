@@ -236,29 +236,28 @@ function String P__ShellQuote(Arena *arena, String text);
 
 function String P__ShellQuoteInside(Arena *arena, String text, char quote);
 
-// Whether `word` names a shell whose quoting is not the POSIX shell's, which the quoting here is for, so that a value is never handed to one.
-function b32 P__IsForeignShellWord(String word)
+// Whether `word` names a shell, by its path's last part, of one of two kinds: the POSIX shells, whose quoting is the one here, and those that
+// quote otherwise, to which a value is never handed.
+function b32 P__IsShellOf(String word, b32 foreign)
 {
-    local_persist const String shells[] = {
-        SInit("fish"), SInit("csh"), SInit("tcsh"), SInit("rc"), SInit("nu"), SInit("elvish"), SInit("xonsh"), SInit("pwsh"), SInit("powershell"),
+    local_persist const String posix[] = {
+        SInit("sh"), SInit("bash"), SInit("dash"), SInit("zsh"), SInit("ksh"), SInit("mksh"), SInit("ash"), SInit("yash"), SInit("posh"), SInit("osh"),
+    };
+    local_persist const String others[] = {
+        SInit("fish"), SInit("csh"), SInit("tcsh"), SInit("rc"), SInit("es"), SInit("nu"), SInit("elvish"), SInit("xonsh"), SInit("pwsh"), SInit("powershell"),
+        SInit("ion"), SInit("ysh"), SInit("murex"),
     };
     String leaf = StrFrom(word, StrIndexChar(word, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value);
-    for (u32 i = 0; i < CArrayCount(shells); ++i) if (StrIsEqual(leaf, shells[i])) return true;
+    const String *list = foreign ? others : posix;
+    u32 count = foreign ? (u32)CArrayCount(others) : (u32)CArrayCount(posix);
+    for (u32 i = 0; i < count; ++i) if (StrIsEqual(leaf, list[i])) return true;
     return false;
 }
 
-// Whether `word` names a shell, by its path's last part, or is a variable's value run as one, as $SHELL is.
-function b32 P__IsShellWord(String word)
-{
-    local_persist const String shells[] = {
-        SInit("sh"), SInit("bash"), SInit("dash"), SInit("zsh"), SInit("fish"), SInit("ksh"), SInit("mksh"), SInit("ash"), SInit("yash"), SInit("posh"),
-        SInit("csh"), SInit("tcsh"), SInit("rc"), SInit("nu"), SInit("elvish"), SInit("xonsh"), SInit("pwsh"),
-    };
-    if (word.length && word.value[0] == '$') return true;
-    String leaf = StrFrom(word, StrIndexChar(word, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value);
-    for (u32 i = 0; i < CArrayCount(shells); ++i) if (StrIsEqual(leaf, shells[i])) return true;
-    return false;
-}
+function b32 P__IsForeignShellWord(String word) { return P__IsShellOf(word, true); }
+
+// Whether `word` names a shell of either kind, or is a variable's value run as one, as $SHELL is.
+function b32 P__IsShellWord(String word) { return (word.length && word.value[0] == '$') || P__IsShellOf(word, false) || P__IsShellOf(word, true); }
 
 // Whether `word` names a program that runs its arguments as a shell's command, or eval, which runs its words again.
 function b32 P__IsLauncherWord(String word)
@@ -470,8 +469,11 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
     }
     // A substitution runs in its own quoting context, so its depth is this level's, not one deeper.
     for (u64 i = 0; i < subCount; ++i) if (P__CommandRisky(arena, subs[i], depth)) return true;
-    // A shell that quotes otherwise than the POSIX one, anywhere, could be handed the value, which is quoted for the POSIX shell alone.
-    for (u64 i = 0; i < count; ++i) if (!toks[i].op && P__IsForeignShellWord(toks[i].word)) return true;
+    // A shell that quotes otherwise than the POSIX one could be handed the value, which is quoted for the POSIX shell alone: one as a command,
+    // below, or one given options anywhere, as after a wrapper not known here; a word that only names one, as an argument, is not.
+    for (u64 i = 0; i + 1 < count; ++i) {
+        if (!toks[i].op && P__IsForeignShellWord(toks[i].word) && !toks[i + 1].op && toks[i + 1].word.length > 1 && toks[i + 1].word.value[0] == '-') return true;
+    }
     // A shell given a command of its own anywhere, as after a wrapper or a terminal's -e not known here ("timeout 9 sh -c"): inside a shell's
     // command it would parse the value a third time, and at the top its command is scanned as one, as one at a command's place is below.
     String *plain = ArenaPushArray(arena, count + 1, String);
@@ -487,7 +489,7 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
 
     // `wrote`: the command writes a file with >, which a shell run on a file later in it may then read.
     // `pendStdin`: the shell under way reads its commands from its input, with -s or a lone -, whatever words follow.
-    b32 pipedSeen = false, redirSeen = false, wrote = false, expectCmd = true, envHere = false, pendShell = false, pendC = false, pendStdin = false, skipNext = false;
+    b32 pipedSeen = false, redirSeen = false, wrote = false, expectCmd = true, envHere = false, pendShell = false, pendC = false, pendStdin = false, pendOperands = false, skipNext = false;
     for (u64 i = 0; i < count; ++i) {
         if (toks[i].op) {
             char c = toks[i].op;
@@ -503,7 +505,9 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
         String w = toks[i].word;
         if (skipNext) { skipNext = false; continue; }
         if (pendShell) {
-            if (w.length && (w.value[0] == '-' || w.value[0] == '+')) {
+            // After "--", the next word is the shell's operand, however it starts.
+            if (!pendOperands && StrIsEqual(w, S("--"))) { pendOperands = true; continue; }
+            if (!pendOperands && w.length && (w.value[0] == '-' || w.value[0] == '+')) {
                 if (P__ShellCommandOption(w)) pendC = true;
                 if (StrIsEqual(w, S("-")) || (w.value[0] == '-' && w.length > 1 && w.value[1] != '-' && StrIndexChar(w, 's', SSF_None).exists)) pendStdin = true;
                 if (P__ShellOptionTakesWord(w)) skipNext = true;
@@ -556,7 +560,8 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
                     break;
                 }
             }
-            if (P__IsShellWord(w)) pendShell = true, pendC = false, pendStdin = false;
+            if (P__IsForeignShellWord(w)) return true;
+            if (P__IsShellWord(w)) pendShell = true, pendC = false, pendStdin = false, pendOperands = false;
         }
     }
     if (pendShell && !pendC && (pipedSeen || redirSeen)) return true;
