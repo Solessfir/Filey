@@ -115,6 +115,18 @@ enum { P__ArchiveCancelled = ERROR_CANCELLED, P__ArchiveUnsupported = ERROR_NOT_
 
 function b32 P__ArchiveSameName(String a, String b)
 {
+    // ASCII names, most of them, are told apart byte by byte; only others are folded as NTFS does.
+    b32 ascii = true;
+    for (u64 i = 0; i < a.length && ascii; ++i) ascii = (u8)a.value[i] < 0x80;
+    for (u64 i = 0; i < b.length && ascii; ++i) ascii = (u8)b.value[i] < 0x80;
+    if (ascii) {
+        if (a.length != b.length) return false;
+        for (u64 i = 0; i < a.length; ++i) {
+            u8 x = (u8)a.value[i], y = (u8)b.value[i];
+            if ((x >= 'A' && x <= 'Z' ? x + 32 : x) != (y >= 'A' && y <= 'Z' ? y + 32 : y)) return false;
+        }
+        return true;
+    }
     Scratch scratch = GetScratch();
     wchar *x = P__FilePathWide(scratch.arena, a), *y = P__FilePathWide(scratch.arena, b);
     b32 result = x && y ? CompareStringOrdinal(x, -1, y, -1, TRUE) == CSTR_EQUAL : StrIsEqual(a, b);
@@ -199,23 +211,20 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
     u32 error = slash.exists && slash.value ? P__ArchiveMakeFolders(StrFromTo(path, 0, (i64)slash.value)) : 0;
     String folder = slash.exists ? StrFromTo(path, 0, (i64)slash.value + 1) : (String){0}, leaf = slash.exists ? StrFrom(path, slash.value + 1) : path, part = {0};
     // A name close to the 255 characters a name can have is cut for the hidden name's dot and ending, at a character's start; UTF-8 has at least as many bytes as UTF-16 has units.
-    u64 kept = Min(leaf.length, (u64)255 - 16);
+    u64 kept = Min(leaf.length, (u64)255 - 24);
     while (kept < leaf.length && kept && ((u8)leaf.value[kept] & 0xC0) == 0x80) --kept;
     leaf = StrFromTo(leaf, 0, (i64)kept);
     wchar *wide = NULL;
     HANDLE file = INVALID_HANDLE_VALUE;
     for (u32 n = 1; !error && file == INVALID_HANDLE_VALUE && n < 100; ++n) {
-        part = n == 1 ? StrFormat(scratch.arena, "%S.%S.part", folder, leaf) : StrFormat(scratch.arena, "%S.%S.%u.part", folder, leaf, n);
+        part = n == 1 ? StrFormat(scratch.arena, "%S.%S.filey.part", folder, leaf) : StrFormat(scratch.arena, "%S.%S.filey-%u.part", folder, leaf, n);
         wide = P__FilePathWide(scratch.arena, part);
         if (!wide) error = ERROR_INVALID_NAME;
         else if ((file = CreateFileW(wide, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE && GetLastError() != ERROR_FILE_EXISTS) error = GetLastError();
-        // One left by an extraction cut short, a file untouched for ten minutes, goes and its name is taken again; another extraction's under way stays.
+        // The extraction writing it holds it open with no sharing, paused or not, so deleting it fails then; one left by a run cut short goes and
+        // its name is taken again.
         WIN32_FILE_ATTRIBUTE_DATA left = {0};
-        FILETIME now = {0};
-        GetSystemTimeAsFileTime(&now);
-        u64 nowTicks = ((u64)now.dwHighDateTime << 32) | now.dwLowDateTime;
-        if (file == INVALID_HANDLE_VALUE && !error && GetFileAttributesExW(wide, GetFileExInfoStandard, &left) && !(left.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) &&
-            nowTicks - (((u64)left.ftLastWriteTime.dwHighDateTime << 32) | left.ftLastWriteTime.dwLowDateTime) > UINT64_C(6000000000) && DeleteFileW(wide)) --n;
+        if (file == INVALID_HANDLE_VALUE && !error && GetFileAttributesExW(wide, GetFileExInfoStandard, &left) && !(left.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) && DeleteFileW(wide)) --n;
     }
     if (!error && file == INVALID_HANDLE_VALUE) error = ERROR_FILE_EXISTS;
     if (error) wide = NULL;

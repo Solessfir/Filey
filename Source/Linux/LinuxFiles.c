@@ -21,6 +21,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <stddef.h>
+#include <sys/file.h>
 #include <time.h>
 #include <unistd.h>
 #include <execinfo.h>
@@ -976,20 +977,27 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
     u32 error = slash.exists && slash.value ? P__ArchiveMakeFolders(StrFromTo(path, 0, (i64)slash.value)) : 0;
     String folder = slash.exists ? StrFromTo(path, 0, (i64)slash.value + 1) : (String){0}, leaf = slash.exists ? StrFrom(path, slash.value + 1) : path;
     // A name close to NAME_MAX is cut for the hidden name's dot and ending, at a character's start.
-    u64 kept = Min(leaf.length, (u64)NAME_MAX - 16);
+    u64 kept = Min(leaf.length, (u64)NAME_MAX - 24);
     while (kept < leaf.length && kept && ((u8)leaf.value[kept] & 0xC0) == 0x80) --kept;
     leaf = StrFromTo(leaf, 0, (i64)kept);
     char *native = NULL;
     i32 file = -1;
     for (u32 n = 1; !error && file < 0 && n < 100; ++n) {
-        String part = n == 1 ? StrFormat(scratch.arena, "%S.%S.part", folder, leaf) : StrFormat(scratch.arena, "%S.%S.%u.part", folder, leaf, n);
+        String part = n == 1 ? StrFormat(scratch.arena, "%S.%S.filey.part", folder, leaf) : StrFormat(scratch.arena, "%S.%S.filey-%u.part", folder, leaf, n);
         native = P__FilePathCString(scratch.arena, part);
         if (!native) error = EINVAL;
         else if ((file = open(native, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666)) < 0 && errno != EEXIST) error = (u32)errno;
-        // One left by an extraction cut short, a file of the user's untouched for ten minutes, goes and its name is taken again; another
-        // extraction's under way stays.
-        struct stat left;
-        if (file < 0 && !error && lstat(native, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && time(NULL) - left.st_mtime > 600 && unlink(native) == 0) --n;
+        // The extraction writing it holds a lock on it, paused or not, which goes with the run that held it. One no run holds, left by one cut
+        // short, goes and its name is taken again, past the moment between another's making it and locking it.
+        if (file >= 0) {
+            flock(file, LOCK_EX);
+        } else if (!error) {
+            struct stat left;
+            i32 held = open(native, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && time(NULL) - left.st_mtime > 60 &&
+                flock(held, LOCK_EX | LOCK_NB) == 0 && unlink(native) == 0) --n;
+            if (held >= 0) close(held);
+        }
     }
     if (!error && file < 0) error = EEXIST;
     if (error) native = NULL;

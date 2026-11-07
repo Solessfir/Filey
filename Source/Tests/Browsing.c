@@ -1432,12 +1432,19 @@ function void TestFileIcons(TestFileFixture *fixture)
             Check(P__TestRemovePath(fixture, S("OutPart/a.txt"), false) && P__TestRemovePath(fixture, S("OutPart/.a.txt.part"), false));
             Check(P__TestRemovePath(fixture, S("OutPart/a.txt.part"), false));
 #if !defined(_WIN32)
-            // One left by an extraction cut short, untouched for ten minutes, goes rather than another being made beside it.
-            Check(!P_WriteFile(&arena, hidden, S("stale")).code);
+            // One left by an extraction cut short, which no run holds, goes rather than another being made beside it; one an extraction under
+            // way holds stays.
+            String stale = Prog_JoinPath(&arena, again, S(".a.txt.filey.part"));
+            Check(!P_WriteFile(&arena, stale, S("stale")).code);
             struct timespec old[2] = { { time(NULL) - 3600, 0 }, { time(NULL) - 3600, 0 } };
-            Check(utimensat(AT_FDCWD, P__FilePathCString(&arena, hidden), old, 0) == 0);
+            Check(utimensat(AT_FDCWD, P__FilePathCString(&arena, stale), old, 0) == 0);
+            i32 holder = open(P__FilePathCString(&arena, stale), O_RDONLY | O_CLOEXEC);
+            Check(holder >= 0 && flock(holder, LOCK_EX) == 0);
+            Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, again, NULL, NULL).code && P_PathExists(stale));
+            Check(P__TestRemovePath(fixture, S("OutPart/a.txt"), false));
+            close(holder);
             Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, again, NULL, NULL).code);
-            Check(!P_PathExists(hidden) && !P_PathExists(Prog_JoinPath(&arena, again, S(".a.txt.2.part"))) && P_EnumerateDirectory(&arena, again, NULL).files.header.count == 1);
+            Check(!P_PathExists(stale) && P_EnumerateDirectory(&arena, again, NULL).files.header.count == 1);
             Check(P__TestRemovePath(fixture, S("OutPart/a.txt"), false));
 #endif
             Check(P__TestRemovePath(fixture, S("OutPart"), true));
