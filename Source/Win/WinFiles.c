@@ -863,18 +863,24 @@ function String P__PlacedPath(Arena *arena, String directory, String path)
 // Set by WinWindow.c; dialogs that verbs open are owned by it.
 global HWND P__shellOwner;
 
-// A file's size and last write time in one, which tell a file moved over it, as Replace does, from the one left there, as Keep Both does; 0 for a folder, a device's item or none.
+// A file's identity, its volume and index there, with its size and last write time, in one, which tell a file moved over it, as Replace does,
+// from the one left there, as Keep Both does: a copy of the same file keeps its size and time, but not its index. 0 for a folder, a device's
+// item or none.
 function u64 P__FileStamp(String path)
 {
     if (P__IsDevicePath(path)) return 0;
     Scratch scratch = GetScratch();
     wchar *wide = P__FileExtendedPath(scratch.arena, path);
-    WIN32_FILE_ATTRIBUTE_DATA data = {0};
-    b32 found = wide && GetFileAttributesExW(wide, GetFileExInfoStandard, &data) && !(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+    HANDLE file = wide ? CreateFileW(wide, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL) : INVALID_HANDLE_VALUE;
     ReleaseScratch(scratch);
+    if (file == INVALID_HANDLE_VALUE) return 0;
+    BY_HANDLE_FILE_INFORMATION info = {0};
+    b32 found = GetFileInformationByHandle(file, &info) && !(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+    CloseHandle(file);
     if (!found) return 0;
-    u64 size = ((u64)data.nFileSizeHigh << 32) | data.nFileSizeLow, time = ((u64)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime;
-    return ((size * UINT64_C(1099511628211)) ^ time) | 1;
+    u64 size = ((u64)info.nFileSizeHigh << 32) | info.nFileSizeLow, time = ((u64)info.ftLastWriteTime.dwHighDateTime << 32) | info.ftLastWriteTime.dwLowDateTime;
+    u64 index = ((u64)info.nFileIndexHigh << 32) | info.nFileIndexLow, prime = UINT64_C(1099511628211);
+    return ((((size * prime) ^ time) * prime ^ index) * prime ^ info.dwVolumeSerialNumber) | 1;
 }
 
 // The same through the shell's file operation on the items, for a copy, move or delete with a device's items in it, which have no paths for the string form to name.
