@@ -993,11 +993,12 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
             // The lock is held through a copy of the descriptor, the same open file, so that the one written through can be closed for the
             // errors a close reports while the file is still locked. Locked, the name must still be this file: another extraction may have
             // taken it for one left behind between its making and the lock, and made one of its own there, so this one gives the name up and
-            // tries the next. Without a lock, the file is left for a later extraction to take for one left behind, as the name may be another's.
+            // tries the next.
             lock = fcntl(file, F_DUPFD_CLOEXEC, 0);
             if (lock < 0) {
                 error = (u32)errno;
                 close(file);
+                unlink(native);
                 file = -1;
                 break;
             }
@@ -1010,7 +1011,8 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
             }
         } else if (!error) {
             struct stat left;
-            i32 held = open(native, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+            // Opened for writing too, as NFS takes an exclusive lock only on a file open for writing.
+            i32 held = open(native, O_RDWR | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
             // The name must still be the file locked, which another remover may have taken and another extraction made anew meanwhile.
             struct stat named;
             if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && time(NULL) - left.st_mtime > 60 &&
@@ -1033,7 +1035,7 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
     if (!error && status < 0) error = EIO;
     if (file >= 0) {
         const struct timespec times[2] = { { 0, UTIME_OMIT }, { modified, 0 } };
-        futimens(file, times);
+        if (modified > 0) futimens(file, times);
         // Closed first for the errors a close reports, as a share's late write, with the lock's own descriptor keeping it locked, then moved
         // into place, or removed when it failed, while still locked, so that no other extraction takes it for one left behind in between.
         if (close(file) != 0 && !error) error = (u32)errno;
