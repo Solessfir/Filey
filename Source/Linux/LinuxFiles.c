@@ -967,11 +967,13 @@ function u32 P__ArchiveMakeFolders(String path)
     return error;
 }
 
-// Written beside its place and moved there once complete, so that a file cut short never takes the name.
-// The hidden name it is written under is a new file, so that an item of the archive already out under that name is left alone.
 // How long a part file no extraction holds is left alone after its last change, for its maker to lock.
 global i64 P__stalePartSeconds = 60;
 
+// Written beside its place and moved there once complete, so that a file cut short never takes the name.
+// The hidden name it is written under is a new file, so that an item of the archive already out under that name is left alone.
+// ponytail: its data is not flushed before the move, which would cost a wait for the disk on each of an archive's many small files, so a
+// power cut right after can leave a name empty; flush once at the end of an extraction if that matters.
 function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel)
 {
     P__Archive *a = &P__archive;
@@ -1017,7 +1019,8 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
             }
         } else if (!error) {
             struct stat left;
-            // Opened for writing too where it can be, as NFS takes an exclusive lock only on a file open for writing.
+            // Opened for writing too where it can be, as NFS takes an exclusive lock only on a file open for writing; one that cannot be
+            // written to is locked read-only, which is enough on a local file system.
             i32 held = open(native, O_RDWR | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
             if (held < 0 && errno == EACCES) held = open(native, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
             // The name must still be the file locked, which another remover may have taken and another extraction made anew meanwhile.
@@ -1043,10 +1046,6 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
     if (file >= 0) {
         const struct timespec times[2] = { { 0, UTIME_OMIT }, { modified, 0 } };
         if (modified > 0) futimens(file, times);
-        // A file it replaces is kept until this one's data is on the disk, as a crash could leave the name empty otherwise; a new one is not
-        // waited for, which would slow an archive of many small files.
-        struct stat existing;
-        if (!error && lstat(P__FilePathCString(scratch.arena, path), &existing) == 0 && fdatasync(file) != 0) error = (u32)errno;
         // Closed first for the errors a close reports, as a share's late write, with the lock's own descriptor keeping it locked, then moved
         // into place, or removed when it failed, while still locked, so that no other extraction takes it for one left behind in between.
         if (close(file) != 0 && !error) error = (u32)errno;

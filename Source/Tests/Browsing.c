@@ -1436,6 +1436,9 @@ function void TestFileIcons(TestFileFixture *fixture)
             // made beside it; one an extraction under way holds stays.
             String stale = Prog_JoinPath(&arena, again, S(".a.txt.filey.part"));
             Check(!P_WriteFile(&arena, stale, S("stale")).code);
+            // One no run holds but made a moment ago is left to its maker to lock, and the extraction goes under the next name.
+            Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, again, NULL, NULL).code && P_PathExists(stale));
+            Check(P__TestRemovePath(fixture, S("OutPart/a.txt"), false));
             P__stalePartSeconds = -1;
             i32 holder = open(P__FilePathCString(&arena, stale), O_RDONLY | O_CLOEXEC);
             Check(holder >= 0 && flock(holder, LOCK_EX) == 0);

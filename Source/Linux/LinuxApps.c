@@ -239,9 +239,6 @@ function String P__ShellQuoteInside(Arena *arena, String text, char quote);
 // The last part of `word`'s path, as a program's name.
 function String P__WordLeaf(String word) { return StrFrom(word, StrIndexChar(word, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value); }
 
-// Whether the last part of `word`'s path is `name`.
-function b32 P__WordLeafIs(String word, String name) { return StrIsEqual(P__WordLeaf(word), name); }
-
 // Whether the last part of `word`'s path is one of `names`.
 function b32 P__WordLeafIn(String word, const String *names, u64 count)
 {
@@ -274,7 +271,8 @@ function b32 P__IsForeignShellWord(String word, b32 plain)
 // Whether `word` names a shell of either kind, or is a variable's value run as one, as $SHELL is.
 function b32 P__IsShellWord(String word) { return (word.length && word.value[0] == '$') || P__IsPosixShellWord(word) || P__IsForeignShellWord(word, false); }
 
-// Whether `word` names a program that runs its arguments as a shell's command, or eval, which runs its words again.
+// Whether `word` names a program that runs its arguments as a shell's command, or eval, which runs its words again, or one that hands a
+// command from its input or a file to a shell, as at and crontab do.
 function b32 P__IsLauncherWord(String word)
 {
     local_persist const String launchers[] = {
@@ -487,7 +485,8 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 shell)
                 if (StrIndexStr(word, P__standIn, SSF_None).exists) return false;
                 assigned = true;
             }
-            env |= wrapper && (P__WordLeafIs(word, S("env")) || P__WordLeafIs(word, S("sudo")) || P__WordLeafIs(word, S("doas")) || P__WordLeafIs(word, S("run0")));
+            local_persist const String setters[] = { SInit("env"), SInit("sudo"), SInit("doas"), SInit("run0") };
+            env |= wrapper && P__WordLeafIn(word, setters, CArrayCount(setters));
         }
         if (at >= n) continue;
         String command = words[at];
@@ -501,8 +500,7 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 shell)
             b32 given = P__ShellOptions(words + at + 1, n - at - 1, &optionsEnd);
             u64 operand = at + 1 + optionsEnd;
             local_persist const String plainShells[] = { SInit("sh"), SInit("bash"), SInit("dash"), SInit("ash"), SInit("posh") };
-            b32 known = false;
-            for (u32 k = 0; k < CArrayCount(plainShells); ++k) known |= P__WordLeafIs(command, plainShells[k]);
+            b32 known = P__WordLeafIn(command, plainShells, CArrayCount(plainShells));
             // A variable set for the shell, as ENV or BASH_ENV, could have it read a file as it starts.
             if (!given || depth || operators || assigned || operand >= n || !known) return false;
             for (u64 k = at + 1; k < operand; ++k) {
@@ -533,7 +531,8 @@ function b32 P__CommandAllowed(Arena *arena, String text, u32 depth, b32 shell)
         // No shell named among a command's arguments, which it could run, and no program that runs its arguments as a command, as after
         // timeout or a terminal's -e. A shell's name that is also a common word, as rc, counts when an option or nothing follows it, as it
         // would read its commands from its input then; script, a common word too, counts when any option comes after it, as it takes its
-        // options anywhere and in short forms; and . never does.
+        // options anywhere and in short forms; and . never does. at, batch and sg count anywhere, though common words too, as they take a
+        // command as an operand, from an option anywhere or from their input, any of which is hard to tell from here.
         b32 optionLater = false;
         for (u64 k = n; k-- > at + 1;) {
             b32 optionNext = k + 1 < n && words[k + 1].length && words[k + 1].value[0] == '-';
