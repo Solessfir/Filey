@@ -49,6 +49,10 @@ typedef struct P_FileError {
     String message;
 } P_FileError;
 
+// A message of the platform's own for a P_FileError, in English: Codegen collects these literals with the Program's strings, and the Program
+// translates the message where it shows it.
+#define P_Message(text) S(text)
+
 // Whether `error` is an operation the user stopped, as in the system's own progress window, which is no failure to report.
 function b32 P_FileErrorIsCancel(P_FileError error);
 

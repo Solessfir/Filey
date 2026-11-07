@@ -432,7 +432,7 @@ function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, Stri
         P_FileArray all = {0};
         if (!P__SevenZipList(scratch.arena, program, archive, StrFromCStr(P__ArchivePassword(scratch.arena, archive)), cancel, &all, NULL) && !all.header.count) {
             result.errorCode = P__ArchiveFailed;
-            result.errorString = StrCopy(arena, S("7-Zip could not read the archive, or its password is wrong."));
+            result.errorString = StrCopy(arena, P_Message("7-Zip could not read the archive, or its password is wrong."));
         }
         P__ArchiveLevel(arena, &all, inner, &result);
         result.cancelled = P_IsCancelled(cancel);
@@ -488,7 +488,7 @@ function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, Stri
         result.locked = sevenZip;
         if (encrypted && !sevenZip) {
             result.errorCode = P__ArchiveUnsupported;
-            result.errorString = StrCopy(arena, S("The archive is encrypted; 7-Zip opens it once installed."));
+            result.errorString = StrCopy(arena, P_Message("The archive is encrypted; 7-Zip opens it once installed."));
         }
     }
     a->free(reader);
@@ -577,7 +577,7 @@ function P_FileError P__SevenZipExtract(Arena *arena, String program, String arc
     for (u64 k = 0; k < count; ++k) arguments[used++] = inner.length ? StrFormat(scratch.arena, "%S/%S", inner, names[k]) : names[k];
     String output = {0};
     if (!result.code && !P_RunCommandInput(scratch.arena, P__ArchiveFolder(archive), arguments, used, StrFormat(scratch.arena, "%S\n", StrFromCStr(P__ArchivePassword(scratch.arena, archive))), 0, &output, cancel)) {
-        result = P_IsCancelled(cancel) ? P__FileError(arena, P__ArchiveCancelled) : (P_FileError){ P__ArchiveFailed, StrCopy(arena, S("7-Zip could not take the items out, or the archive's password is wrong.")) };
+        result = P_IsCancelled(cancel) ? P__FileError(arena, P__ArchiveCancelled) : (P_FileError){ P__ArchiveFailed, StrCopy(arena, P_Message("7-Zip could not take the items out, or the archive's password is wrong.")) };
     }
     for (u64 k = 0; !result.code && k < count; ++k) {
         String taken = inner.length ? StrFormat(scratch.arena, "%S/%S/%S", through, inner, names[k]) : P__ArchiveJoin(scratch.arena, through, names[k]);
@@ -653,8 +653,8 @@ function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner
     b32 locked = error && reader && P__ArchiveWantsPassword(reader);
     if (reader) a->free(reader);
     ReleaseScratch(scratch);
-    if (locked) return (P_FileError){ P__ArchiveFailed, StrCopy(arena, S("The archive's password is missing or wrong.")) };
-    if (error && P__SevenZipKind(archive)) return (P_FileError){ P__ArchiveFailed, StrCopy(arena, S("The archive could not be read; an encrypted 7z or RAR one opens with 7-Zip installed.")) };
+    if (locked) return (P_FileError){ P__ArchiveFailed, StrCopy(arena, P_Message("The archive's password is missing or wrong.")) };
+    if (error && P__SevenZipKind(archive)) return (P_FileError){ P__ArchiveFailed, StrCopy(arena, P_Message("The archive could not be read; an encrypted 7z or RAR one opens with 7-Zip installed.")) };
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 

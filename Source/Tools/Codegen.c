@@ -280,11 +280,11 @@ function String Codegen__Literal(String text, u64 *at)
     return StrFromTo(text, start, (i64)*at);
 }
 
-// The translatable strings of `text`, a source file, added once each: the literals of Tr("..."), TrF("..."), TrInit("...") and TrMark("...") to `strings`,
+// The translatable strings of `text`, a source file, added once each: the literals of Tr("..."), TrF("..."), TrInit("..."), TrMark("...") and P_Message("...") to `strings`,
 // and the other form of each TrN(count, "one", "other") to `plurals`, as written, escapes and all; a #define line is the macro itself, not a use.
 function void Codegen_CollectStrings(Arena *arena, String text, ArrayStr *strings, ArrayStr *plurals)
 {
-    const String marks[] = { S("Tr(\""), S("TrF(\""), S("TrInit(\""), S("TrMark(\""), S("TrN(") };
+    const String marks[] = { S("Tr(\""), S("TrF(\""), S("TrInit(\""), S("TrMark(\""), S("P_Message(\""), S("TrN(") };
     for (u64 at = 0; at < text.length; ++at) {
         b32 lineStart = at == 0 || text.value[at - 1] == '\n';
         if (lineStart && text.length - at >= 7 && StrIsEqual(StrFromTo(text, at, (i64)(at + 7)), S("#define"))) {
@@ -295,7 +295,7 @@ function void Codegen_CollectStrings(Arena *arena, String text, ArrayStr *string
         for (u32 m = 0; m < CArrayCount(marks); ++m) {
             if (text.length - at < marks[m].length || !StrIsEqual(StrFromTo(text, at, (i64)(at + marks[m].length)), marks[m])) continue;
             at += marks[m].length - 1;
-            if (m < 4) {
+            if (m + 1 < CArrayCount(marks)) {
                 Codegen_AddString(arena, strings, Codegen__Literal(text, &at));
                 break;
             }
@@ -472,6 +472,17 @@ int main(int argc, char **argv)
             fprintf(stderr, "%s:%.*s  <- shown to the user? Write it Tr(\"...\"), or NoTr(\"...\") to keep it as it is\n", path.value, (int)untranslated.v[u].length, untranslated.v[u].value);
         }
         if (untranslated.header.count) return 1;
+    }
+    // The platform's own messages, which the Program translates where it shows them.
+    const char *platform[] = { "Platform/PlatformArchive.c", "Linux/LinuxApps.c", "Linux/LinuxFiles.c", "Win/WinFiles.c", "Win/WinShell.c" };
+    for (u32 i = 0; i < CArrayCount(platform); ++i) {
+        String path = StrFormat(&arena, "%S/%s%c", source, platform[i], 0);
+        String text = Codegen__ReadFile(&arena, path.value);
+        if (!text.value) {
+            fprintf(stderr, "%s: cannot read\n", path.value);
+            return 1;
+        }
+        Codegen_CollectStrings(&arena, text, &strings, &plurals);
     }
     for (u64 i = 0; i < commands.header.count; ++i) {
         Codegen_AddString(&arena, &strings, commands.v[i].label);

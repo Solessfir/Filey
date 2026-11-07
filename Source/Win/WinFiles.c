@@ -220,9 +220,9 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         part = n == 1 ? StrFormat(scratch.arena, "%S.%S.filey.part", folder, leaf) : StrFormat(scratch.arena, "%S.%S.filey-%u.part", folder, leaf, n);
         wide = P__FilePathWide(scratch.arena, part);
         if (!wide) error = ERROR_INVALID_NAME;
-        else if ((file = CreateFileW(wide, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE && GetLastError() != ERROR_FILE_EXISTS) error = GetLastError();
-        // The extraction writing it holds it open with no sharing, paused or not, so deleting it fails then; one left by a run cut short goes and
-        // its name is taken again.
+        else if ((file = CreateFileW(wide, GENERIC_WRITE | DELETE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE && GetLastError() != ERROR_FILE_EXISTS) error = GetLastError();
+        // The extraction writing it holds it open with no sharing, paused or not, until it is moved into place through that same handle, so
+        // deleting it fails then; one left by a run cut short goes and its name is taken again.
         WIN32_FILE_ATTRIBUTE_DATA left = {0};
         if (file == INVALID_HANDLE_VALUE && !error && GetFileAttributesExW(wide, GetFileExInfoStandard, &left) && !(left.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) && DeleteFileW(wide)) --n;
     }
@@ -245,9 +245,21 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         u64 ticks = (u64)(modified + INT64_C(11644473600)) * 10000000;
         FILETIME time = { (DWORD)ticks, (DWORD)(ticks >> 32) };
         if (modified > 0) SetFileTime(file, NULL, NULL, &time);
+        // Moved over its place while still held, so that no other extraction takes it for one left behind in between.
+        wchar *target = !error ? P__FilePathWide(scratch.arena, path) : NULL;
+        if (!error && !target) error = ERROR_INVALID_NAME;
+        if (!error) {
+            u64 units = (u64)lstrlenW(target);
+            DWORD bytes = (DWORD)(sizeof(FILE_RENAME_INFO) + (units + 1) * sizeof(wchar));
+            FILE_RENAME_INFO *rename = (FILE_RENAME_INFO *)ArenaPushArray(scratch.arena, bytes, u8);
+            rename->ReplaceIfExists = TRUE;
+            rename->RootDirectory = NULL;
+            rename->FileNameLength = (DWORD)(units * sizeof(wchar));
+            MemCopy(rename->FileName, target, (units + 1) * sizeof(wchar));
+            if (!SetFileInformationByHandle(file, FileRenameInfo, rename, bytes)) error = GetLastError();
+        }
         CloseHandle(file);
     }
-    if (!error) error = P_ReplaceFile(scratch.arena, part, path).code;
     if (error && wide) DeleteFileW(wide);
     ReleaseScratch(scratch);
     return error;
@@ -548,11 +560,11 @@ function P_FileError P_NameError(Arena *arena, String name)
     for (u64 i = 0; i < name.length; ++i) {
         u8 c = (u8)name.value[i];
         if (c < 32 || c == '<' || c == '>' || c == ':' || c == '"' || c == '|' || c == '?' || c == '*') {
-            return (P_FileError){ .code = ERROR_INVALID_NAME, .message = S("A name can't hold any of these characters: \\ / : * ? \" < > |") };
+            return (P_FileError){ .code = ERROR_INVALID_NAME, .message = P_Message("A name can't hold any of these characters: \\ / : * ? \" < > |") };
         }
     }
     u8 last = (u8)name.value[name.length - 1];
-    if (last == '.' || last == ' ') return (P_FileError){ .code = ERROR_INVALID_NAME, .message = S("A name can't end with a dot or a space.") };
+    if (last == '.' || last == ' ') return (P_FileError){ .code = ERROR_INVALID_NAME, .message = P_Message("A name can't end with a dot or a space.") };
     // The device names, alone or before an extension, apart from case.
     Index dot = StrIndexChar(name, '.', SSF_None);
     String stem = dot.exists ? StrFromTo(name, 0, (i64)dot.value) : name;
@@ -561,11 +573,11 @@ function P_FileError P_NameError(Arena *arena, String name)
     b32 device = false;
     for (u32 d = 0; d < CArrayCount(devices) && !device; ++d) device = stem.length == 3 && !_strnicmp(stem.value, devices[d], 3);
     if (stem.length == 4 && (!_strnicmp(stem.value, "COM", 3) || !_strnicmp(stem.value, "LPT", 3)) && stem.value[3] >= '0' && stem.value[3] <= '9') device = true;
-    if (device) return (P_FileError){ .code = ERROR_INVALID_NAME, .message = S("That name is one Windows keeps for a device.") };
+    if (device) return (P_FileError){ .code = ERROR_INVALID_NAME, .message = P_Message("That name is one Windows keeps for a device.") };
     // Counted as Windows counts it, in UTF-16 units.
     u64 units = 0;
     for (u64 at = 0; at < name.length;) units += StrDecodeUtf8(name, &at) > 0xFFFF ? 2 : 1;
-    if (units > 255) return (P_FileError){ .code = ERROR_FILENAME_EXCED_RANGE, .message = S("A name can be at most 255 characters long.") };
+    if (units > 255) return (P_FileError){ .code = ERROR_FILENAME_EXCED_RANGE, .message = P_Message("A name can be at most 255 characters long.") };
     return (P_FileError){0};
 }
 

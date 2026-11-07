@@ -1200,7 +1200,7 @@ function P_FileError P_EmptyTrash(Arena *arena, b32 confirm)
     P__EnsureCom();
     // The system's confirmation, with how many items go, and its progress window for a big bin; an empty bin or a No is not an error.
     HRESULT status = SHEmptyRecycleBinW(P__shellOwner, NULL, confirm ? 0 : SHERB_NOCONFIRMATION);
-    return SUCCEEDED(status) || status == E_UNEXPECTED || status == HRESULT_FROM_WIN32(ERROR_CANCELLED) ? (P_FileError){0} : (P_FileError){ .code = (u32)status, .message = S("The Recycle Bin could not be emptied.") };
+    return SUCCEEDED(status) || status == E_UNEXPECTED || status == HRESULT_FROM_WIN32(ERROR_CANCELLED) ? (P_FileError){0} : (P_FileError){ .code = (u32)status, .message = P_Message("The Recycle Bin could not be emptied.") };
 }
 
 function b32 P_EmptyTrashAsks(void) { return true; }
@@ -1346,7 +1346,7 @@ function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *path
     }
     ReleaseScratch(scratch);
     if (error) return P__FileError(arena, error);
-    if (taken) return (P_FileError){ .code = ERROR_ALREADY_EXISTS, .message = S("Some items stayed in the Recycle Bin, as something else is where they came from.") };
+    if (taken) return (P_FileError){ .code = ERROR_ALREADY_EXISTS, .message = P_Message("Some items stayed in the Recycle Bin, as something else is where they came from.") };
     return (P_FileError){0};
 }
 

@@ -1436,8 +1436,7 @@ function void TestFileIcons(TestFileFixture *fixture)
             // way holds stays.
             String stale = Prog_JoinPath(&arena, again, S(".a.txt.filey.part"));
             Check(!P_WriteFile(&arena, stale, S("stale")).code);
-            struct timespec old[2] = { { time(NULL) - 3600, 0 }, { time(NULL) - 3600, 0 } };
-            Check(utimensat(AT_FDCWD, P__FilePathCString(&arena, stale), old, 0) == 0);
+            for (u64 start = PlatformNowMicroseconds(); PlatformNowMicroseconds() - start < Millions(3);) P__TestPause();
             i32 holder = open(P__FilePathCString(&arena, stale), O_RDONLY | O_CLOEXEC);
             Check(holder >= 0 && flock(holder, LOCK_EX) == 0);
             Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, again, NULL, NULL).code && P_PathExists(stale));
@@ -5542,6 +5541,9 @@ function void TestApps(TestFileFixture *fixture)
             S("sh -c \"timeout 9 sh -c 'cat %f'\""), S("xterm -e \"less '%f'\""),
             // A shell's command beside any command substitution, whose quotes start anew where the tracking here does not follow them.
             S("sh -c \"a $(true) %f\""), S("sh -c $(basename %f)"), S("printf %%s \"$(sh -c 'printf %%s %f')\""), S("sh -c \"timeout 9 bash --norc -c 'cat %f'\""),
+            // Past a shell's options that take an argument, a value as a terminal's program, and a terminal's string joined to its option or before another.
+            S("sh -c \"timeout 9 bash -o pipefail -c 'cat %f'\""), S("bash -O extglob -c \"a $(true) %f\""), S("xterm -e %f"),
+            S("xfce4-terminal --command=\"less '%f'\""), S("xfce4-terminal -e \"less '%f'\" --hold"),
         };
         for (u32 r = 0; r < CArrayCount(refusedExecs); ++r) {
             P__Action refused = {0};

@@ -988,14 +988,16 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
         if (!native) error = EINVAL;
         else if ((file = open(native, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666)) < 0 && errno != EEXIST) error = (u32)errno;
         // The extraction writing it holds a lock on it, paused or not, which goes with the run that held it. One no run holds, left by one cut
-        // short, goes and its name is taken again, past the moment between another's making it and locking it.
+        // short, goes and its name is taken again, once a moment old, past the instant between another's making it and locking it.
         if (file >= 0) {
             flock(file, LOCK_EX);
         } else if (!error) {
             struct stat left;
             i32 held = open(native, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && time(NULL) - left.st_mtime > 60 &&
-                flock(held, LOCK_EX | LOCK_NB) == 0 && unlink(native) == 0) --n;
+            // The name must still be the file locked, which another remover may have taken and another extraction made anew meanwhile.
+            struct stat named;
+            if (held >= 0 && fstat(held, &left) == 0 && S_ISREG(left.st_mode) && left.st_uid == getuid() && time(NULL) - left.st_ctime > 2 &&
+                flock(held, LOCK_EX | LOCK_NB) == 0 && lstat(native, &named) == 0 && named.st_ino == left.st_ino && named.st_dev == left.st_dev && unlink(native) == 0) --n;
             if (held >= 0) close(held);
         }
     }
@@ -1015,9 +1017,10 @@ function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *r
     if (file >= 0) {
         const struct timespec times[2] = { { 0, UTIME_OMIT }, { modified, 0 } };
         futimens(file, times);
+        // Moved into place while still locked, so that no other extraction takes it for one left behind in between.
+        if (!error) error = P_ReplaceFile(scratch.arena, part, path).code;
         if (close(file) != 0 && !error) error = (u32)errno;
     }
-    if (!error) error = P_ReplaceFile(scratch.arena, part, path).code;
     if (error && native) unlink(native);
     ReleaseScratch(scratch);
     return error;
@@ -1669,7 +1672,7 @@ function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *path
     }
     ReleaseScratch(scratch);
     if (error) return P__FileError(arena, error);
-    if (taken) return (P_FileError){ .code = EEXIST, .message = S("Some items stayed in the Trash, as something else is where they came from.") };
+    if (taken) return (P_FileError){ .code = EEXIST, .message = P_Message("Some items stayed in the Trash, as something else is where they came from.") };
     return (P_FileError){0};
 }
 
@@ -2311,7 +2314,7 @@ function P_FileError P_MountRemote(Arena *arena, String address, String password
             if (fields.header.count >= 2 && StrIsEqual(fields.v[0], address)) *folder = P__MountPoint(arena, fields.v[1]);
         }
         while (output.length && (output.value[output.length - 1] == '\n' || output.value[output.length - 1] == ' ')) --output.length;
-        P_FileError result = folder->length ? (P_FileError){0} : (P_FileError){ .code = EIO, .message = StrCopy(arena, output.length ? output : S("The drive could not be mounted")) };
+        P_FileError result = folder->length ? (P_FileError){0} : (P_FileError){ .code = EIO, .message = StrCopy(arena, output.length ? output : P_Message("The drive could not be mounted")) };
         ReleaseScratch(scratch);
         return result;
     }
@@ -2342,7 +2345,7 @@ function P_FileError P_MountRemote(Arena *arena, String address, String password
     if (!folder->length) {
         while (output.length && (output.value[output.length - 1] == '\n' || output.value[output.length - 1] == ' ')) --output.length;
         b32 asked = StrIndexStr(output, S("Password"), SSF_None).exists || StrIndexStr(output, S("Authentication"), SSF_None).exists;
-        result = (P_FileError){ .code = asked ? P_MountNeedsPassword : EIO, .message = StrCopy(arena, output.length ? output : S("The server could not be reached")) };
+        result = (P_FileError){ .code = asked ? P_MountNeedsPassword : EIO, .message = StrCopy(arena, output.length ? output : P_Message("The server could not be reached")) };
     }
     ReleaseScratch(scratch);
     return result;

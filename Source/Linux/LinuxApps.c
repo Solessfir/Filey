@@ -322,23 +322,36 @@ function b32 P__HasSubstitution(String text)
     return false;
 }
 
+// Whether the words after a shell's, `words` up to `count`, give it a command with -c among its options, past those that take an argument, as
+// -o pipefail, -O extglob or --rcfile file.
+function b32 P__ShellOptionsGiveCommand(const String *words, u64 count)
+{
+    for (u64 at = 0; at < count; ++at) {
+        String word = words[at];
+        if (StrIsEqual(word, S("--")) || word.length < 2 || (word.value[0] != '-' && word.value[0] != '+')) return false;
+        if (word.value[1] == '-') {
+            if (StrIsEqual(word, S("--rcfile")) || StrIsEqual(word, S("--init-file"))) ++at;
+            continue;
+        }
+        if (word.value[0] == '-' && StrIndexChar(word, 'c', SSF_None).exists) return true;
+        if (word.value[word.length - 1] == 'o' || word.value[word.length - 1] == 'O') ++at;
+    }
+    return false;
+}
+
 // Whether a command line gives a shell a command of its own with -c anywhere, quoted or not: its words taken roughly, quotes as breaks, so
 // that a shell inside a quoted script counts too, which errs towards finding one.
-function b32 P__HasShellCommand(String text)
+function b32 P__HasShellCommand(Arena *arena, String text)
 {
-    b32 shell = false;
+    String *words = ArenaPushArray(arena, text.length + 1, String);
+    u64 count = 0;
     for (u64 at = 0; at < text.length;) {
         while (at < text.length && (P__IsShellBreak(text.value[at]) || text.value[at] == '"' || text.value[at] == '\'')) ++at;
         u64 from = at;
         while (at < text.length && !P__IsShellBreak(text.value[at]) && text.value[at] != '"' && text.value[at] != '\'') ++at;
-        String word = StrFromTo(text, from, (i64)at);
-        if (!word.length) continue;
-        if (shell && word.length > 1 && word.value[0] == '-') {
-            if (word.value[1] != '-' && StrIndexChar(word, 'c', SSF_None).exists) return true;
-            continue;
-        }
-        shell = P__IsShellWord(word);
+        if (at > from) words[count++] = StrFromTo(text, from, (i64)at);
     }
+    for (u64 i = 0; i < count; ++i) if (P__IsShellWord(words[i]) && P__ShellOptionsGiveCommand(words + i + 1, count - i - 1)) return true;
     return false;
 }
 
@@ -445,9 +458,10 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
     // Inside a shell's command, a shell given a command of its own anywhere, as after a wrapper not known here ("timeout 9 sh -c"), would parse the value a third time.
     for (u64 i = 0; depth && i < count; ++i) {
         if (toks[i].op || !P__IsShellWord(toks[i].word)) continue;
-        for (u64 j = i + 1; j < count && !toks[j].op && toks[j].word.length > 1 && toks[j].word.value[0] == '-'; ++j) {
-            if (toks[j].word.value[1] != '-' && StrIndexChar(toks[j].word, 'c', SSF_None).exists) return true;
-        }
+        String *after = ArenaPushArray(arena, count - i, String);
+        u64 words = 0;
+        for (u64 j = i + 1; j < count && !toks[j].op; ++j) after[words++] = toks[j].word;
+        if (P__ShellOptionsGiveCommand(after, words)) return true;
     }
 
     // `wrote`: the command writes a file with >, which a shell run on a file later in it may then read.
@@ -505,14 +519,19 @@ function b32 P__CommandRisky(Arena *arena, String text, u32 depth)
             if (P__IsWrapperWord(w)) { envHere = envHere || StrIsEqual(StrFrom(w, StrIndexChar(w, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value), S("env")); continue; }
             expectCmd = false, envHere = false;
             if (P__IsLauncherWord(w)) return true;
-            // A terminal's -e with one word holding a space, as xterm -e "less '%f'", has that string parsed again.
+            // A terminal's -e given one string, as xterm -e "less '%f'", or a value as the program to run, as xterm -e %f, which it hands to a
+            // shell when no such program is found, has that string parsed again; so does one joined to its option, as --command="less %f".
             if (P__IsTerminalWord(w)) {
                 for (u64 j = i + 1; j < count && !toks[j].op; ++j) {
                     String option = toks[j].word;
+                    b32 joined = (option.length > 10 && StrIsEqual(StrFromTo(option, 0, 10), S("--command="))) || (option.length > 10 && StrIsEqual(StrFromTo(option, 0, 10), S("--execute="))) ||
+                                 (option.length > 2 && option.value[0] == '-' && option.value[1] == 'e');
+                    if (joined) return true;
                     if (!StrIsEqual(option, S("-e")) && !StrIsEqual(option, S("--command")) && !StrIsEqual(option, S("-x")) && !StrIsEqual(option, S("--execute"))) continue;
-                    u64 words = 0, last = j + 1;
-                    while (j + 1 + words < count && !toks[j + 1 + words].op) ++words;
-                    if (words == 1 && (StrIndexChar(toks[last].word, ' ', SSF_None).exists || StrIndexChar(toks[last].word, '\t', SSF_None).exists)) return true;
+                    if (j + 1 >= count || toks[j + 1].op) break;
+                    String run = toks[j + 1].word;
+                    b32 alone = j + 2 >= count || toks[j + 2].op;
+                    if (alone || StrIndexChar(run, ' ', SSF_None).exists || StrIndexChar(run, '\t', SSF_None).exists || StrIndexChar(run, '%', SSF_None).exists) return true;
                     break;
                 }
             }
@@ -595,9 +614,8 @@ function u64 P__ExpandExec(Arena *arena, const P__App *app, const String *paths,
         if (any) ArrayPush(arena, *args, argument.buffer);
     }
     // Unlike a Nemo action's command, a desktop entry's shell command does not reset the quotes inside a command substitution, so a value in a shell's command that substitutes one is not offered.
-    b32 sub = false;
-    for (u64 i = 0; i + 1 < exec.length; ++i) if (exec.value[i] == '`' || (exec.value[i] == '$' && exec.value[i + 1] == '(')) sub = true;
-    if (valued && (P__QuotingUnfollowed(exec) || P__CommandRisky(arena, exec, 0) || (scriptValued && sub) || (P__HasShellCommand(exec) && sub))) {
+    b32 sub = P__HasSubstitution(exec);
+    if (valued && (P__QuotingUnfollowed(exec) || P__CommandRisky(arena, exec, 0) || (scriptValued && sub) || (P__HasShellCommand(arena, exec) && sub))) {
         *args = (ArrayStr){0};
         return 0;
     }
@@ -722,7 +740,7 @@ function P_FileError P__LaunchApp(Arena *arena, const P__App *app, const String 
         done += used ? used : Max(count - done, (u64)1);
     }
     ReleaseScratch(scratch);
-    if (refused) return (P_FileError){ .code = error, .message = S("The app's command could run a file's name as a command, so it is not run.") };
+    if (refused) return (P_FileError){ .code = error, .message = P_Message("The app's command could run a file's name as a command, so it is not run.") };
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
@@ -1079,7 +1097,7 @@ function b32 P__ReadAction(Arena *arena, String file, String folder, String dire
         // The command is not offered when a value reaches a shell the quoting cannot follow (P__CommandRisky), quoting it does not follow (P__QuotingUnfollowed), or a case inside a substitution, whose ) the quoting below stops at.
         // A shell's command anywhere beside a command substitution anywhere is not offered either: a substitution starts its quotes anew, and
         // the one the outer shell runs pastes its output into the inner shell's command, which the word tracking here does not follow.
-        b32 script = false, refused = part && (P__QuotingUnfollowed(text) || P__CommandRisky(scratch.arena, text, 0) || (P__HasShellCommand(text) && P__HasSubstitution(text)));
+        b32 script = false, refused = part && (P__QuotingUnfollowed(text) || P__CommandRisky(scratch.arena, text, 0) || (P__HasShellCommand(scratch.arena, text) && P__HasSubstitution(text)));
         P__ScriptQuotes inner = {0};
         for (u64 at = 0; at <= text.length; ++at) {
             char c = at < text.length ? text.value[at] : ' ', code = at + 1 < text.length ? text.value[at + 1] : 0;

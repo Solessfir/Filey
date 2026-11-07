@@ -141,12 +141,14 @@ function String Prog__ToolOpen(Prog_State *state, Arena *arena, const Prog__Json
     if (!StrIsEqual(path, Prog_ThisPC) && !P_PathExists(path)) return Prog__ToolError(arena, StrFormat(arena, "%S does not exist.", given));
     Prog__UsePanel(state, state->activePanel);
     b32 newTab = Prog__JsonTrue(Prog__JsonGet(arguments, S("newTab")));
+    // A full panel is the agent's to hear of, not a notice in the user's window.
+    if (newTab && state->tabCount >= Prog_MaxTabs) return Prog__ToolError(arena, StrFormat(arena, "The panel has its most tabs, %u, open; close one first.", Prog_MaxTabs));
     if (!StrIsEqual(path, Prog_ThisPC) && !P_IsDirectory(path)) {
-        if (!Prog_ShowInFolder(state, path, newTab)) return Prog__ToolError(arena, newTab && state->tabCount >= Prog_MaxTabs ? StrFormat(arena, "The panel has its most tabs, %u, open; close one first.", Prog_MaxTabs) : StrFormat(arena, "Filey cannot show %S in its folder.", given));
+        if (!Prog_ShowInFolder(state, path, newTab)) return Prog__ToolError(arena, StrFormat(arena, "Filey cannot show %S in its folder.", given));
         return S("{\"opened\":\"file\"}");
     }
     if (newTab) {
-        if (!Prog_OpenTab(state, path, state->activeTab + 1, true)) return Prog__ToolError(arena, StrFormat(arena, "The panel has its most tabs, %u, open; close one first.", Prog_MaxTabs));
+        if (!Prog_OpenTab(state, path, state->activeTab + 1, true)) return Prog__ToolError(arena, StrFormat(arena, "Filey cannot open %S in a new tab.", given));
     } else {
         Prog_RequestDirectory(state, path, true, 0);
     }
