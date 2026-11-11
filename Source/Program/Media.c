@@ -653,6 +653,21 @@ function String Prog_AudioFolder(u32 format, String folder)
     return folder.length ? folder : StrFromCStr(Prog_AudioFormatFolders[Min(format, (u32)CArrayCount(Prog_AudioFormats) - 1)]);
 }
 
+// The format the audio files `paths` are converted to: `format`, or the next one after it when all of them are in it already, as converting a
+// file into its own format only loses quality.
+function u32 Prog_ConvertFormat(u32 format, const String *paths, u64 count)
+{
+    u32 formats = (u32)CArrayCount(Prog_AudioFormats);
+    format = Min(format, formats - 1);
+    for (u32 tries = 0; tries < formats; ++tries, format = (format + 1) % formats) {
+        String extension = StrFromCStr(Prog_AudioFormatExtensions[format]);
+        b32 all = count != 0;
+        for (u64 i = 0; i < count && all; ++i) all = Prog__HasExtension(paths[i], &extension, 1);
+        if (!all) break;
+    }
+    return format;
+}
+
 // Converts the audio file at `path` to `format` into the folder `folder` beside it, made when missing, as "<name>.<extension>", numbered past
 // one taken, whose path goes into `placed`. The tags go along, and the cover where the new file holds one. `progress` counts the audio's
 // milliseconds after `base`; a cancel or a failure leaves no output.

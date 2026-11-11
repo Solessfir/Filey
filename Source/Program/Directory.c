@@ -1703,6 +1703,9 @@ function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, 
             }
         }
         if (!files.header.count && !P_IsCancelled(cancel)) return (P_FileError){ .code = 1, .message = TrMark("There is no audio file to convert") };
+        // Not into the format they are all in, and into its folder unless one was named.
+        u32 format = Prog_ConvertFormat(input->audioFormat, files.v, files.header.count);
+        String folder = Prog_AudioFolder(format, input->name);
         u64 *lengths = ArenaPushArray(arena, Max(files.header.count, (u64)1), u64), total = 0, done = 0;
         for (u64 i = 0; i < files.header.count && !P_IsCancelled(cancel); ++i) total += lengths[i] = Prog_MediaLength(arena, files.v[i], cancel);
         if (input->progress) {
@@ -1711,7 +1714,7 @@ function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, 
         }
         for (u64 i = 0; i < files.header.count && !result.code && !P_IsCancelled(cancel); ++i) {
             String output = {0};
-            result = Prog_ConvertAudio(arena, files.v[i], input->audioFormat, input->name, done, input->progress, cancel, &output);
+            result = Prog_ConvertAudio(arena, files.v[i], format, folder, done, input->progress, cancel, &output);
             done += lengths[i];
             if (input->progress) atomic_store(&input->progress->doneItems, i + 1);
         }

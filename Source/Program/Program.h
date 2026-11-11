@@ -2524,6 +2524,7 @@ function void Prog_SetCover(Prog_State *state, const String *paths, u64 count, S
 function void Prog_ReadBulkTags(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel, i32 side, Prog_BulkTags *bulk);
 function u64 Prog_FolderAudio(Arena *arena, String path, const P_CancelToken *cancel, String **paths);
 function String Prog_AudioFolder(u32 format, String folder);
+function u32 Prog_ConvertFormat(u32 format, const String *paths, u64 count);
 function P_FileError Prog_ConvertAudio(Arena *arena, String path, u32 format, String folder, u64 base, P_Progress *progress, const P_CancelToken *cancel, String *placed);
 function String Prog__NameStem(String name);
 function String Prog__FreeName(Arena *arena, String directory, String stem, String extension);

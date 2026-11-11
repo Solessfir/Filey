@@ -2747,6 +2747,13 @@ function void Prog__SubmitPreview(Prog_State *state, String path, b32 folder, b3
     P_JobSubmit(job);
 }
 
+// The format the inspector's convert row offers for the files it is on, the several sharing their tags or the one shown.
+function u32 Prog__InspectorConvertFormat(const Prog_State *state)
+{
+    if (state->bulk.count) return Prog_ConvertFormat(state->audioFormat, state->bulk.paths, state->bulk.count);
+    return Prog_ConvertFormat(state->audioFormat, &state->previewPath, 1);
+}
+
 // Whether the audio field `field` holds a value too long to edit, which is shown but left as it is.
 function b32 Prog__TagFieldLocked(const Prog_State *state, u32 field)
 {
@@ -3423,10 +3430,17 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
         } break;
         case Prog_CommandKind_ConvertAudio: {
             // The audio files among the items, and those of the folders among them, which the job tells apart off this thread, each into the
-            // format's folder beside it.
+            // format's folder beside it, or the one named for it; the job picks the format from the files it finds.
+            // The card shows the folder the inspector's row shows for them.
             if (!count || state->directory.archive || P_IsTrashFolder(state->directory.path)) break;
-            String folder = Prog_AudioFolder(state->audioFormat, StrMake((const char *)state->audioFolder, state->audioFolderLength));
-            Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, count, Prog_ParentPath(paths[0]), false, folder, Prog_TransferOp_ConvertAudio);
+            String named = StrMake((const char *)state->audioFolder, state->audioFolderLength);
+            u32 format = state->bulk.count ? Prog__InspectorConvertFormat(state) : Prog_ConvertFormat(state->audioFormat, paths, count);
+            String folder = Prog_AudioFolder(format, named);
+            Prog_Transfer *transfer = Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, count, Prog_ParentPath(paths[0]), false, named, Prog_TransferOp_ConvertAudio);
+            if (transfer) {
+                transfer->targetLength = (u32)Min(folder.length, sizeof(transfer->target));
+                MemCopy(transfer->target, folder.value, transfer->targetLength);
+            }
         } break;
         case Prog_CommandKind_DownloadTorrent: {
             // With aria2c, whatever program the system opens torrents with.
@@ -5499,7 +5513,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 MemCopy(state->tagPath, state->previewPath.value, state->tagPathLength);
                 // Its whole value selected, to be typed over or added to; one the files differ in starts empty.
                 String value = field <= Prog_AudioTagCount ? state->previewTags.values[field - 1]
-                             : field == Prog_TagFieldFolder ? Prog_AudioFolder(state->audioFormat, StrMake((const char *)state->audioFolder, state->audioFolderLength))
+                             : field == Prog_TagFieldFolder ? Prog_AudioFolder(Prog__InspectorConvertFormat(state), StrMake((const char *)state->audioFolder, state->audioFolderLength))
                                                             : state->bulk.values[bulk];
                 state->tagEdit = (Prog_TextEdit){0};
                 Prog__EditReplace(&state->tagEdit, (const u8 *)value.value, (u32)Min(value.length, (u64)sizeof(state->tagEdit.text)));

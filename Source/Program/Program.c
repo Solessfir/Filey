@@ -1818,7 +1818,7 @@ function void Prog_EndTagEdit(Prog_State *state, b32 keep)
     if (!keep || !field || StrIsEqual(text, before)) return;
     // The folder's name is a setting; one emptied, or the format's own, goes back to following the format.
     if (field == Prog_TagFieldFolder) {
-        String own = Prog_AudioFolder(state->audioFormat, (String){0}), name = Prog__TrimSpaces(text);
+        String own = Prog_AudioFolder(Prog__InspectorConvertFormat(state), (String){0}), name = Prog__TrimSpaces(text);
         b32 invalid = false;
         // Nor only dots, which name the folder itself or the one above.
         b32 dots = name.length != 0;
@@ -10494,7 +10494,7 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
                 b32 downloading = transfer->op == Prog_TransferOp_Download || transfer->op == Prog_TransferOp_Torrent || transfer->op == Prog_TransferOp_TorrentFetch;
                 String title = downloading ? StrFormat(&state->frameArena, TrF("Downloading into %S"), target)
                              : transfer->op == Prog_TransferOp_CompressVideo ? StrFormat(&state->frameArena, TrN(items, "Compressing %u video", "Compressing %u videos"), (u32)items)
-                             : transfer->op == Prog_TransferOp_ConvertAudio ? StrFormat(&state->frameArena, TrF("Converting into %S"), Prog_AudioFolder(state->audioFormat, StrMake((const char *)state->audioFolder, state->audioFolderLength)))
+                             : transfer->op == Prog_TransferOp_ConvertAudio ? StrFormat(&state->frameArena, TrF("Converting into %S"), target)
                              : transfer->op == Prog_TransferOp_AudioTags ? Tr("Saving the tags")
                              : transfer->op == Prog_TransferOp_ExtractCover ? Tr("Saving the album cover")
                              : transfer->opening ? StrFormat(&state->frameArena, TrF("Extracting %S to open it"), target)
@@ -11986,16 +11986,19 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                 UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row + top), UI_Layout_Horizontal, (R_Color){0}, 0);
                 UI_Parent(line) {
                     f32 apart = floorf(6.4f * s + 0.5f);
-                    u32 format = Min((u32)state->audioFormat, (u32)CArrayCount(Prog_AudioFormats) - 1);
+                    // Never the format the files are all in already.
+                    u32 format = Prog__InspectorConvertFormat(state), formats = (u32)CArrayCount(Prog_AudioFormats);
+                    u32 next = state->bulk.count ? Prog_ConvertFormat((format + 1) % formats, state->bulk.paths, state->bulk.count)
+                                                 : Prog_ConvertFormat((format + 1) % formats, &state->previewPath, 1);
                     UI_Interaction pick = Prog__TextButton(S("InspectorAudioFormat"), Prog_AudioFormatLabels[format], m->detail, UI_TextContent(), row, apart, theme->text,
                                                            theme->text, theme->textDim, true, m);
-                    if (pick.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorAudioFormat, (format + 1) % CArrayCount(Prog_AudioFormats), 0, pick.clickOrder);
+                    if (pick.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorAudioFormat, next, 0, pick.clickOrder);
                     if (pick.hot) Prog__PopupTooltip(state, Tr("The format Convert Audio converts to; a click goes on to the next."));
                     Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
                     UI_SetNextFont(m->detail);
                     Prog__Label(Tr("into"), UI_TextContent(), row, 0, theme->textDim, 0);
                     Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
-                    String into = Prog_AudioFolder(state->audioFormat, StrMake((const char *)state->audioFolder, state->audioFolderLength));
+                    String into = Prog_AudioFolder(format, StrMake((const char *)state->audioFolder, state->audioFolderLength));
                     Prog__TagField(state, Prog_TagFieldFolder, into, false, false, width, row, 0, m);
                     Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
                     UI_Interaction go = Prog__TextButton(S("InspectorConvert"), Tr("Convert"), m->detail, UI_TextContent(), row, apart, theme->accent, theme->text, theme->textDim, true, m);

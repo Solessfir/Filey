@@ -1502,6 +1502,9 @@ function void TestFileIcons(TestFileFixture *fixture)
             Check(!Prog_WriteAudioTags(&arena, other, S("artist\tShared"), (String){0}, NULL).code && !Prog_WriteAudioTags(&arena, song, S("artist\tShared"), (String){0}, NULL).code);
             Prog_ReadBulkTags(&arena, both, 2, NULL, 64, &bulk);
             Check(!(bulk.mixed & 2) && StrIsEqual(bulk.values[1], S("Shared")));
+            // Never into the format the files are all in already: MP3s go on past both MP3s to AAC, and FLAC round to MP3.
+            Check(Prog_ConvertFormat(0, (String[]){ S("a.mp3"), S("b.MP3") }, 2) == 2 && Prog_ConvertFormat(0, (String[]){ S("a.mp3"), S("b.flac") }, 2) == 0);
+            Check(Prog_ConvertFormat(4, (String[]){ S("a.flac") }, 1) == 0);
             // Converted into a folder beside it, made as it is missing, with its tags, and its cover where the format takes one.
             String converted = {0};
             Check(!Prog_ConvertAudio(&arena, song, 0, S("MP3"), 0, NULL, NULL, &converted).code && TestEndsWith(converted, S("/MP3/song.mp3")));
