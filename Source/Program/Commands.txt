@@ -847,6 +847,16 @@ command InspectorMute {
     repeat  = "false"
 }
 
+command ConvertAudio {
+    label   = "Convert Audio^mp3,flac,aac,opus,encode,ffmpeg"
+    tooltip = "Convert the selected audio files, or those in the selected folders, to the format the inspector's details choose, into a folder beside them."
+    repeat  = "false"
+}
+
+// The inspector's format for Convert Audio; carries the Prog_AudioFormats index.
+command InspectorAudioFormat {
+}
+
 command InspectorSaveCover {
     label   = "Save Album Cover^extract,picture,artwork,image"
     tooltip = "Save the album cover of the audio file shown in the inspector beside it as a picture."

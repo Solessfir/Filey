@@ -3796,3 +3796,60 @@ Save Album Cover
 
 Save the album cover of the audio file shown in the inspector beside it as a picture.
 = 将检查器中显示的音频文件的专辑封面另存为图片，放在其旁边。
+
+Audio Format
+= 音频格式
+
+What Convert Audio converts to, into a folder beside the files named after the format, which the inspector's details rename.
+= 转换音频的目标格式，放入文件旁以格式命名的文件夹，可在检查器详情中重命名。
+
+Not a folder's name
+= 不是文件夹名
+
+A folder's name has no slashes or colons in it, and is not only dots.
+= 文件夹名中不能有斜杠或冒号，也不能全是点。
+
+Converting into %S
+= 正在转换到 %S
+
+Mixed
+= 不一
+
+Audio files
+= 音频文件
+
+Covers: %u of %u
+= 封面：%u / %u
+
+Drop a picture on it for all
+= 拖放图片到此处应用于全部
+
+Their format takes no cover
+= 它们的格式不支持封面
+
+The format Convert Audio converts to; a click goes on to the next.
+= 转换音频的格式；点击切换到下一个。
+
+into
+= 到
+
+Convert
+= 转换
+
+There is no audio file to convert
+= 没有可转换的音频文件
+
+Converting the audio failed
+= 转换音频失败
+
+Convert Audio
+= 转换音频
+
+Convert the selected audio files, or those in the selected folders, to the format the inspector's details choose, into a folder beside them.
+= 将所选音频文件或所选文件夹中的音频文件转换为检查器详情中选择的格式，放入其旁边的文件夹。
+
+A file has the name of the folder converted audio goes into
+= 有文件与转换音频的目标文件夹同名
+
+An Ogg or Opus file's cover is one of its tags, which saving would lose
+= Ogg 或 Opus 文件的封面是它的一个标签，保存会丢失它

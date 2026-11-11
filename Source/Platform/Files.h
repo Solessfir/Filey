@@ -565,6 +565,7 @@ typedef enum P_MenuAction {
     P_MenuAction_DownloadTorrent,
     P_MenuAction_AddToGroup,  // the item's id is the group
     P_MenuAction_Command,     // the item's id is one of the program's commands, which it runs
+    P_MenuAction_ConvertAudio,
     P_MenuAction_Count,
 } P_MenuAction;
 

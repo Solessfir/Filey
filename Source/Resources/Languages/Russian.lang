@@ -3795,3 +3795,60 @@ Save Album Cover
 
 Save the album cover of the audio file shown in the inspector beside it as a picture.
 = Сохранить обложку альбома аудиофайла из инспектора рядом с ним как картинку.
+
+Audio Format
+= Формат аудио
+
+What Convert Audio converts to, into a folder beside the files named after the format, which the inspector's details rename.
+= Во что «Конвертировать аудио» переводит файлы, в папку рядом с ними, названную по формату; её можно переименовать в сведениях инспектора.
+
+Not a folder's name
+= Не имя папки
+
+A folder's name has no slashes or colons in it, and is not only dots.
+= В имени папки нет косых черт и двоеточий, и оно не из одних точек.
+
+Converting into %S
+= Конвертация в %S
+
+Mixed
+= Разные
+
+Audio files
+= Аудиофайлы
+
+Covers: %u of %u
+= Обложки: %u из %u
+
+Drop a picture on it for all
+= Перетащите картинку на неё для всех
+
+Their format takes no cover
+= Их формат не хранит обложку
+
+The format Convert Audio converts to; a click goes on to the next.
+= Формат для «Конвертировать аудио»; щелчок переключает на следующий.
+
+into
+= в
+
+Convert
+= Конвертировать
+
+There is no audio file to convert
+= Нет аудиофайлов для конвертации
+
+Converting the audio failed
+= Не удалось конвертировать аудио
+
+Convert Audio
+= Конвертировать аудио
+
+Convert the selected audio files, or those in the selected folders, to the format the inspector's details choose, into a folder beside them.
+= Конвертировать выбранные аудиофайлы или файлы в выбранных папках в формат, выбранный в сведениях инспектора, в папку рядом с ними.
+
+A file has the name of the folder converted audio goes into
+= Файл называется так же, как папка для конвертированного аудио
+
+An Ogg or Opus file's cover is one of its tags, which saving would lose
+= Обложка файла Ogg или Opus хранится в его тегах, и сохранение её потеряет

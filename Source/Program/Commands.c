@@ -808,7 +808,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_OpenInBottomSplit, Prog_CommandKind_OpenInWindow, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
     Prog_CommandKind_PasteLink,
     Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_SelectionRestore, Prog_CommandKind_TrashRestoreAll,
-    Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_CompressZip, Prog_CommandKind_Compress7z, Prog_CommandKind_ExtractHere, Prog_CommandKind_ExtractToFolder, Prog_CommandKind_CompressVideo, Prog_CommandKind_DownloadTorrent, Prog_CommandKind_GitPull, Prog_CommandKind_Undo, Prog_CommandKind_Redo, Prog_CommandKind_Rename, Prog_CommandKind_SelectionInspect,
+    Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_CompressZip, Prog_CommandKind_Compress7z, Prog_CommandKind_ExtractHere, Prog_CommandKind_ExtractToFolder, Prog_CommandKind_CompressVideo, Prog_CommandKind_ConvertAudio, Prog_CommandKind_DownloadTorrent, Prog_CommandKind_GitPull, Prog_CommandKind_Undo, Prog_CommandKind_Redo, Prog_CommandKind_Rename, Prog_CommandKind_SelectionInspect,
     Prog_CommandKind_SelectionCopyPrevPanel, Prog_CommandKind_SelectionCopyNextPanel, Prog_CommandKind_SelectionMovePrevPanel,
     Prog_CommandKind_SelectionMoveNextPanel, Prog_CommandKind_CopyAsPath, Prog_CommandKind_CopyAsPathSmart, Prog_CommandKind_OpenContainingPath, Prog_CommandKind_OpenContainingPathInTab,
     Prog_CommandKind_OpenRelativePath, Prog_CommandKind_OpenRelativePathInTab,
@@ -922,6 +922,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_Duplicate: return item && !P_IsTrashFolder(state->directory.path);
         case Prog_CommandKind_CompressZip: case Prog_CommandKind_Compress7z: return item && !P_IsTrashFolder(state->directory.path) && !state->directory.archive;
         case Prog_CommandKind_CompressVideo: return item && !P_IsTrashFolder(state->directory.path) && !state->directory.archive;
+        case Prog_CommandKind_ConvertAudio: return item && state->hasFfmpeg && !P_IsTrashFolder(state->directory.path) && !state->directory.archive;
         case Prog_CommandKind_GitPull: return Prog_CanPull(state);
         case Prog_CommandKind_DownloadTorrent: return item && !P_IsTrashFolder(state->directory.path) && !state->directory.archive;
         case Prog_CommandKind_ExtractHere: case Prog_CommandKind_ExtractToFolder:
@@ -1957,14 +1958,18 @@ function void Prog__StartPlayer(Prog_State *state, String path, u64 start)
     state->playerHash = MapHashBytes(path.value, path.length);
 }
 
-// Compress Video after the Archive submenu, when a video is among the items, and Download Torrent for a .torrent.
+// Compress Video after the Archive submenu, when a video is among the items, Convert Audio when an audio file is, and Download Torrent for a .torrent.
 function void Prog__MenuAddVideo(Prog_State *state)
 {
     if (state->directory.archive || P_IsTrashFolder(state->directory.path)) return;
     b32 video = false, torrent = false;
     for (u32 i = 0; i < state->menuRowCount; ++i) video |= Prog_IsVideo(state->directory.entries[state->menuRows[i]].file.name);
     for (u32 i = 0; i < state->menuRowCount; ++i) torrent |= Prog_IsTorrent(state->directory.entries[state->menuRows[i]].file.name);
+    b32 audio = false;
+    Prog_LookUpPrograms(state);
+    for (u32 i = 0; i < state->menuRowCount && state->hasFfmpeg; ++i) audio |= Prog_IsAudio(state->directory.entries[state->menuRows[i]].file.name);
     if (video) Prog__MenuAddLast(state, (P_MenuItem){ .label = Prog_CommandLabel(Prog_CommandKind_CompressVideo), .action = P_MenuAction_CompressVideo });
+    if (audio) Prog__MenuAddLast(state, (P_MenuItem){ .label = Prog_CommandLabel(Prog_CommandKind_ConvertAudio), .action = P_MenuAction_ConvertAudio });
     if (torrent) Prog__MenuAddLast(state, (P_MenuItem){ .label = Prog_CommandLabel(Prog_CommandKind_DownloadTorrent), .action = P_MenuAction_DownloadTorrent });
 }
 
@@ -2654,11 +2659,12 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
     }
     // Items Filey implements itself, which are all of them on Linux.
     if (item.action) {
-        static_assert(P_MenuAction_Count == 21);
+        static_assert(P_MenuAction_Count == 22);
         local_persist const Prog_CommandKind actions[P_MenuAction_Count] = {
             [P_MenuAction_CompressZip] = Prog_CommandKind_CompressZip,
             [P_MenuAction_Compress7z] = Prog_CommandKind_Compress7z,
             [P_MenuAction_CompressVideo] = Prog_CommandKind_CompressVideo,
+            [P_MenuAction_ConvertAudio] = Prog_CommandKind_ConvertAudio,
             [P_MenuAction_DownloadTorrent] = Prog_CommandKind_DownloadTorrent,
             [P_MenuAction_ExtractHere] = Prog_CommandKind_ExtractHere,
             [P_MenuAction_ExtractToFolder] = Prog_CommandKind_ExtractToFolder,
@@ -2739,6 +2745,70 @@ function void Prog__SubmitPreview(Prog_State *state, String path, b32 folder, b3
     job->input = input;
     state->previewJob = job;
     P_JobSubmit(job);
+}
+
+// Whether the audio field `field` holds a value too long to edit, which is shown but left as it is.
+function b32 Prog__TagFieldLocked(const Prog_State *state, u32 field)
+{
+    if (field >= Prog_TagFieldBulk) return ((state->bulk.cut & ~state->bulk.mixed) >> (field - Prog_TagFieldBulk)) & 1;
+    return field && field <= Prog_AudioTagCount && ((state->previewTags.cut >> (field - 1)) & 1);
+}
+
+// Starts reading the tags shared by the audio files the active panel's inspector is on, when they are another set than those read: two or
+// more selected, else those of the folder it shows, when they are most of its files; none without FFmpeg.
+function void Prog__UpdateBulk(Prog_State *state)
+{
+    Prog_LookUpPrograms(state);
+    Scratch scratch = GetScratch();
+    ArrayStr paths = {0};
+    String folder = {0};
+    b32 shown = state->previewShown && state->hasFfmpeg && !state->loading && !state->directory.archive;
+    if (shown && state->selectedCount >= 2) {
+        for (u64 i = 0, seen = 0; i < state->directory.count && seen < state->selectedCount; ++i) {
+            const Prog_Entry *entry = &state->directory.entries[i];
+            if (!entry->selected) continue;
+            ++seen;
+            if (Prog_IsAudio(entry->file.name) && Prog_AudioTagsWritable(entry->file.name)) ArrayPush(scratch.arena, paths, Prog_JoinPath(scratch.arena, state->directory.path, entry->file.name));
+            if (paths.header.count > Prog_MaxBulkFiles) break;
+        }
+        if (paths.header.count < 2 || paths.header.count > Prog_MaxBulkFiles) paths = (ArrayStr){0};
+    }
+    if (shown && !paths.header.count && state->hasFocus && state->focusedRow < state->directory.count &&
+        state->directory.entries[state->focusedRow].file.kind == P_FileKind_Directory) {
+        folder = Prog_JoinPath(scratch.arena, state->directory.path, state->directory.entries[state->focusedRow].file.name);
+    }
+    // The set by its paths, or its folder's; 0 for none.
+    u64 key = folder.length ? MapHashBytes(folder.value, folder.length) ^ 1 : 0;
+    for (u64 i = 0; i < paths.header.count; ++i) key = key * 31 + MapHashBytes(paths.v[i].value, paths.v[i].length);
+    if (key == UINT64_MAX) key = 1;
+    if (key != state->bulkKey || state->bulkStale) {
+        // Read again after a write, the tags shown stay until the new ones come, so that a tag typed meanwhile still has its files.
+        b32 again = key == state->bulkKey;
+        state->bulkKey = key;
+        state->bulkStale = false;
+        if (state->bulkJob) P_RequestCancel(&state->bulkJob->cancelToken);
+        state->bulkJob = NULL;
+        if (!again) {
+            ArenaClear(&state->bulkArena);
+            state->bulk = (Prog_BulkTags){0};
+            R_TextureRelease(state->bulkCover);
+            state->bulkCover = (R_TextureHandle){0};
+        }
+        if (key) {
+            P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+            Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+            input->kind = Prog_JobKind_BulkTags;
+            input->folder = folder.length != 0;
+            input->path = StrCopy(&job->arena, folder);
+            input->paths = ArenaPushArray(&job->arena, Max(paths.header.count, (u64)1), String);
+            for (u64 i = 0; i < paths.header.count; ++i) input->paths[i] = StrCopy(&job->arena, paths.v[i]);
+            input->pathCount = paths.header.count;
+            job->input = input;
+            state->bulkJob = job;
+            P_JobSubmit(job);
+        }
+    }
+    ReleaseScratch(scratch);
 }
 
 // Starts loading the preview of the current panel's focused item when it is another than the one shown; a folder is listed in the inspector's panel.
@@ -2864,7 +2934,7 @@ function void Prog__ScaleImage(Prog_State *state, b32 up)
 function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op)
 {
     if (!directory.length || (kind != Prog_JobKind_Create && kind != Prog_JobKind_Restore && !count)) return NULL;
-    b32 tool = op == Prog_TransferOp_CompressVideo || op == Prog_TransferOp_AudioTags || op == Prog_TransferOp_ExtractCover || op == Prog_TransferOp_Download || op == Prog_TransferOp_Torrent || op == Prog_TransferOp_TorrentFetch;
+    b32 tool = op == Prog_TransferOp_CompressVideo || op == Prog_TransferOp_ConvertAudio || op == Prog_TransferOp_ExtractCover || op == Prog_TransferOp_Download || op == Prog_TransferOp_Torrent || op == Prog_TransferOp_TorrentFetch;
     Prog_Transfer *transfer = NULL;
     // A torrent's download takes one of the torrents' own slots, and the rest the others.
     u32 first = op == Prog_TransferOp_Torrent ? Prog_MaxTransfers : 0, end = op == Prog_TransferOp_Torrent ? Prog_TransferSlots : Prog_MaxTransfers;
@@ -2873,7 +2943,7 @@ function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, co
         Prog_Notify(state, Prog_NoticeKind_Warning, S("transfer.busy"), Tr("Too many transfers at once"), Tr("Wait for one of them to finish, or stop one."));
         return NULL;
     }
-    P_Job *job = P_JobCreate(tool ? &state->toolJobs : &state->jobs, Prog__DirectoryJob);
+    P_Job *job = P_JobCreate(op == Prog_TransferOp_AudioTags ? &state->tagJobs : tool ? &state->toolJobs : &state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->panel = Prog__PanelId(state);
     input->kind = (u8)kind;
@@ -2881,6 +2951,7 @@ function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, co
     input->archiveLevel = state->archiveLevel;
     input->videoCodec = state->videoCodec;
     input->videoQuality = state->videoQuality;
+    input->audioFormat = state->audioFormat;
     input->downloadAudio = state->downloadAudio;
     input->downloadPlaylist = state->downloadPlaylist;
     input->path = StrCopy(&job->arena, directory);
@@ -3349,6 +3420,13 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             u64 videos = 0;
             for (u64 i = 0; i < count; ++i) if (Prog_IsVideo(paths[i])) paths[videos++] = paths[i];
             if (videos) Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, videos, Prog_ParentPath(paths[0]), false, (String){0}, Prog_TransferOp_CompressVideo);
+        } break;
+        case Prog_CommandKind_ConvertAudio: {
+            // The audio files among the items, and those of the folders among them, which the job tells apart off this thread, each into the
+            // format's folder beside it.
+            if (!count || state->directory.archive || P_IsTrashFolder(state->directory.path)) break;
+            String folder = Prog_AudioFolder(state->audioFormat, StrMake((const char *)state->audioFolder, state->audioFolderLength));
+            Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, count, Prog_ParentPath(paths[0]), false, folder, Prog_TransferOp_ConvertAudio);
         } break;
         case Prog_CommandKind_DownloadTorrent: {
             // With aria2c, whatever program the system opens torrents with.
@@ -5387,6 +5465,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_CompressZip:
             case Prog_CommandKind_Compress7z:
             case Prog_CommandKind_CompressVideo:
+            case Prog_CommandKind_ConvertAudio:
             case Prog_CommandKind_DownloadTorrent:
             case Prog_CommandKind_ExtractHere:
             case Prog_CommandKind_ExtractToFolder:
@@ -5404,23 +5483,30 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 else Prog__StartPlayer(state, path, 0);
             } break;
             case Prog_CommandKind_InspectorSaveCover: {
-                if (state->focusedRow >= state->directory.count || !state->previewTags.cover.length) break;
+                if (state->focusedRow >= state->directory.count || !state->previewTags.cover.length || state->directory.archive) break;
                 String path = Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name);
                 if (StrIsEqual(path, state->previewPath)) Prog__FileJobOp(state, Prog_JobKind_Transfer, &path, 1, state->directory.path, false, (String){0}, Prog_TransferOp_ExtractCover);
             } break;
             case Prog_CommandKind_InspectorTagEdit: {
-                if (command->row >= Prog_AudioTagCount || !state->previewTags.read || !state->previewPath.length) break;
+                // A file's tag, the folder converted audio goes into, or a tag several files share, as Prog_TagFieldFolder tells; not one too
+                // long to edit.
+                u32 field = (u32)command->row + 1, bulk = field >= Prog_TagFieldBulk ? field - Prog_TagFieldBulk : UINT32_MAX;
+                b32 known = field <= Prog_AudioTagCount ? state->previewTags.read : field == Prog_TagFieldFolder || (bulk < Prog_AudioTagCount && state->bulk.count);
+                if (!known || !state->previewPath.length || Prog__TagFieldLocked(state, field)) break;
                 if (state->tagField) Prog_EndTagEdit(state, true);
-                state->tagField = (u8)(command->row + 1);
+                state->tagField = (u8)field;
                 state->tagPathLength = (u32)Min(state->previewPath.length, sizeof(state->tagPath));
                 MemCopy(state->tagPath, state->previewPath.value, state->tagPathLength);
-                // Its whole value selected, to be typed over or added to.
-                String value = state->previewTags.values[command->row];
+                // Its whole value selected, to be typed over or added to; one the files differ in starts empty.
+                String value = field <= Prog_AudioTagCount ? state->previewTags.values[field - 1]
+                             : field == Prog_TagFieldFolder ? Prog_AudioFolder(state->audioFormat, StrMake((const char *)state->audioFolder, state->audioFolderLength))
+                                                            : state->bulk.values[bulk];
                 state->tagEdit = (Prog_TextEdit){0};
                 Prog__EditReplace(&state->tagEdit, (const u8 *)value.value, (u32)Min(value.length, (u64)sizeof(state->tagEdit.text)));
                 state->tagEdit.anchor = 0;
                 state->tagBefore = state->tagEdit;
             } break;
+            case Prog_CommandKind_InspectorAudioFormat: Prog_SetOption(state, Prog_Option_AudioFormat, (i32)command->row); break;
             case Prog_CommandKind_InspectorMute:
             case Prog_CommandKind_InspectorVolume: {
                 if (command->kind == Prog_CommandKind_InspectorMute) state->audioMuted = !state->audioMuted;
@@ -5563,7 +5649,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     // audio file's cover takes its place.
     ArrayStr pinned = P_TakeDroppedKept(&state->frameArena);
     if (pinned.header.count) {
-        if (state->coverDropLength) Prog_SetCover(state, StrMake((const char *)state->coverDrop, state->coverDropLength), pinned.v[0]);
+        String dropped = StrMake((const char *)state->coverDrop, state->coverDropLength);
+        if (state->coverDropBulk) Prog_SetCover(state, state->bulk.paths, state->bulk.count, pinned.v[0]);
+        else if (state->coverDropLength) Prog_SetCover(state, &dropped, 1, pinned.v[0]);
         else if (state->userGroupDropIn) Prog_UserGroupAdd(state, state->userGroupDropIn - 1, &pinned, state->userGroupDrop - 1);
         else Prog_PinBookmarks(state, &pinned, state->bookmarkDrop ? state->bookmarkDrop - 1 : state->bookmarks.header.count);
         changed = true;
@@ -5573,7 +5661,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     state->userGroupDropIn = state->userGroupDropShownIn;
     MemCopy(state->coverDrop, state->coverDropShown, state->coverDropShownLength);
     state->coverDropLength = state->coverDropShownLength;
-    P_SetDropKeeps(state->coverDropLength ? P_DropKeep_Files : state->bookmarkDrop != 0 || state->userGroupDropIn != 0 ? P_DropKeep_Folders : P_DropKeep_None);
+    state->coverDropBulk = state->coverDropBulkShown;
+    P_SetDropKeeps(state->coverDropLength || state->coverDropBulk ? P_DropKeep_Files : state->bookmarkDrop != 0 || state->userGroupDropIn != 0 ? P_DropKeep_Folders : P_DropKeep_None);
     // The schemes' dropdown goes with the Options it opened from.
     if (!state->paletteOpen || state->paletteMode != Prog_PaletteMode_Options) state->schemesOpen = 0, state->mutedOpen = false;
     Prog_SubmitIconRequests(state);
@@ -5585,6 +5674,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
         Prog__UpdatePreview(state);
     }
     Prog__UsePanel(state, state->activePanel);
+    Prog__UpdateBulk(state);
     Prog_KeepLockedView(state);
     for (u32 i = 0; i < state->noticeCount;) {
         if (Prog_NoticeLeft(&state->notices[i], PlatformNowMicroseconds())) {
@@ -5918,8 +6008,9 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         // A tag of the inspector's audio file being typed in takes the keyboard; Enter or a press anywhere saves it, Escape leaves it, and Tab
         // saves it and goes on to the next tag, Shift+Tab to the one before. It ends as another item shows.
-        if (state->tagField && !StrIsEqual(state->previewPath, StrMake((const char *)state->tagPath, state->tagPathLength))) state->tagField = 0;
-        if (state->tagField && event->kind == PlatformEventKind_MouseDown) Prog_EndTagEdit(state, true);
+        // An item read again after a save has no path for a moment, which keeps it typing.
+        if (state->tagField && state->previewPath.length && !StrIsEqual(state->previewPath, StrMake((const char *)state->tagPath, state->tagPathLength))) state->tagField = 0;
+        if (state->tagField && event->kind == PlatformEventKind_MouseDown && !UI__Contains(state->tagFieldRect, (UI_Vec2){ event->x, event->y })) Prog_EndTagEdit(state, true);
         if (state->tagField && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
             if (event->kind == PlatformEventKind_Text) {
                 if (event->codepoint >= ' ' && event->codepoint != 0x7F) Prog__EditInsert(&state->tagEdit, event->codepoint);
@@ -5927,9 +6018,17 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 Prog_EndTagEdit(state, event->key == Key_Enter);
                 state->swallowText = true;
             } else if (event->key == Key_Tab) {
-                u32 next = (state->tagField - 1 + ((event->mods & KeyMod_Shift) ? Prog_AudioTagCount - 1 : 1)) % Prog_AudioTagCount;
+                // Within the file's tags or the shared ones; the folder's field has no next.
+                // The shared ones leave out the title and the track, which are not shown.
+                u32 field = state->tagField, first = field >= Prog_TagFieldBulk ? Prog_TagFieldBulk : 1, next = field;
+                // Nor those too long to edit, all of which leave nothing to go on to.
+                u32 tries = 0;
+                do next = first + (next - first + ((event->mods & KeyMod_Shift) ? Prog_AudioTagCount - 1 : 1)) % Prog_AudioTagCount;
+                while (++tries < Prog_AudioTagCount && (Prog__TagFieldLocked(state, next) ||
+                       (first == Prog_TagFieldBulk && (StrIsEqual(Prog_AudioTagKeys[next - first], S("title")) || StrIsEqual(Prog_AudioTagKeys[next - first], S("track"))))));
+                if (tries >= Prog_AudioTagCount) next = field;
                 Prog_EndTagEdit(state, true);
-                Prog_QueueCommand(state, Prog_CommandKind_InspectorTagEdit, next, 0, order);
+                if (field != Prog_TagFieldFolder && next != field) Prog_QueueCommand(state, Prog_CommandKind_InspectorTagEdit, next - 1, 0, order);
                 state->swallowText = true;
             } else {
                 Prog__EditKey(state, &state->tagEdit, event);

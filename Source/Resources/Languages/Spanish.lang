@@ -3796,3 +3796,60 @@ Save Album Cover
 
 Save the album cover of the audio file shown in the inspector beside it as a picture.
 = Guarda la portada del álbum del archivo de audio mostrado en el inspector junto a él, como imagen.
+
+Audio Format
+= Formato de audio
+
+What Convert Audio converts to, into a folder beside the files named after the format, which the inspector's details rename.
+= A qué convierte Convertir audio, en una carpeta junto a los archivos con el nombre del formato, que los detalles del inspector renombran.
+
+Not a folder's name
+= No es un nombre de carpeta
+
+A folder's name has no slashes or colons in it, and is not only dots.
+= El nombre de una carpeta no lleva barras ni dos puntos, y no es solo puntos.
+
+Converting into %S
+= Convirtiendo en %S
+
+Mixed
+= Varios
+
+Audio files
+= Archivos de audio
+
+Covers: %u of %u
+= Portadas: %u de %u
+
+Drop a picture on it for all
+= Suelta una imagen encima para todos
+
+Their format takes no cover
+= Su formato no admite portada
+
+The format Convert Audio converts to; a click goes on to the next.
+= El formato de Convertir audio; un clic pasa al siguiente.
+
+into
+= en
+
+Convert
+= Convertir
+
+There is no audio file to convert
+= No hay archivos de audio que convertir
+
+Converting the audio failed
+= No se pudo convertir el audio
+
+Convert Audio
+= Convertir audio
+
+Convert the selected audio files, or those in the selected folders, to the format the inspector's details choose, into a folder beside them.
+= Convierte los archivos de audio seleccionados, o los de las carpetas seleccionadas, al formato elegido en los detalles del inspector, en una carpeta a su lado.
+
+A file has the name of the folder converted audio goes into
+= Un archivo tiene el nombre de la carpeta del audio convertido
+
+An Ogg or Opus file's cover is one of its tags, which saving would lose
+= La portada de un archivo Ogg u Opus es una de sus etiquetas, que guardar perdería

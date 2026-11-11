@@ -162,10 +162,7 @@ function String Prog__LastLine(String text)
     return newline.exists ? StrFrom(text, newline.value + 1) : text;
 }
 
-// The tags the inspector shows and edits, by FFmpeg's names, which it maps to each format's own, as ID3's TPE2 or Vorbis' ALBUMARTIST.
-global const String Prog_AudioTagKeys[Prog_AudioTagCount] = {
-    SInit("title"), SInit("artist"), SInit("album"), SInit("album_artist"), SInit("date"), SInit("track"), SInit("genre"), SInit("comment"),
-};
+// The tags' labels, by Prog_AudioTagKeys.
 global const String Prog_AudioTagLabels[Prog_AudioTagCount] = {
     TrInit("Title"), TrInit("Artist"), TrInit("Album"), TrInit("Album artist"), TrInit("Year"), TrInit("Track"), TrInit("Genre"), TrInit("Comment"),
 };
@@ -177,6 +174,14 @@ function b32 Prog_AudioHoldsCover(String path)
     return Prog__HasExtension(path, extensions, CArrayCount(extensions));
 }
 
+// Whether FFmpeg writes all of the audio file at `path`'s tags back as they were read: AAC's ADTS keeps none, AIFF and WAV some, and
+// WavPack's APE tags keep names of their own, as Year, so they are not edited.
+function b32 Prog_AudioTagsWritable(String path)
+{
+    const String extensions[] = { S("mp3"), S("flac"), S("ogg"), S("oga"), S("opus"), S("m4a"), S("wma"), S("mka") };
+    return Prog__HasExtension(path, extensions, CArrayCount(extensions));
+}
+
 // Ogg's and Opus' tags are their audio stream's, where FFmpeg reads and writes them, rather than the file's.
 function b32 Prog__AudioStreamTags(String path)
 {
@@ -184,45 +189,86 @@ function b32 Prog__AudioStreamTags(String path)
     return Prog__HasExtension(path, extensions, CArrayCount(extensions));
 }
 
-// The tags of the audio file at `path`, the file's or else its audio stream's, and the codec of its cover, empty without one; false without
-// ffprobe. A value of more than one line keeps its first.
+// A value of ffprobe's flat output, "text" with \" \ \n and the like escaped, as it is; `lines` set when it has more than one.
+function String Prog__FlatValue(Arena *arena, String raw, b32 *lines)
+{
+    *lines = false;
+    if (raw.length < 2 || raw.value[0] != '"') return StrCopy(arena, raw);
+    raw = StrFromTo(raw, 1, (i64)raw.length - (raw.value[raw.length - 1] == '"' ? 1 : 0));
+    StrBuilder value = {0};
+    for (u64 i = 0; i < raw.length; ++i) {
+        char c = raw.value[i];
+        if (c == '\\' && i + 1 < raw.length) {
+            c = raw.value[++i];
+            c = c == 'n' ? '\n' : c == 'r' ? '\r' : c == 't' ? '\t' : c == 'b' ? '\b' : c == 'f' ? '\f' : c;
+        }
+        *lines |= c == '\n' || c == '\r';
+        StrBuildChar(arena, &value, c);
+    }
+    return value.buffer;
+}
+
+// The tags of the audio file at `path`, the file's or else its first audio stream's, and the codec of its cover, empty without one; false
+// without ffprobe. A value of more than one line, or more than the inspector edits, is marked cut.
 function b32 Prog_ReadAudioTags(Arena *arena, String path, const P_CancelToken *cancel, Prog_AudioTags *tags)
 {
     *tags = (Prog_AudioTags){0};
     Scratch scratch = GetScratchEx(arena);
+    // The flat output escapes a value's line breaks, so that each line is a key and its whole value.
     String arguments[] = { S("ffprobe"), S("-v"), S("error"), S("-show_entries"), S("format_tags:stream=codec_type,codec_name:stream_tags:stream_disposition=attached_pic"),
-                           S("-of"), S("default"), path };
+                           S("-of"), S("flat"), path };
     String output = {0};
     if (P_RunCommandWith(scratch.arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), NULL, 0, 10000, &output, false, cancel)) {
         tags->read = true;
+        // The stream whose keys come, as each stream's come together, and of its first audio stream, the tags.
         String streamValues[Prog_AudioTagCount] = {0}, codec = {0}, type = {0};
-        b32 inFormat = false, picture = false, firstAudio = false;
+        u32 streamCut = 0;
+        u64 stream = UINT64_MAX;
+        b32 picture = false, audioDone = false;
         ArrayStr lines = StrSplit(scratch.arena, output, '\n');
-        for (u64 i = 0; i < lines.header.count; ++i) {
-            String line = lines.v[i];
+        for (u64 i = 0; i <= lines.header.count; ++i) {
+            String line = i < lines.header.count ? lines.v[i] : (String){0};
             if (line.length && line.value[line.length - 1] == '\r') --line.length;
-            if (StrIsEqual(line, S("[STREAM]"))) inFormat = false, picture = false, codec = type = (String){0};
-            else if (StrIsEqual(line, S("[FORMAT]"))) inFormat = true;
-            else if (StrIsEqual(line, S("[/STREAM]"))) {
-                if (picture && !tags->cover.length) tags->cover = StrCopy(arena, codec);
-                if (StrIsEqual(type, S("audio"))) firstAudio = true;
-            }
             Index equals = StrIndexChar(line, '=', SSF_None);
-            if (!equals.exists) continue;
-            String key = StrFromTo(line, 0, (i64)equals.value), value = StrFrom(line, equals.value + 1);
-            if (StrIsEqual(key, S("codec_name"))) codec = value;
-            else if (StrIsEqual(key, S("codec_type"))) type = value;
-            else if (StrIsEqual(key, S("DISPOSITION:attached_pic"))) picture = StrIsEqual(value, S("1"));
-            if (key.length <= 4 || !StrIsEqual(StrFromTo(key, 0, 4), S("TAG:"))) continue;
-            key = StrFrom(key, 4);
-            for (u32 t = 0; t < Prog_AudioTagCount; ++t) {
-                if (!Prog__EqualFolded(key, Prog_AudioTagKeys[t])) continue;
-                // The file's tags, else those of its first audio stream, which a cover's stream would otherwise take.
-                if (inFormat) tags->values[t] = StrCopy(arena, value);
-                else if (!firstAudio && StrIsEqual(type, S("audio")) && !streamValues[t].length) streamValues[t] = value;
+            String key = equals.exists ? StrFromTo(line, 0, (i64)equals.value) : (String){0}, raw = equals.exists ? StrFrom(line, equals.value + 1) : (String){0};
+            // "streams.stream.<n>.<key>": a stream's key, which ends the stream before when it is another's.
+            u64 at = UINT64_MAX;
+            String prefix = S("streams.stream."), rest = key;
+            if (key.length > prefix.length && StrIsEqual(StrFromTo(key, 0, (i64)prefix.length), prefix)) {
+                Index dot = StrIndexChar(StrFrom(key, prefix.length), '.', SSF_None);
+                at = dot.exists ? (u64)Prog__MediaNumber(StrFromTo(key, prefix.length, (i64)(prefix.length + dot.value))) : UINT64_MAX;
+                rest = dot.exists ? StrFrom(key, prefix.length + dot.value + 1) : (String){0};
+            }
+            if (at != stream && stream != UINT64_MAX) {
+                if (picture && !tags->cover.length) tags->cover = StrCopy(arena, codec);
+                if (StrIsEqual(type, S("audio"))) audioDone = true;
+                picture = false, codec = type = (String){0};
+            }
+            if (at != UINT64_MAX) stream = at;
+            b32 inFormat = key.length > 12 && StrIsEqual(StrFromTo(key, 0, 12), S("format.tags."));
+            if (at != UINT64_MAX && StrIsEqual(rest, S("codec_name"))) codec = Prog__FlatValue(scratch.arena, raw, &(b32){0});
+            else if (at != UINT64_MAX && StrIsEqual(rest, S("codec_type"))) type = Prog__FlatValue(scratch.arena, raw, &(b32){0});
+            else if (at != UINT64_MAX && StrIsEqual(rest, S("disposition.attached_pic"))) picture = StrIsEqual(raw, S("1"));
+            String tag = inFormat ? StrFrom(key, 12) : at != UINT64_MAX && rest.length > 5 && StrIsEqual(StrFromTo(rest, 0, 5), S("tags.")) ? StrFrom(rest, 5) : (String){0};
+            for (u32 t = 0; tag.length && t < Prog_AudioTagCount; ++t) {
+                if (!Prog__EqualFolded(tag, Prog_AudioTagKeys[t])) continue;
+                b32 more = false;
+                String value = Prog__FlatValue(arena, raw, &more);
+                u32 cut = more || value.length >= sizeof(((Prog_TextEdit *)0)->text) ? 1u << t : 0;
+                // The value shown is its first line.
+                Index newline = StrIndexChar(value, '\n', SSF_None);
+                if (newline.exists) value = StrFromTo(value, 0, (i64)newline.value);
+                if (inFormat) tags->values[t] = value, tags->cut |= cut;
+                else if (!audioDone && StrIsEqual(type, S("audio")) && !streamValues[t].length) streamValues[t] = value, streamCut |= cut;
             }
         }
-        for (u32 t = 0; t < Prog_AudioTagCount; ++t) if (!tags->values[t].length && streamValues[t].length) tags->values[t] = StrCopy(arena, streamValues[t]);
+        for (u32 t = 0; t < Prog_AudioTagCount; ++t) {
+            if (tags->values[t].length || !streamValues[t].length) continue;
+            tags->values[t] = streamValues[t];
+            tags->cut |= streamCut & (1u << t);
+        }
+        // Ogg's cover is one of its tags, which FFmpeg reads as a picture and cannot write back, so such a file's tags are left as they are.
+        if (tags->cover.length && Prog__AudioStreamTags(path)) tags->cut = (1u << Prog_AudioTagCount) - 1;
     }
     ReleaseScratch(scratch);
     return tags->read;
@@ -251,14 +297,18 @@ function b32 Prog_AudioCover(Arena *arena, String path, const P_CancelToken *can
 // Writes the tags `changes`, a "key\tvalue" line each, an empty value taking the tag away, and the picture at `cover` as the cover in place of
 // any there, into the audio file at `path`. The audio goes along as it is, into a hidden file beside it that then takes its place, so that
 // one cut short leaves it whole.
-// Writes go one at a time, so that two saved quickly one after the other on a tool's threads each read what the one before wrote.
-// ponytail: the new file has the default permissions rather than the old one's; copy them over if a shared music folder needs them.
-// ponytail: one lock for every file, waited on by sleeping; a lock for each file if many are tagged at once.
+// ponytail: the new file takes the old one's place as P_ReplaceFile does, which on Windows leaves its attributes and permissions behind, and
+// makes a link a file of its own; write in place if those matter.
+// ponytail: FFmpeg writes back the tags it knows, so an MP3's rating (POPM) and ids (UFID) go; a tag writer of its own keeps every frame.
 function P_FileError Prog_WriteAudioTags(Arena *arena, String path, String changes, String cover, const P_CancelToken *cancel)
 {
-    local_persist atomic_uint writing;
-    while (atomic_exchange(&writing, 1u)) P_Sleep(10);
     Scratch scratch = GetScratchEx(arena);
+    // Ogg's cover is one of its tags, which FFmpeg would drop.
+    Prog_AudioTags had = {0};
+    if (Prog__AudioStreamTags(path) && Prog_ReadAudioTags(scratch.arena, path, cancel, &had) && had.cover.length) {
+        ReleaseScratch(scratch);
+        return (P_FileError){ .code = 1, .message = TrMark("An Ogg or Opus file's cover is one of its tags, which saving would lose") };
+    }
     String folder = Prog_ParentPath(path), leaf = Prog_EntryLeaf(path);
     Index dot = StrIndexChar(leaf, '.', SSF_SearchBackwards);
     String extension = dot.exists ? StrFrom(leaf, dot.value + 1) : (String){0};
@@ -267,8 +317,12 @@ function P_FileError Prog_WriteAudioTags(Arena *arena, String path, String chang
     const String start[] = { S("ffmpeg"), S("-v"), S("error"), S("-nostdin"), S("-y"), S("-i"), path };
     for (u32 i = 0; i < CArrayCount(start); ++i) ArrayPush(scratch.arena, arguments, start[i]);
     if (cover.length) { ArrayPush(scratch.arena, arguments, S("-i")); ArrayPush(scratch.arena, arguments, cover); }
+    // Ogg's audio alone, as its muxer takes no picture; an M4A's chapters' text track, which its muxer takes no tags of, goes too, the
+    // chapters coming along as chapters.
     ArrayPush(scratch.arena, arguments, S("-map"));
-    ArrayPush(scratch.arena, arguments, S("0"));
+    ArrayPush(scratch.arena, arguments, Prog__AudioStreamTags(path) ? S("0:a") : S("0"));
+    ArrayPush(scratch.arena, arguments, S("-map"));
+    ArrayPush(scratch.arena, arguments, S("-0:d?"));
     if (cover.length) {
         const String mapped[] = { S("-map"), S("-0:v"), S("-map"), S("1:0") };
         for (u32 i = 0; i < CArrayCount(mapped); ++i) ArrayPush(scratch.arena, arguments, mapped[i]);
@@ -282,7 +336,9 @@ function P_FileError Prog_WriteAudioTags(Arena *arena, String path, String chang
         ArrayPush(scratch.arena, arguments, S("-disposition:v:0"));
         ArrayPush(scratch.arena, arguments, S("attached_pic"));
     }
-    b32 stream = Prog__AudioStreamTags(path);
+    // Ogg's tags are its audio stream's; Matroska's may be the file's or the track's, which are read when the file has none, so both go.
+    const String matroska[] = { S("mka") };
+    b32 stream = Prog__AudioStreamTags(path) || Prog__HasExtension(path, matroska, 1);
     ArrayStr lines = StrSplit(scratch.arena, changes, '\n');
     for (u64 i = 0; i < lines.header.count; ++i) {
         Index tab = StrIndexChar(lines.v[i], '\t', SSF_None);
@@ -291,6 +347,12 @@ function P_FileError Prog_WriteAudioTags(Arena *arena, String path, String chang
         ArrayPush(scratch.arena, arguments, S("-metadata"));
         ArrayPush(scratch.arena, arguments, tag);
         if (stream) { ArrayPush(scratch.arena, arguments, S("-metadata:s:a:0")); ArrayPush(scratch.arena, arguments, tag); }
+    }
+    // M4A keeps tags of its own, as ReplayGain's and MusicBrainz' ids, only when told to.
+    const String m4a[] = { S("m4a") };
+    if (Prog__HasExtension(path, m4a, 1)) {
+        ArrayPush(scratch.arena, arguments, S("-movflags"));
+        ArrayPush(scratch.arena, arguments, S("use_metadata_tags"));
     }
     // ID3 2.3, which more players read than 2.4.
     const String mp3[] = { S("mp3") };
@@ -302,11 +364,16 @@ function P_FileError Prog_WriteAudioTags(Arena *arena, String path, String chang
         String message = Prog__LastLine(output);
         result = (P_FileError){ .code = 1, .message = message.length ? StrCopy(arena, message) : TrMark("FFmpeg is not installed, or could not read the file") };
     } else {
+        // Another program reading the file, or the player or the inspector's waveform still ending, keeps it from being replaced on Windows
+        // for a moment.
         result = P_ReplaceFile(arena, written, path);
+        for (u32 tries = 0; result.code && tries < 30 && !P_IsCancelled(cancel); ++tries) {
+            P_Sleep(100);
+            result = P_ReplaceFile(arena, written, path);
+        }
     }
     if (P_PathExists(written)) P_DeleteItems(scratch.arena, &written, 1, false, NULL);
     ReleaseScratch(scratch);
-    atomic_store(&writing, 0u);
     return result;
 }
 
@@ -327,8 +394,9 @@ function P_FileError Prog_ExtractCover(Arena *arena, String path, const P_Cancel
     result = P_CreateItem(arena, folder, StrFormat(scratch.arena, "%S cover.%s", Prog__NameStem(Prog_EntryLeaf(path)), jpeg ? "jpg" : "png"), false, &made);
     if (!result.code) {
         String output = Prog_JoinPath(arena, folder, made), said = {0};
+        // One picture, under its name as it is, which a % in it would otherwise number.
         String arguments[] = { S("ffmpeg"), S("-v"), S("error"), S("-nostdin"), S("-y"), S("-i"), path, S("-map"), S("0:v:0"), S("-frames:v"), S("1"), S("-c:v"),
-                               jpeg || png ? S("copy") : S("png"), output };
+                               jpeg || png ? S("copy") : S("png"), S("-update"), S("1"), output };
         if (P_RunCommandWith(scratch.arena, folder, arguments, CArrayCount(arguments), NULL, 0, 20000, &said, true, cancel)) {
             *placed = output;
         } else {
@@ -339,6 +407,64 @@ function P_FileError Prog_ExtractCover(Arena *arena, String path, const P_Cancel
     }
     ReleaseScratch(scratch);
     return result;
+}
+
+// The tags shared by the audio files `paths`, where every one has the same value, and those they differ in; with the first cover among them,
+// fit to a `side` square, and how many have one and can take one. A file ffprobe cannot read counts as having none of them.
+function void Prog_ReadBulkTags(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel, i32 side, Prog_BulkTags *bulk)
+{
+    *bulk = (Prog_BulkTags){0};
+    bulk->paths = ArenaPushArray(arena, Max(count, (u64)1), String);
+    String coverOf = {0};
+    for (u64 i = 0; i < count && !P_IsCancelled(cancel); ++i) {
+        Prog_AudioTags tags = {0};
+        Prog_ReadAudioTags(arena, paths[i], cancel, &tags);
+        u64 at = bulk->count++;
+        bulk->paths[at] = StrCopy(arena, paths[i]);
+        for (u32 t = 0; t < Prog_AudioTagCount; ++t) {
+            if (!at) bulk->values[t] = tags.values[t];
+            else if (!StrIsEqual(bulk->values[t], tags.values[t])) bulk->mixed |= 1u << t;
+        }
+        bulk->cut |= tags.cut;
+        if (tags.cover.length) {
+            ++bulk->covered;
+            if (!coverOf.length) coverOf = bulk->paths[at];
+        }
+        if (Prog_AudioHoldsCover(paths[i])) ++bulk->coverable;
+    }
+    for (u32 t = 0; t < Prog_AudioTagCount; ++t) if (bulk->mixed & (1u << t)) bulk->values[t] = (String){0};
+    P_Image cover = {0};
+    if (coverOf.length && !P_IsCancelled(cancel) && Prog_AudioCover(arena, coverOf, cancel, side, &cover, &bulk->coverWidth, &bulk->coverHeight)) {
+        bulk->coverPixels = cover.pixels, bulk->coverWidth = cover.width, bulk->coverHeight = cover.height;
+    }
+}
+
+// The audio files of the folder `path`, when they are most of its files, at least two and at most Prog_MaxBulkFiles; none otherwise.
+function u64 Prog_FolderAudio(Arena *arena, String path, const P_CancelToken *cancel, String **paths)
+{
+    P_DirectoryResult listed = P_EnumerateDirectory(arena, path, cancel);
+    u64 files = 0, audio = 0;
+    *paths = ArenaPushArray(arena, Max(listed.files.header.count, (u64)1), String);
+    for (u64 i = 0; i < listed.files.header.count; ++i) {
+        const P_File *file = &listed.files.v[i];
+        if (file->kind == P_FileKind_Directory || file->hidden) continue;
+        ++files;
+        if (Prog_IsAudio(file->name)) (*paths)[audio++] = Prog_JoinPath(arena, path, file->name);
+    }
+    if (audio * 2 < files) return 0;
+    // Those whose tags FFmpeg writes whole.
+    u64 writable = 0;
+    for (u64 i = 0; i < audio; ++i) if (Prog_AudioTagsWritable((*paths)[i])) (*paths)[writable++] = (*paths)[i];
+    audio = writable;
+    if (audio < 2 || audio > Prog_MaxBulkFiles) return 0;
+    // In the order the names sort in, as an album's tracks are numbered.
+    for (u64 i = 1; i < audio; ++i) {
+        String moved = (*paths)[i];
+        u64 j = i;
+        for (; j > 0 && Prog_CompareNames((*paths)[j - 1], moved) > 0; --j) (*paths)[j] = (*paths)[j - 1];
+        (*paths)[j] = moved;
+    }
+    return audio;
 }
 
 // The graphics cards' encoders, tried in this order, then the processor's.
@@ -507,6 +633,75 @@ function P_FileError Prog_CompressVideo(Arena *arena, String path, u32 codec, u3
         result = (P_FileError){ .code = 1, .message = message };
     }
     *placed = output;
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// What audio is converted to: its name in the settings and as shown, the folder it goes into beside the files by default, its extension, and
+// the encoder's arguments.
+global const String Prog_AudioFormats[] = { SInit("mp3-320"), SInit("mp3-v0"), SInit("aac-256"), SInit("opus-160"), SInit("flac") };
+global const String Prog_AudioFormatLabels[] = { NoTrInit("MP3 320"), NoTrInit("MP3 V0"), NoTrInit("AAC 256"), NoTrInit("Opus 160"), NoTrInit("FLAC") };
+global const char *const Prog_AudioFormatFolders[] = { "MP3", "MP3", "AAC", "Opus", "FLAC" };
+global const char *const Prog_AudioFormatExtensions[] = { "mp3", "mp3", "m4a", "opus", "flac" };
+global const char *const Prog_AudioFormatEncoders[][4] = {
+    { "libmp3lame", "-b:a", "320k" }, { "libmp3lame", "-q:a", "0" }, { "aac", "-b:a", "256k" }, { "libopus", "-b:a", "160k" }, { "flac", "-compression_level", "8" },
+};
+
+// The folder converted audio goes into: `folder` as set, else the format's own.
+function String Prog_AudioFolder(u32 format, String folder)
+{
+    return folder.length ? folder : StrFromCStr(Prog_AudioFormatFolders[Min(format, (u32)CArrayCount(Prog_AudioFormats) - 1)]);
+}
+
+// Converts the audio file at `path` to `format` into the folder `folder` beside it, made when missing, as "<name>.<extension>", numbered past
+// one taken, whose path goes into `placed`. The tags go along, and the cover where the new file holds one. `progress` counts the audio's
+// milliseconds after `base`; a cancel or a failure leaves no output.
+function P_FileError Prog_ConvertAudio(Arena *arena, String path, u32 format, String folder, u64 base, P_Progress *progress, const P_CancelToken *cancel, String *placed)
+{
+    *placed = (String){0};
+    format = Min(format, (u32)CArrayCount(Prog_AudioFormats) - 1);
+    Scratch scratch = GetScratchEx(arena);
+    String parent = Prog_ParentPath(path), into = Prog_JoinPath(scratch.arena, parent, folder), made = {0};
+    P_FileError result = {0};
+    if (P_PathExists(into) && !P_IsDirectory(into)) result = (P_FileError){ .code = 1, .message = TrMark("A file has the name of the folder converted audio goes into") };
+    else if (!P_IsDirectory(into)) result = P_CreateItem(scratch.arena, parent, folder, true, &made);
+    String extension = StrFromCStr(Prog_AudioFormatExtensions[format]);
+    if (!result.code) result = P_CreateItem(arena, into, StrFormat(scratch.arena, "%S.%S", Prog__NameStem(Prog_EntryLeaf(path)), extension), false, &made);
+    if (result.code) {
+        ReleaseScratch(scratch);
+        return result;
+    }
+    String output = Prog_JoinPath(arena, into, made);
+    const char *const *encoder = Prog_AudioFormatEncoders[format];
+    b32 cover = Prog_AudioHoldsCover(output);
+    String arguments[40];
+    u32 count = 0;
+    // Ogg's and Opus' tags come of their audio stream, the others' of the file.
+    b32 streamTags = Prog__AudioStreamTags(path);
+    const String start[] = { S("ffmpeg"), S("-hide_banner"), S("-nostdin"), S("-v"), S("error"), S("-y"), S("-i"), path, S("-map"), S("0:a:0"), S("-map_metadata"),
+                             streamTags ? S("0:s:a:0") : S("0") };
+    for (u32 i = 0; i < CArrayCount(start); ++i) arguments[count++] = start[i];
+    // A cover goes along as it is; Opus holds none.
+    if (cover) {
+        const String pictured[] = { S("-map"), S("0:v?"), S("-c:v"), S("copy"), S("-disposition:v"), S("attached_pic") };
+        for (u32 i = 0; i < CArrayCount(pictured); ++i) arguments[count++] = pictured[i];
+    }
+    arguments[count++] = S("-c:a"), arguments[count++] = StrFromCStr(encoder[0]);
+    arguments[count++] = StrFromCStr(encoder[1]), arguments[count++] = StrFromCStr(encoder[2]);
+    // Ogg's tags are its audio stream's, which take the file's.
+    if (StrIsEqual(extension, S("opus"))) arguments[count++] = S("-map_metadata:s:a:0"), arguments[count++] = streamTags ? S("0:s:a:0") : S("0:g");
+    if (StrIsEqual(extension, S("mp3"))) arguments[count++] = S("-id3v2_version"), arguments[count++] = S("3");
+    const String finish[] = { S("-progress"), S("pipe:1"), S("-nostats"), output };
+    for (u32 i = 0; i < CArrayCount(finish); ++i) arguments[count++] = finish[i];
+    Prog__Encoding encoding = { .progress = progress, .base = base, .name = Prog_EntryLeaf(path) };
+    if (progress) P_ProgressName(progress, encoding.name);
+    if (!P_RunCommandStream(into, arguments, count, true, Prog__EncodingOutput, &encoding, cancel, progress)) {
+        P_DeleteItems(scratch.arena, &output, 1, false, NULL);
+        String message = encoding.messageLength ? StrCopy(arena, StrMake(encoding.message, encoding.messageLength)) : TrMark("FFmpeg is not installed, or could not read the file");
+        result = (P_FileError){ .code = 1, .message = message };
+    } else {
+        *placed = output;
+    }
     ReleaseScratch(scratch);
     return result;
 }

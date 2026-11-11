@@ -324,6 +324,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_UpdateInstall,
     Prog_JobKind_Save,
     Prog_JobKind_Preview,
+    Prog_JobKind_BulkTags,    // the tags the audio files `paths` share, or those of the folder `path`'s when `folder` is set and they are most of it
     Prog_JobKind_Undo,
     Prog_JobKind_HexPage,
     Prog_JobKind_HexFind,     // the first place from `offset` on, round to it again, where the bytes `name` are in the file `path`
@@ -527,6 +528,7 @@ typedef enum Prog_TransferOp {
     Prog_TransferOp_TorrentFetch,   // fetches the torrent `paths[0]`, a magnet link or a .torrent's web address, into `path` as a .torrent file
     Prog_TransferOp_AudioTags,      // writes the tags `name`, a "key\tvalue" line each, into the audio file `paths[0]`, and the picture `paths[1]` as its cover when given
     Prog_TransferOp_ExtractCover,   // saves the cover of the audio file `paths[0]` beside it
+    Prog_TransferOp_ConvertAudio,   // converts the audio files `paths` to `audioFormat`, each into the folder `name` beside it
     Prog_TransferOp_Count,
 } Prog_TransferOp;
 
@@ -535,6 +537,7 @@ typedef struct Prog_JobInput {
     enum8(Prog_TransferOp) transferOp;
     u8 archiveLevel;  // how hard what goes into an archive is compressed, 0 to 9
     u8 videoCodec, videoQuality;  // what a video is compressed to
+    u8 audioFormat;               // what audio is converted to, a Prog_AudioFormats index
     b32 downloadAudio;            // a download is the sound alone
     b32 downloadPlaylist;         // a video's address in a playlist downloads the whole playlist
     const atomic_uint *volume;    // what audio plays at, 0 to 100, read as it plays
@@ -817,11 +820,37 @@ typedef struct Prog_TorrentProgress {
 
 // An audio file's tags as the inspector edits them, by Prog_AudioTagKeys, and its cover's codec, empty without one; `read` once ffprobe read them.
 #define Prog_AudioTagCount 8
+// The tags the inspector shows and edits, by FFmpeg's names, which it maps to each format's own, as ID3's TPE2 or Vorbis' ALBUMARTIST.
+global const String Prog_AudioTagKeys[Prog_AudioTagCount] = {
+    SInit("title"), SInit("artist"), SInit("album"), SInit("album_artist"), SInit("date"), SInit("track"), SInit("genre"), SInit("comment"),
+};
+// A bit of `cut` set for a value of more lines or bytes than the inspector edits, which it shows but leaves as it is.
 typedef struct Prog_AudioTags {
     String values[Prog_AudioTagCount];
     String cover;
+    u32 cut;
     b32 read;
 } Prog_AudioTags;
+
+// The tags several audio files share: where they all have the same value, it, and where they differ, a bit of `mixed` set; with the first
+// cover among them, how many have a cover and how many can take one.
+typedef struct Prog_BulkTags {
+    String *paths;
+    u64 count;
+    String values[Prog_AudioTagCount];
+    u32 mixed, cut;
+    u64 covered, coverable;
+    u32 *coverPixels;
+    i32 coverWidth, coverHeight;
+} Prog_BulkTags;
+
+// The most audio files whose tags are edited at once, past which a folder or a selection has none, as reading each takes a moment.
+#define Prog_MaxBulkFiles 200
+
+// The fields typed in for audio: the tags of the file shown (1 to Prog_AudioTagCount), the folder converted audio goes into, and the tags
+// of several files at once, from Prog_TagFieldBulk on.
+#define Prog_TagFieldFolder (Prog_AudioTagCount + 1)
+#define Prog_TagFieldBulk (Prog_AudioTagCount + 2)
 
 typedef struct Prog_Preview {
     u32 *pixels;
@@ -1010,6 +1039,7 @@ typedef enum Prog_Option {
     Prog_Option_CompressionLevel,
     Prog_Option_VideoCodec,
     Prog_Option_VideoQuality,
+    Prog_Option_AudioFormat,
     Prog_Option_DownloadAudio,
     Prog_Option_DownloadPlaylist,
     Prog_Option_DeleteFinishedTorrents,
@@ -1657,6 +1687,10 @@ typedef struct Prog_State {
     // one for each transfer slot, two players, as one stopped may still be ending, and a fetch and a pull of two repositories.
     Arena toolJobsArena;
     P_JobQueue toolJobs;
+    // Audio files' tags are written on a worker of their own, one save at a time in the order they were made, so that each reads what the
+    // one before wrote and the last one typed is the one kept.
+    Arena tagJobsArena;
+    P_JobQueue tagJobs;
     Prog_Command *commandFirst;
     Prog_Command *commandLast;
     // The current panel's fields; see Prog_TabFields and Prog_PanelFields.
@@ -1890,6 +1924,7 @@ typedef struct Prog_State {
     u8 hexOption;                 // the color group whose hex box is being typed in, or 0
     // The tag of the inspector's audio file being typed in, plus one, or 0, the file's path, and the value it had.
     u8 tagField;
+    R_Rect tagFieldRect;  // where it was in the last build, which a press inside leaves it typing
     u8 tagPath[1024];
     u32 tagPathLength;
     Prog_TextEdit tagEdit, tagBefore;
@@ -1966,6 +2001,18 @@ typedef struct Prog_State {
     enum8(Prog_StoreRecents) storeRecents;
     u8 archiveLevel;  // the compression level of the archives Filey writes, 0 to 9
     u8 videoCodec;    // what Compress Video encodes to, a Prog_OptionVideoCodecs index
+    u8 audioFormat;   // what Convert Audio converts to, a Prog_AudioFormats index
+    u8 audioFolder[128];  // and the folder beside the files it goes into, the format's own when empty
+    u32 audioFolderLength;
+    // The tags the audio files the active panel's inspector is on share: those selected, or those of the folder it shows, from bulkJob, for
+    // the set whose hash is bulkKey, in bulkArena, with their cover.
+    P_Job *bulkJob;
+    u64 bulkKey;
+    b8 bulkStale;     // a write changed them, so they are read again
+    Arena bulkArena;
+    Prog_BulkTags bulk;
+    R_TextureHandle bulkCover;
+    b8 coverDropBulkShown, coverDropBulk;  // the drag over the cover is over the shared one, as coverDrop is over a file's
     u8 videoQuality;  // its constant quality, 0 (best) to 51
     b32 downloadAudio;  // downloads by URL take the sound alone, as MP3
     b32 downloadPlaylist;  // the address of a video in a playlist downloads all of the playlist
@@ -2467,12 +2514,17 @@ function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, co
 function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, b32 playlist, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
 function P_FileError Prog_CompressVideo(Arena *arena, String path, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel, String *output);
 function b32 Prog_AudioHoldsCover(String path);
+function b32 Prog_AudioTagsWritable(String path);
 function b32 Prog_ReadAudioTags(Arena *arena, String path, const P_CancelToken *cancel, Prog_AudioTags *tags);
 function b32 Prog_AudioCover(Arena *arena, String path, const P_CancelToken *cancel, i32 side, P_Image *image, i32 *width, i32 *height);
 function P_FileError Prog_WriteAudioTags(Arena *arena, String path, String changes, String cover, const P_CancelToken *cancel);
 function P_FileError Prog_ExtractCover(Arena *arena, String path, const P_CancelToken *cancel, String *placed);
 function void Prog_EndTagEdit(Prog_State *state, b32 keep);
-function void Prog_SetCover(Prog_State *state, String path, String picture);
+function void Prog_SetCover(Prog_State *state, const String *paths, u64 count, String picture);
+function void Prog_ReadBulkTags(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel, i32 side, Prog_BulkTags *bulk);
+function u64 Prog_FolderAudio(Arena *arena, String path, const P_CancelToken *cancel, String **paths);
+function String Prog_AudioFolder(u32 format, String folder);
+function P_FileError Prog_ConvertAudio(Arena *arena, String path, u32 format, String folder, u64 base, P_Progress *progress, const P_CancelToken *cancel, String *placed);
 function String Prog__NameStem(String name);
 function String Prog__FreeName(Arena *arena, String directory, String stem, String extension);
 function String Prog_FormatSize(Arena *arena, u64 bytes);

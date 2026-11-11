@@ -1686,7 +1686,52 @@ function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, 
         if (P_IsCancelled(cancel) && input->progress && atomic_load(&input->progress->discard)) Prog_DiscardTorrent(arena, input->paths[0], input->path);
         return result;
     }
-    if (input->transferOp == Prog_TransferOp_AudioTags) return Prog_WriteAudioTags(arena, input->paths[0], input->name, input->pathCount > 1 ? input->paths[1] : (String){0}, cancel);
+    if (input->transferOp == Prog_TransferOp_ConvertAudio) {
+        // A folder's audio files go as the files do, all of them, and anything else stays; each is counted in milliseconds of audio, all of
+        // them first.
+        ArrayStr files = {0};
+        for (u64 i = 0; i < input->pathCount && !P_IsCancelled(cancel); ++i) {
+            if (Prog_IsAudio(input->paths[i])) {
+                ArrayPush(arena, files, input->paths[i]);
+                continue;
+            }
+            if (!P_IsDirectory(input->paths[i])) continue;
+            P_DirectoryResult listed = P_EnumerateDirectory(arena, input->paths[i], cancel);
+            for (u64 f = 0; f < listed.files.header.count; ++f) {
+                const P_File *file = &listed.files.v[f];
+                if (file->kind != P_FileKind_Directory && !file->hidden && Prog_IsAudio(file->name)) ArrayPush(arena, files, Prog_JoinPath(arena, input->paths[i], file->name));
+            }
+        }
+        if (!files.header.count && !P_IsCancelled(cancel)) return (P_FileError){ .code = 1, .message = TrMark("There is no audio file to convert") };
+        u64 *lengths = ArenaPushArray(arena, Max(files.header.count, (u64)1), u64), total = 0, done = 0;
+        for (u64 i = 0; i < files.header.count && !P_IsCancelled(cancel); ++i) total += lengths[i] = Prog_MediaLength(arena, files.v[i], cancel);
+        if (input->progress) {
+            atomic_store(&input->progress->totalBytes, Max(total, (u64)1));
+            atomic_store(&input->progress->totalItems, files.header.count);
+        }
+        for (u64 i = 0; i < files.header.count && !result.code && !P_IsCancelled(cancel); ++i) {
+            String output = {0};
+            result = Prog_ConvertAudio(arena, files.v[i], input->audioFormat, input->name, done, input->progress, cancel, &output);
+            done += lengths[i];
+            if (input->progress) atomic_store(&input->progress->doneItems, i + 1);
+        }
+        return result;
+    }
+    if (input->transferOp == Prog_TransferOp_AudioTags) {
+        // Each file in turn, as many as were given, but for the cover's picture after them.
+        P_FileError written = {0};
+        u64 files = input->name.length ? input->pathCount : input->pathCount - 1;
+        String cover = input->name.length ? (String){0} : input->paths[input->pathCount - 1];
+        if (input->progress) atomic_store(&input->progress->totalItems, files);
+        for (u64 i = 0; i < files && !P_IsCancelled(cancel); ++i) {
+            // A file that takes no cover keeps its own when the others get one.
+            if (cover.length && !Prog_AudioHoldsCover(input->paths[i])) continue;
+            P_FileError one = Prog_WriteAudioTags(arena, input->paths[i], input->name, cover, cancel);
+            if (one.code && !written.code) written = one;
+            if (input->progress) atomic_store(&input->progress->doneItems, i + 1);
+        }
+        return written;
+    }
     if (input->transferOp == Prog_TransferOp_ExtractCover) {
         String cover = {0};
         result = Prog_ExtractCover(arena, input->paths[0], cancel, &cover);
@@ -3482,6 +3527,14 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = found;
         return;
     }
+    if (input->kind == Prog_JobKind_BulkTags) {
+        Prog_BulkTags *bulk = ArenaPushStruct(&job->arena, Prog_BulkTags);
+        String *paths = input->paths;
+        u64 count = input->folder ? Prog_FolderAudio(&job->arena, input->path, &job->cancelToken, &paths) : input->pathCount;
+        if (count) Prog_ReadBulkTags(&job->arena, paths, count, &job->cancelToken, Prog_CoverSide, bulk);
+        job->result = bulk;
+        return;
+    }
     if (input->kind == Prog_JobKind_Preview) {
         // A 3D model's picture, else text where the start of the file reads as text, else the system's picture of it.
         // With the inspector set to hex, every file's bytes.
@@ -3497,8 +3550,8 @@ function void Prog__DirectoryJob(P_Job *job)
         f64 seconds = 0;
         if (audio || video) result->media = Prog_MediaDetails(&job->arena, path, &job->cancelToken, &seconds);
         result->seconds = seconds;
-        // An audio file's tags to edit, and its cover, drawn for the inspector beside its name.
-        if (audio && Prog_ReadAudioTags(&job->arena, path, &job->cancelToken, &result->tags) && result->tags.cover.length && !P_IsCancelled(&job->cancelToken)) {
+        // An audio file's tags to edit, where FFmpeg writes them whole, and its cover, drawn for the inspector beside its name.
+        if (audio && Prog_AudioTagsWritable(path) && Prog_ReadAudioTags(&job->arena, path, &job->cancelToken, &result->tags) && result->tags.cover.length && !P_IsCancelled(&job->cancelToken)) {
             P_Image cover = {0};
             i32 coverWidth = 0, coverHeight = 0;
             if (Prog_AudioCover(&job->arena, path, &job->cancelToken, Prog_CoverSide, &cover, &coverWidth, &coverHeight)) {
@@ -6050,6 +6103,16 @@ function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, 
         ArenaRelease(&state->toolJobsArena);
         return false;
     }
+    if (!P_JobsInit(&state->tagJobs, &state->tagJobsArena, 1, wake, user)) {
+        P_JobsShutdown(&state->toolJobs);
+        P_JobsShutdown(&state->thumbnailJobs);
+        P_JobsShutdown(&state->jobs);
+        ArenaRelease(&state->jobsArena);
+        ArenaRelease(&state->thumbnailJobsArena);
+        ArenaRelease(&state->toolJobsArena);
+        ArenaRelease(&state->tagJobsArena);
+        return false;
+    }
     // Settings loaded after replace it with the starred commands.
     Prog__DefaultQuick(state);
     Prog__EnsureTab(state);
@@ -8237,7 +8300,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     u64 fetched = 0, pulled = 0;
     String fetchedRoot = {0}, pulledRoot = {0};
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL || (job = P_JobTakeCompleted(&state->thumbnailJobs)) != NULL ||
-                     (job = P_JobTakeCompleted(&state->toolJobs)) != NULL;) {
+                     (job = P_JobTakeCompleted(&state->toolJobs)) != NULL || (job = P_JobTakeCompleted(&state->tagJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
         b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_SidebarTree || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Tidy || input->kind == Prog_JobKind_LongPaths || input->kind == Prog_JobKind_IndexRefresh || input->kind == Prog_JobKind_ArchivePassword || input->kind == Prog_JobKind_Play ||
@@ -8603,6 +8666,20 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->textIndex = *index;
                 changed = true;
             }
+        } else if (input->kind == Prog_JobKind_BulkTags) {
+            // Only the latest one is shown, its arena kept for what it read.
+            const Prog_BulkTags *bulk = job->result;
+            if (job == state->bulkJob && bulk && !P_IsCancelled(&job->cancelToken)) {
+                state->bulkJob = NULL;
+                ArenaRelease(&state->bulkArena);
+                state->bulkArena = job->arena;
+                job->arena = (Arena){0};
+                state->bulk = *bulk;
+                R_TextureRelease(state->bulkCover);
+                state->bulkCover = bulk->coverPixels ? R_TextureCreateRGBA(bulk->coverWidth, bulk->coverHeight, bulk->coverPixels) : (R_TextureHandle){0};
+                if (state->bulkCover.u64[0]) R_TextureSmooth(state->bulkCover);
+                changed = true;
+            }
         } else if (input->kind == Prog_JobKind_HexPage) {
             if (state->hexPageJob == job) state->hexPageJob = NULL;
             const String *bytes = job->result;
@@ -8685,13 +8762,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             P_FileError error = created ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
-            String verb = input->transferOp == Prog_TransferOp_AudioTags ? NoTr("Save tags") : input->transferOp == Prog_TransferOp_ExtractCover ? NoTr("Save cover") :
+            String verb = input->transferOp == Prog_TransferOp_ConvertAudio ? NoTr("Convert audio") : input->transferOp == Prog_TransferOp_AudioTags ? NoTr("Save tags") : input->transferOp == Prog_TransferOp_ExtractCover ? NoTr("Save cover") :
                           input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? NoTr("Download") : input->kind == Prog_JobKind_Trash ? NoTr("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? NoTr("Delete") : input->kind == Prog_JobKind_Create ? NoTr("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
                           input->kind == Prog_JobKind_Restore ? NoTr("Restore") : input->transferOp == Prog_TransferOp_Pack ? NoTr("Compress") :
                           input->transferOp == Prog_TransferOp_ExtractHere || input->transferOp == Prog_TransferOp_ExtractToFolder ? NoTr("Extract") : input->move ? NoTr("Move") : NoTr("Copy");
             // One stopped from its card, with Escape or in the system's own progress window ends without an error.
             if (error.code && !P_IsCancelled(&job->cancelToken) && !P_FileErrorIsCancel(error)) {
-                String failed = input->transferOp == Prog_TransferOp_AudioTags ? Tr("Saving the tags failed") : input->transferOp == Prog_TransferOp_ExtractCover ? Tr("Saving the cover failed") :
+                String failed = input->transferOp == Prog_TransferOp_ConvertAudio ? Tr("Converting the audio failed") : input->transferOp == Prog_TransferOp_AudioTags ? Tr("Saving the tags failed") : input->transferOp == Prog_TransferOp_ExtractCover ? Tr("Saving the cover failed") :
                                 input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Remove failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
                               : input->kind == Prog_JobKind_Create ? Tr("Create failed") : input->kind == Prog_JobKind_Link ? Tr("Paste shortcut failed")
                               : input->kind == Prog_JobKind_Restore ? Tr("Restore failed") : input->transferOp == Prog_TransferOp_Pack ? Tr("Compress failed")
@@ -8712,12 +8789,32 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                             StrFormat(&state->frameArena, TrF("%S became %S, %u%% of the size."), Prog_FormatSize(&state->frameArena, compressed->sizeBefore),
                                       Prog_FormatSize(&state->frameArena, compressed->sizeAfter), percent));
             }
-            // An audio file whose tags or cover changed is read again where it shows, as its listing's own changes leave the inspector be.
+            // An audio file whose tags changed shows them where it shows, as its listing's own changes leave the inspector be; one whose cover
+            // changed, or that failed, is read again.
             if (input->transferOp == Prog_TransferOp_AudioTags) {
+                state->bulkStale = true;
+                ArrayStr changes = StrSplit(&state->frameArena, input->name, '\n');
                 u32 current = state->currentPanel;
                 for (u32 panel = 0; panel < state->panelCount; ++panel) {
                     Prog__UsePanel(state, panel);
-                    if (StrIsEqual(state->previewPath, input->paths[0])) state->previewPath = (String){0};
+                    for (u64 i = 0; i < input->pathCount; ++i) {
+                        // A tab not shown that shows the file reads it again once shown.
+                        for (u32 t = 0; t < state->tabCount && state->tabs; ++t) {
+                            if (t != state->activeTab && StrIsEqual(state->tabs[t].previewPath, input->paths[i])) state->tabs[t].previewPath = (String){0};
+                        }
+                        if (!StrIsEqual(state->previewPath, input->paths[i])) continue;
+                        // One being read meanwhile may have read it before it changed, so it is read again too.
+                        if (error.code || !input->name.length || state->previewJob) {
+                            state->previewPath = (String){0};
+                            continue;
+                        }
+                        for (u64 c = 0; c < changes.header.count; ++c) {
+                            Index tab = StrIndexChar(changes.v[c], '\t', SSF_None);
+                            for (u32 t = 0; tab.exists && t < Prog_AudioTagCount; ++t) {
+                                if (StrIsEqual(StrFromTo(changes.v[c], 0, (i64)tab.value), Prog_AudioTagKeys[t])) state->previewTags.values[t] = StrCopy(&state->previewArena, StrFrom(changes.v[c], tab.value + 1));
+                            }
+                        }
+                    }
                 }
                 Prog__UsePanel(state, current);
             }
@@ -9593,6 +9690,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->configWatch.arena);
     // A disk usage scan stops rather than walking a drive to its end first.
     if (state->usageJob) P_RequestCancel(&state->usageJob->cancelToken);
+    P_JobsShutdown(&state->tagJobs);
     P_JobsShutdown(&state->toolJobs);
     P_JobsShutdown(&state->thumbnailJobs);
     P_JobsShutdown(&state->jobs);
@@ -9619,6 +9717,9 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->jobsArena);
     ArenaRelease(&state->thumbnailJobsArena);
     ArenaRelease(&state->toolJobsArena);
+    ArenaRelease(&state->tagJobsArena);
+    ArenaRelease(&state->bulkArena);
+    R_TextureRelease(state->bulkCover);
     ArenaRelease(&state->thumbnailWaitArena);
     ArenaRelease(&state->warmArena);
     ArenaRelease(&state->closedArena);

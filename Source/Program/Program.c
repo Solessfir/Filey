@@ -817,6 +817,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->archiveLevel = 9;
     state->videoCodec = 0;
     state->videoQuality = 20;
+    state->audioFormat = 0;
+    state->audioFolderLength = 0;
     state->downloadAudio = state->downloadPlaylist = state->deleteFinishedTorrents = false;
     state->audioVolume = 100;
     state->noticeLevel = Prog_NoticeKind_Info;
@@ -919,6 +921,11 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             if (number >= 0 && number <= 9) state->archiveLevel = (u8)number;
         } else if (StrIsEqual(name, S("video.codec"))) {
             for (u32 i = 0; i < CArrayCount(Prog_OptionVideoCodecs); ++i) if (Prog__EqualFolded(value, Prog_OptionVideoCodecs[i])) state->videoCodec = (u8)i;
+        } else if (StrIsEqual(name, S("audio.format"))) {
+            for (u32 i = 0; i < CArrayCount(Prog_AudioFormats); ++i) if (Prog__EqualFolded(value, Prog_AudioFormats[i])) state->audioFormat = (u8)i;
+        } else if (StrIsEqual(name, S("audio.folder"))) {
+            state->audioFolderLength = (u32)Min(value.length, (u64)sizeof(state->audioFolder));
+            MemCopy(state->audioFolder, value.value, state->audioFolderLength);
         } else if (StrIsEqual(name, S("download.audio"))) {
             state->downloadAudio = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("download.playlist"))) {
@@ -1127,6 +1134,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# git.fetch = false\n"));
     StrBuildStr(arena, &text, S("\n# What Compress Video encodes to (hevc, h264 or av1), on the graphics card when it can, and its constant quality, from 0 (best,\n"
                                 "# largest) to 51; 18 to 23 keeps a video looking as it did.\n# video.codec = hevc\n# video.quality = 20\n"
+                                "\n# What Convert Audio converts to (mp3-320, mp3-v0, aac-256, opus-160 or flac), and the folder beside the files it goes into,\n"
+                                "# by default named after the format, as MP3.\n# audio.format = mp3-320\n# audio.folder = MP3\n"
                                 "\n# Whether a web address pasted into a folder, downloaded with yt-dlp, comes down as its sound alone, as MP3.\n# download.audio = false\n"
                                 "\n# Whether the address of a video in a playlist downloads the whole playlist rather than the video alone.\n# download.playlist = false\n"
                                 "\n# Whether a torrent downloaded whole, every file in it, sends its .torrent file to the bin.\n# torrents.delete = false\n"
@@ -1253,6 +1262,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                  Prog_OptionControl_Choice, 0, 0, Prog_OptionVideoCodecs, CArrayCount(Prog_OptionVideoCodecs), SInit("video.codec") },
     [Prog_Option_VideoQuality] = { TrInit("Video Quality"), TrInit("The constant quality Compress Video keeps: lower is better and larger; 18 to 23 looks as the original does."),
                                    Prog_OptionControl_Slider, 0, 51, NULL, 0, SInit("video.quality") },
+    [Prog_Option_AudioFormat] = { TrInit("Audio Format"), TrInit("What Convert Audio converts to, into a folder beside the files named after the format, which the inspector's details rename."),
+                                  Prog_OptionControl_Choice, 0, 0, Prog_AudioFormats, CArrayCount(Prog_AudioFormats), SInit("audio.format") },
     [Prog_Option_DownloadAudio] = { TrInit("Download Audio Only"), TrInit("A web address pasted into a folder is downloaded with yt-dlp; this takes its sound alone, as MP3."),
                                     Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("download.audio") },
     [Prog_Option_DownloadPlaylist] = { TrInit("Download Playlists"), TrInit("The web address of a video in a playlist downloads every video of the playlist, rather than that one alone."),
@@ -1442,6 +1453,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_CompressionLevel: return state->archiveLevel;
         case Prog_Option_VideoCodec: return state->videoCodec;
         case Prog_Option_VideoQuality: return state->videoQuality;
+        case Prog_Option_AudioFormat: return state->audioFormat;
         case Prog_Option_DownloadAudio: return state->downloadAudio;
         case Prog_Option_DownloadPlaylist: return state->downloadPlaylist;
         case Prog_Option_DeleteFinishedTorrents: return state->deleteFinishedTorrents;
@@ -1800,33 +1812,61 @@ function void Prog_EndHexEdit(Prog_State *state, b32 keep)
 // the file is written anew; a tag emptied is taken away.
 function void Prog_EndTagEdit(Prog_State *state, b32 keep)
 {
-    u32 field = state->tagField - 1u;
+    u32 field = state->tagField;
     state->tagField = 0;
     String text = Prog_EditText(&state->tagEdit), before = Prog_EditText(&state->tagBefore);
-    if (!keep || field >= Prog_AudioTagCount || StrIsEqual(text, before)) return;
+    if (!keep || !field || StrIsEqual(text, before)) return;
+    // The folder's name is a setting; one emptied, or the format's own, goes back to following the format.
+    if (field == Prog_TagFieldFolder) {
+        String own = Prog_AudioFolder(state->audioFormat, (String){0}), name = Prog__TrimSpaces(text);
+        b32 invalid = false;
+        // Nor only dots, which name the folder itself or the one above.
+        b32 dots = name.length != 0;
+        for (u64 i = 0; i < name.length; ++i) invalid |= name.value[i] == '/' || name.value[i] == '\\' || name.value[i] == ':', dots &= name.value[i] == '.';
+        invalid |= dots;
+        if (invalid) {
+            Prog_Notify(state, Prog_NoticeKind_Warning, S("audio.folder"), Tr("Not a folder's name"), Tr("A folder's name has no slashes or colons in it, and is not only dots."));
+            return;
+        }
+        Prog__WriteSetting(state, S("audio.folder"), StrIsEqual(name, own) ? (String){0} : name);
+        return;
+    }
+    u32 tag = field >= Prog_TagFieldBulk ? field - Prog_TagFieldBulk : field - 1;
+    if (tag >= Prog_AudioTagCount) return;
     Scratch scratch = GetScratch();
     String path = StrCopy(scratch.arena, StrMake((const char *)state->tagPath, state->tagPathLength));
+    // A shared tag goes into every one of the files.
+    const String *paths = field >= Prog_TagFieldBulk ? state->bulk.paths : &path;
+    u64 count = field >= Prog_TagFieldBulk ? state->bulk.count : 1;
     // A tab would end the line's value early, as the tags go to the job a "key\tvalue" line each.
     StrBuilder value = {0};
     for (u64 i = 0; i < text.length; ++i) StrBuildChar(scratch.arena, &value, text.value[i] == '\t' ? ' ' : text.value[i]);
-    if (state->playerJob && state->playerHash == MapHashBytes(path.value, path.length)) Prog__StopPlayer(state);
-    String changes = StrFormat(scratch.arena, "%S\t%S", Prog_AudioTagKeys[field], value.buffer);
-    Prog__FileJobOp(state, Prog_JobKind_Transfer, &path, 1, Prog_ParentPath(path), false, changes, Prog_TransferOp_AudioTags);
+    for (u64 i = 0; i < count; ++i) if (state->playerJob && state->playerHash == MapHashBytes(paths[i].value, paths[i].length)) Prog__StopPlayer(state);
+    // An emptied value is written as nothing, which a tag can be, as it takes the tag away.
+    String changes = StrFormat(scratch.arena, "%S\t%S", Prog_AudioTagKeys[tag], value.buffer);
+    if (count) Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, count, Prog_ParentPath(paths[0]), false, changes, Prog_TransferOp_AudioTags);
     ReleaseScratch(scratch);
 }
 
-// Makes the picture at `picture` the cover of the audio file at `path`, in place of any it has.
-function void Prog_SetCover(Prog_State *state, String path, String picture)
+// Makes the picture at `picture` the cover of the audio files `paths`, in place of any they have; those that take no cover keep their own.
+function void Prog_SetCover(Prog_State *state, const String *paths, u64 count, String picture)
 {
     const String pictures[] = { S("jpg"), S("jpeg"), S("png"), S("webp"), S("bmp"), S("gif"), S("tif"), S("tiff") };
-    if (!Prog_AudioHoldsCover(path) || !Prog__HasExtension(picture, pictures, CArrayCount(pictures))) {
+    u64 holding = 0;
+    for (u64 i = 0; i < count; ++i) holding += Prog_AudioHoldsCover(paths[i]) ? 1 : 0;
+    if (!holding || !Prog__HasExtension(picture, pictures, CArrayCount(pictures))) {
         Prog_Notify(state, Prog_NoticeKind_Warning, S("cover.kind"), Tr("Not a cover"), Tr("Drop a picture on an MP3, FLAC or M4A file's cover."));
         return;
     }
+    // The files, then the picture after them, as the job takes it.
     Scratch scratch = GetScratch();
-    String paths[2] = { StrCopy(scratch.arena, path), StrCopy(scratch.arena, picture) };
-    if (state->playerJob && state->playerHash == MapHashBytes(paths[0].value, paths[0].length)) Prog__StopPlayer(state);
-    Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, 2, Prog_ParentPath(paths[0]), false, (String){0}, Prog_TransferOp_AudioTags);
+    String *given = ArenaPushArray(scratch.arena, count + 1, String);
+    for (u64 i = 0; i < count; ++i) {
+        given[i] = StrCopy(scratch.arena, paths[i]);
+        if (state->playerJob && state->playerHash == MapHashBytes(given[i].value, given[i].length)) Prog__StopPlayer(state);
+    }
+    given[count] = StrCopy(scratch.arena, picture);
+    Prog__FileJobOp(state, Prog_JobKind_Transfer, given, count + 1, Prog_ParentPath(given[0]), false, (String){0}, Prog_TransferOp_AudioTags);
     ReleaseScratch(scratch);
 }
 
@@ -7984,6 +8024,9 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
                                            TrInit("Current"), TrInit("All") };
     (void)words;
     if (option == Prog_Option_LoadThumbnails && StrIsEqual(name, S("local"))) return Tr("Local Disks");
+    if (option == Prog_Option_AudioFormat) {
+        for (u32 i = 0; i < CArrayCount(Prog_AudioFormats); ++i) if (StrIsEqual(name, Prog_AudioFormats[i])) return Prog_AudioFormatLabels[i];
+    }
     if (option == Prog_Option_VideoCodec) return StrIsEqual(name, S("hevc")) ? NoTr("HEVC (H.265)") : StrIsEqual(name, S("h264")) ? NoTr("H.264") : NoTr("AV1");
     if (option == Prog_Option_Borders) return StrFormat(arena, TrF("%S px"), name);
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("right"))) return Tr("Horizontal");
@@ -10451,6 +10494,7 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
                 b32 downloading = transfer->op == Prog_TransferOp_Download || transfer->op == Prog_TransferOp_Torrent || transfer->op == Prog_TransferOp_TorrentFetch;
                 String title = downloading ? StrFormat(&state->frameArena, TrF("Downloading into %S"), target)
                              : transfer->op == Prog_TransferOp_CompressVideo ? StrFormat(&state->frameArena, TrN(items, "Compressing %u video", "Compressing %u videos"), (u32)items)
+                             : transfer->op == Prog_TransferOp_ConvertAudio ? StrFormat(&state->frameArena, TrF("Converting into %S"), Prog_AudioFolder(state->audioFormat, StrMake((const char *)state->audioFolder, state->audioFolderLength)))
                              : transfer->op == Prog_TransferOp_AudioTags ? Tr("Saving the tags")
                              : transfer->op == Prog_TransferOp_ExtractCover ? Tr("Saving the album cover")
                              : transfer->opening ? StrFormat(&state->frameArena, TrF("Extracting %S to open it"), target)
@@ -11792,6 +11836,30 @@ function void Prog__PermissionChips(Prog_State *state, const Prog_Entry *entry, 
 // The card of the inspected item's details at the pane's top right, reaching left as far as the toolbar's controls let it, at `room` from
 // the pane's left, up to a width that holds most paths.
 function b32 Prog__HasFfmpeg(Prog_State *state);
+function void Prog__InspectorCover(Prog_State *state, R_TextureHandle texture, b32 shared, f32 side, const Prog_Metrics *m);
+
+// The value of the audio field `field` in a row of the inspector's details, lit under the pointer, which a press types in, in a field while it
+// does; `dim` for one with no value of its own, cut to `room` and aligned at `alignX`; a `locked` one, too long to edit, takes no press.
+function void Prog__TagField(Prog_State *state, u32 field, String value, b32 dim, b32 locked, f32 room, f32 row, f32 alignX, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale;
+    UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "InspectorTag/%u", field));
+    b32 typing = state->tagField == field, hot = UI->hotKey == key && !locked;
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Pixels(row));
+    UI_SetNextFont(m->detail);
+    UI_SetNextTextAlignment((UI_Vec2){ alignX, 0.5f });
+    UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
+    UI_SetNextBorderThickness(m->stroke);
+    UI_SetNextColors((UI_Colors){ .background = typing ? theme->inner : hot ? theme->hover : (R_Color){0}, .border = theme->outlineSelection, .text = dim ? theme->textDim : theme->text });
+    if (!typing) UI_SetNextText(Prog__Ellipsize(&state->frameArena, m->detail, value, room));
+    UI_Block *box = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | (locked ? 0 : UI_Flag_LeftMouseClickable) | UI_Flag_Clip | (typing ? UI_Flag_DrawBorder : UI_Flag_DrawText));
+    if (typing) state->tagFieldRect = box->rect;
+    UI_Interaction press = UI_InteractionFromBlock(box);
+    if (press.pressed && !typing && !locked) Prog_QueueCommand(state, Prog_CommandKind_InspectorTagEdit, field - 1u, 0, press.pressOrder);
+    if (typing) UI_Parent(box) Prog__EditContents(&state->tagEdit, floorf(4.0f * s + 0.5f), floorf((row - m->line) * 0.5f), true, m);
+}
 
 function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry, f32 paneWidth, f32 room, const Prog_Metrics *m)
 {
@@ -11825,14 +11893,28 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
         Index tab = StrIndexChar(line, '\t', SSF_None);
         if (tab.exists) labels[count] = Prog_Tr(StrFromTo(line, 0, (i64)tab.value)), values[count++] = StrFrom(line, tab.value + 1);
     }
-    // An audio file's tags, which a click types in where FFmpeg can write them.
-    b32 editable = state->previewTags.read && Prog__HasFfmpeg(state) && !state->directory.archive;
+    // An audio file's tags, which a click types in where FFmpeg can write them; or those several share, those selected or the folder's, in
+    // place of the one file's, with "Mixed" for a tag they differ in, but for the title and the track, which are each file's own.
+    b32 tools = Prog__HasFfmpeg(state) && !state->directory.archive;
+    b32 bulk = tools && state->bulk.count && state->currentPanel == state->activePanel;
+    b32 editable = tools && !bulk && state->previewTags.read;
     for (u32 t = 0; editable && t < Prog_AudioTagCount && count < CArrayCount(labels); ++t) {
         tags[count] = (u8)(t + 1);
         labels[count] = Prog_Tr(Prog_AudioTagLabels[t]), values[count++] = state->previewTags.values[t].length ? state->previewTags.values[t] : none;
     }
+    String mixed = Tr("Mixed");
+    if (bulk && count < CArrayCount(labels)) labels[count] = Tr("Audio files"), values[count++] = StrFormat(frame, "%" PRIu64, state->bulk.count);
+    for (u32 t = 0; bulk && t < Prog_AudioTagCount && count < CArrayCount(labels); ++t) {
+        if (StrIsEqual(Prog_AudioTagKeys[t], S("title")) || StrIsEqual(Prog_AudioTagKeys[t], S("track"))) continue;
+        tags[count] = (u8)(Prog_TagFieldBulk + t);
+        labels[count] = Prog_Tr(Prog_AudioTagLabels[t]);
+        values[count++] = (state->bulk.mixed & (1u << t)) ? mixed : state->bulk.values[t].length ? state->bulk.values[t] : none;
+    }
+    // Under them, their shared cover, and the row that converts them, or the one file, to another format.
+    b32 converts = tools && (bulk || (!folder && Prog_IsAudio(entry->file.name)));
+    f32 coverSide = 3 * row, extra = (bulk ? coverSide + top : 0) + (converts ? row + 2 * top : 0);
     // Folding eases it shut to its title and open again, as the sidebar's groups do; the card clips what does not fit.
-    f32 body = m->separator + (f32)count * row + top + bottom, folded = state->inspectorDetailsFolded ? 0.0f : 1.0f;
+    f32 body = m->separator + (f32)count * row + extra + top + bottom, folded = state->inspectorDetailsFolded ? 0.0f : 1.0f;
     f32 open = UI_Animate(UI_KeyFromStr(0, S("InspectorDetailsOpen")), folded, folded);
     f32 height = head + floorf(body * open + 0.5f);
     UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - margin, floorf(4.8f * s + 0.5f) });
@@ -11868,27 +11950,56 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                     // A value too long for the card ends in an ellipsis, and the path is cut in its middle, keeping its last folders.
                     f32 room = width - left - right - m->gap - R_TextWidth(m->detail, labels[i]);
                     if (tags[i]) {
-                        // A tag's value, lit under the pointer, which a press types in, in a field while it does.
-                        UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "InspectorTag/%u", (u32)tags[i]));
-                        b32 typing = state->tagField == tags[i], hot = UI->hotKey == key;
-                        UI_SetNextPrefWidth(UI_Flex());
-                        UI_SetNextPrefHeight(UI_Pixels(row));
-                        UI_SetNextFont(m->detail);
-                        UI_SetNextTextAlignment((UI_Vec2){ 1, 0.5f });
-                        UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
-                        UI_SetNextBorderThickness(m->stroke);
-                        UI_SetNextColors((UI_Colors){ .background = typing ? theme->inner : hot ? theme->hover : (R_Color){0}, .border = theme->outlineSelection,
-                                                      .text = values[i].value == none.value ? theme->textDim : theme->text });
-                        if (!typing) UI_SetNextText(Prog__Ellipsize(frame, m->detail, values[i], room));
-                        UI_Block *field = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable | UI_Flag_Clip | (typing ? UI_Flag_DrawBorder : UI_Flag_DrawText));
-                        UI_Interaction press = UI_InteractionFromBlock(field);
-                        if (press.pressed && !typing) Prog_QueueCommand(state, Prog_CommandKind_InspectorTagEdit, tags[i] - 1u, 0, press.pressOrder);
-                        if (typing) UI_Parent(field) Prog__EditContents(&state->tagEdit, floorf(4.0f * s + 0.5f), floorf((row - m->line) * 0.5f), true, m);
+                        u32 tag = tags[i] >= Prog_TagFieldBulk ? tags[i] - Prog_TagFieldBulk : tags[i] - 1u;
+                        u32 cut = tags[i] >= Prog_TagFieldBulk ? state->bulk.cut & ~state->bulk.mixed : state->previewTags.cut;
+                        Prog__TagField(state, tags[i], values[i], values[i].value == none.value || values[i].value == mixed.value, (cut >> tag) & 1, room, row, 1, m);
                     } else {
                         UI_SetNextFont(m->detail);
                         String shown = i == 0 ? Prog__EllipsizeMiddle(frame, m->detail, values[i], room) : Prog__Ellipsize(frame, m->detail, values[i], room);
                         Prog__Label(shown, UI_Flex(), row, 0, theme->textDim, 1);
                     }
+                }
+            }
+            // The files' cover, the first one's among them, which a picture dropped on gives to all that take one.
+            if (bulk) {
+                Prog__Spacer(UI_Flex(), UI_Pixels(top));
+                UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
+                UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(coverSide), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(line) {
+                    Prog__InspectorCover(state, state->bulkCover, true, coverSide, m);
+                    UI_SetNextPrefWidth(UI_Flex());
+                    UI_SetNextPrefHeight(UI_Pixels(coverSide));
+                    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+                    UI_Parent(UI_AddBlock(UI_Flag_Clip)) {
+                        UI_SetNextFont(m->detail);
+                        Prog__Label(StrFormat(frame, TrF("Covers: %u of %u"), (u32)state->bulk.covered, (u32)state->bulk.count), UI_Flex(), row, 0, theme->text, 0);
+                        UI_SetNextFont(m->detail);
+                        Prog__Label(state->bulk.coverable ? Tr("Drop a picture on it for all") : Tr("Their format takes no cover"), UI_Flex(), row, 0, theme->textDim, 0);
+                    }
+                }
+            }
+            // The format, the folder beside the files it goes into, typed in as a tag is, and the button that converts them.
+            if (converts) {
+                Prog__Spacer(UI_Flex(), UI_Pixels(top));
+                UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row + top), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(line) {
+                    f32 apart = floorf(6.4f * s + 0.5f);
+                    u32 format = Min((u32)state->audioFormat, (u32)CArrayCount(Prog_AudioFormats) - 1);
+                    UI_Interaction pick = Prog__TextButton(S("InspectorAudioFormat"), Prog_AudioFormatLabels[format], m->detail, UI_TextContent(), row, apart, theme->text,
+                                                           theme->text, theme->textDim, true, m);
+                    if (pick.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorAudioFormat, (format + 1) % CArrayCount(Prog_AudioFormats), 0, pick.clickOrder);
+                    if (pick.hot) Prog__PopupTooltip(state, Tr("The format Convert Audio converts to; a click goes on to the next."));
+                    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
+                    UI_SetNextFont(m->detail);
+                    Prog__Label(Tr("into"), UI_TextContent(), row, 0, theme->textDim, 0);
+                    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
+                    String into = Prog_AudioFolder(state->audioFormat, StrMake((const char *)state->audioFolder, state->audioFolderLength));
+                    Prog__TagField(state, Prog_TagFieldFolder, into, false, false, width, row, 0, m);
+                    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
+                    UI_Interaction go = Prog__TextButton(S("InspectorConvert"), Tr("Convert"), m->detail, UI_TextContent(), row, apart, theme->accent, theme->text, theme->textDim, true, m);
+                    if (go.clicked) Prog_QueueCommand(state, Prog_CommandKind_ConvertAudio, 0, 0, go.clickOrder);
                 }
             }
         }
@@ -12762,7 +12873,7 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
 
 // An audio file's cover in a `side` square, or a frame with a picture's icon where it has none; a drag over it outlines it, and drops its
 // picture there as the cover.
-function void Prog__InspectorCover(Prog_State *state, f32 side, const Prog_Metrics *m)
+function void Prog__InspectorCover(Prog_State *state, R_TextureHandle texture, b32 shared, f32 side, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 s = m->scale;
@@ -12770,26 +12881,28 @@ function void Prog__InspectorCover(Prog_State *state, f32 side, const Prog_Metri
     UI_SetNextPrefHeight(UI_Pixels(side));
     UI_SetNextCornerRadius(floorf(4.8f * s + 0.5f));
     UI_SetNextBorderThickness(MaxF32(m->stroke, floorf(1.6f * s + 0.5f)));
-    UI_Block *cover = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorCover")), 0);
-    b32 over = P_DropPending() && UI__Contains(cover->rect, UI->mouse) && Prog_AudioHoldsCover(state->previewPath);
-    if (over) {
+    UI_Block *cover = UI_AddBlockFromKey(UI_KeyFromStr(0, shared ? S("InspectorCover/Shared") : S("InspectorCover")), 0);
+    b32 dragged = P_DropPending() && UI__Contains(cover->rect, UI->mouse) && !state->directory.archive;
+    b32 over = dragged && (shared ? state->bulk.coverable != 0 : Prog_AudioHoldsCover(state->previewPath));
+    if (over && shared) state->coverDropBulkShown = true;
+    else if (over) {
         state->coverDropShownLength = (u32)Min(state->previewPath.length, sizeof(state->coverDropShown));
         MemCopy(state->coverDropShown, state->previewPath.value, state->coverDropShownLength);
     }
-    b32 has = state->previewCover.u64[0] != 0;
+    b32 has = texture.u64[0] != 0;
     cover->props.colors = (UI_Colors){ .background = has ? (R_Color){0} : theme->track, .border = over ? theme->accent : theme->tabBorder };
     cover->flags |= UI_Flag_DrawBorder | UI_Flag_Clip | (has ? 0 : UI_Flag_DrawBackground);
     UI_Parent(cover) {
         if (has) {
             UI_SetNextPrefWidth(UI_Pixels(side));
             UI_SetNextPrefHeight(UI_Pixels(side));
-            UI_SetNextImage(state->previewCover, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ side, side }, (R_Color){ 1, 1, 1, 1 });
+            UI_SetNextImage(texture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ side, side }, (R_Color){ 1, 1, 1, 1 });
             UI_AddBlock(UI_Flag_DrawImage);
         } else {
             Prog__Icon(Icon_Image, side, side, over ? theme->accent : theme->iconDisabled, 0.5f, m);
         }
     }
-    if (!P_DropPending() && UI__Contains(cover->rect, UI->mouse) && !UI->activeKey) Prog__PopupTooltip(state, has ? Tr("Drop a picture here to replace the album cover.") : Tr("Drop a picture here to add an album cover."));
+    if (!P_DropPending() && UI__Contains(cover->rect, UI->mouse) && !UI->activeKey && !shared) Prog__PopupTooltip(state, has ? Tr("Drop a picture here to replace the album cover.") : Tr("Drop a picture here to add an album cover."));
     UI_SetNextPrefWidth(UI_Pixels(m->inset));
     UI_SetNextPrefHeight(UI_Pixels(side));
     UI_AddBlock(0);
@@ -13294,7 +13407,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenPadding((UI_Padding){ m->inset, m->inset, m->inset, 0 });
             UI_Parent(UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorFacts")), UI_Flag_Clip)) {
-                if (coverable) Prog__InspectorCover(state, 3 * m->row, m);
+                if (coverable) Prog__InspectorCover(state, state->previewCover, false, 3 * m->row, m);
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(3 * m->row));
                 UI_SetNextChildrenLayout(UI_Layout_Vertical);
@@ -14088,6 +14201,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     state->inspectorTextRect = (R_Rect){0};
     state->bookmarkDropShown = 0;
     state->coverDropShownLength = 0;
+    state->coverDropBulkShown = false;
     state->userGroupDropShown = state->userGroupDropShownIn = 0;
     ArenaClear(&state->dropPlaceArena);
     state->dropPlace = (String){0};

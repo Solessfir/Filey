@@ -1493,6 +1493,40 @@ function void TestFileIcons(TestFileFixture *fixture)
             String saved = {0};
             Check(!Prog_ExtractCover(&arena, song, NULL, &saved).code && TestEndsWith(saved, S("/song cover.png")) && P_PathExists(saved));
             Check(!P_PathExists(Prog_JoinPath(&arena, fixture->path, S(".song.filey-tags.mp3"))));
+            // Two files share what they have alike, and differ in the rest; a tag written into both is shared then.
+            String other = Prog_JoinPath(&arena, fixture->path, S("other.mp3")), both[2] = { song, other };
+            Check(P_RunCommand(&arena, fixture->path, (String[]){ S("ffmpeg"), S("-v"), S("error"), S("-y"), S("-f"), S("lavfi"), S("-i"), S("sine=d=1"), S("-metadata"), S("title=Other"), other }, 11, 30000, &said, true));
+            Prog_BulkTags bulk = {0};
+            Prog_ReadBulkTags(&arena, both, 2, NULL, 64, &bulk);
+            Check(bulk.count == 2 && (bulk.mixed & 1) && !bulk.values[0].length && !(bulk.mixed & 4) && bulk.covered == 1 && bulk.coverable == 2 && bulk.coverWidth == 32);
+            Check(!Prog_WriteAudioTags(&arena, other, S("artist\tShared"), (String){0}, NULL).code && !Prog_WriteAudioTags(&arena, song, S("artist\tShared"), (String){0}, NULL).code);
+            Prog_ReadBulkTags(&arena, both, 2, NULL, 64, &bulk);
+            Check(!(bulk.mixed & 2) && StrIsEqual(bulk.values[1], S("Shared")));
+            // Converted into a folder beside it, made as it is missing, with its tags, and its cover where the format takes one.
+            String converted = {0};
+            Check(!Prog_ConvertAudio(&arena, song, 0, S("MP3"), 0, NULL, NULL, &converted).code && TestEndsWith(converted, S("/MP3/song.mp3")));
+            Check(Prog_ReadAudioTags(&arena, converted, NULL, &tags) && StrIsEqual(tags.values[0], title) && StrIsEqual(tags.cover, S("png")));
+            Check(!Prog_ConvertAudio(&arena, song, 3, S("Opus"), 0, NULL, NULL, &converted).code && TestEndsWith(converted, S("/Opus/song.opus")));
+            Check(Prog_ReadAudioTags(&arena, converted, NULL, &tags) && StrIsEqual(tags.values[0], title) && !tags.cover.length);
+            // Opus keeps its tags with its audio, where they are written and where a conversion from it takes them.
+            Check(!Prog_WriteAudioTags(&arena, converted, S("album\tOn Opus"), (String){0}, NULL).code);
+            Check(Prog_ReadAudioTags(&arena, converted, NULL, &tags) && StrIsEqual(tags.values[2], S("On Opus")) && StrIsEqual(tags.values[0], title));
+            String fromOpus = {0};
+            Check(!Prog_ConvertAudio(&arena, converted, 0, S("Again"), 0, NULL, NULL, &fromOpus).code && Prog_ReadAudioTags(&arena, fromOpus, NULL, &tags) && StrIsEqual(tags.values[2], S("On Opus")));
+            Check(P__TestRemovePath(fixture, S("Opus/Again/song.mp3"), false) && P__TestRemovePath(fixture, S("Opus/Again"), true));
+            // A value of more than one line shows its first, and is not edited, which would keep only that.
+            String lined = Prog_JoinPath(&arena, fixture->path, S("lined.mp3"));
+            Check(P_RunCommand(&arena, fixture->path, (String[]){ S("ffmpeg"), S("-v"), S("error"), S("-y"), S("-i"), other, S("-c"), S("copy"), S("-metadata"), S("comment=first\n[Chorus] x=1"), lined }, 11, 30000, &said, true));
+            Check(Prog_ReadAudioTags(&arena, lined, NULL, &tags) && StrIsEqual(tags.values[7], S("first")) && (tags.cut & (1u << 7)) && !(tags.cut & 1));
+            Check(P__TestRemovePath(fixture, S("lined.mp3"), false));
+            // A % in the name stays as it is, which the picture's writer would otherwise number.
+            String percent = Prog_JoinPath(&arena, fixture->path, S("per %02d.mp3")), percentCover = {0};
+            Check(P_RunCommand(&arena, fixture->path, (String[]){ S("ffmpeg"), S("-v"), S("error"), S("-y"), S("-i"), song, S("-map"), S("0"), S("-c"), S("copy"), percent }, 11, 30000, &said, true));
+            u64 coverBytes = 0;
+            Check(!Prog_ExtractCover(&arena, percent, NULL, &percentCover).code && TestEndsWith(percentCover, S("/per %02d cover.png")) && P_FileSize(percentCover, &coverBytes) && coverBytes > 0);
+            Check(P__TestRemovePath(fixture, S("per %02d cover.png"), false) && P__TestRemovePath(fixture, S("per %02d.mp3"), false));
+            Check(P__TestRemovePath(fixture, S("MP3/song.mp3"), false) && P__TestRemovePath(fixture, S("MP3"), true));
+            Check(P__TestRemovePath(fixture, S("Opus/song.opus"), false) && P__TestRemovePath(fixture, S("Opus"), true) && P__TestRemovePath(fixture, S("other.mp3"), false));
             Check(P__TestRemovePath(fixture, S("song cover.png"), false) && P__TestRemovePath(fixture, S("song.mp3"), false) && P__TestRemovePath(fixture, S("front.png"), false));
         }
 #if defined(_WIN32)
