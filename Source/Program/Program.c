@@ -12911,19 +12911,24 @@ function void Prog__InspectorCover(Prog_State *state, R_TextureHandle texture, b
     UI_AddBlock(0);
 }
 
+// An item's type and size, and a folder's counts once measured, the line under its name in the inspector.
+function String Prog__FactsLine(Prog_State *state, const Prog_Entry *entry)
+{
+    Arena *frame = &state->frameArena;
+    String type = Prog_Tr(entry->type);
+    return entry->file.kind == P_FileKind_Directory
+        ? (entry->measured ? StrFormat(frame, "%S, %S, %S, %S", type, StrFormat(frame, TrN(entry->folders, "%u folder", "%u folders"), (u32)entry->folders),
+                                       StrFormat(frame, TrN(entry->files, "%u file", "%u files"), (u32)entry->files), Prog_FormatSize(frame, entry->bytes)) : type)
+        : StrFormat(frame, "%S, %S", type, Prog_FormatSize(frame, entry->file.size));
+}
+
 // An item's name over its type and size, or a folder's counts, and when it was changed, a line each.
 function void Prog__InspectorFacts(Prog_State *state, const Prog_Entry *entry, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    Arena *frame = &state->frameArena;
     Prog__Label(entry->file.name, UI_Flex(), m->row, 0, theme->textHeading, 0);
-    String type = Prog_Tr(entry->type);
-    String details = entry->file.kind == P_FileKind_Directory
-        ? (entry->measured ? StrFormat(frame, "%S, %S, %S, %S", type, StrFormat(frame, TrN(entry->folders, "%u folder", "%u folders"), (u32)entry->folders),
-                                       StrFormat(frame, TrN(entry->files, "%u file", "%u files"), (u32)entry->files), Prog_FormatSize(frame, entry->bytes)) : type)
-        : StrFormat(frame, "%S, %S", type, Prog_FormatSize(frame, entry->file.size));
-    Prog__Label(details, UI_Flex(), m->row, 0, theme->textDim, 0);
-    Prog__Label(Prog_EntryModified(frame, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
+    Prog__Label(Prog__FactsLine(state, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
+    Prog__Label(Prog_EntryModified(&state->frameArena, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
 }
 
 // A treemap cell's color by its file's type: the twenty largest types each a hue of their own, the others and a folder's smaller files gray.
@@ -13491,7 +13496,14 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
         if (footer) UI_Parent(footer) {
             // In the hex view the box finds bytes, written as hex, or text.
             if (text) Prog__InspectorFilterBox(state, state->previewHex ? Tr("Find bytes or text...") : StrFormat(&state->frameArena, TrF("Filter %u lines..."), state->previewWindowed && state->textIndex.done ? (u32)Min(state->textIndex.lines, (u64)UINT32_MAX) : state->previewLineCount), m);
-            Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
+            // An image's type, size and date where a text's filter goes, the name being in the toolbar, cut short of the scale beside it.
+            if (image && !Prog_IsAudio(entry->file.name)) {
+                String facts = StrFormat(&state->frameArena, "%S, %S", Prog__FactsLine(state, entry), Prog_EntryModified(&state->frameArena, entry));
+                f32 fits = MaxF32(0, pane->rect.x1 - pane->rect.x0 - radius - m->inset - floorf(m->line * 2.4f) - 2 * radius - m->gap - floorf(9.6f * s + 0.5f));
+                Prog__LabelPadded(Prog__Ellipsize(&state->frameArena, m->font, facts, fits), UI_Flex(), m->pill, radius + m->inset, 0, theme->textDim, 0);
+            } else {
+                Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
+            }
             if (pdf) {
                 String pages = StrFormat(&state->frameArena, TrN(state->pdf.pageCount, "%u page", "%u pages"), state->pdf.pageCount);
                 Prog__LabelPadded(pages, UI_TextContent(), m->pill, 0, radius, theme->textDim, 0);
