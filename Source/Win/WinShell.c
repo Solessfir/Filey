@@ -2161,10 +2161,19 @@ function u32 P__SetUninstallEntry(Arena *arena, const P__InstallPaths *paths, b3
     return error;
 }
 
+function wchar *P__OpenCommand(Arena *arena, const wchar *executable);
+
 function void P_RefreshInstallEntry(void)
 {
     Scratch scratch = GetScratch();
     P__InstallPaths paths = P__InstallPathsGet(scratch.arena);
+    // A default set by an older version, which took fewer keys, as Win+E's open verb, takes them all.
+    if (paths.executable && P__SamePathWide(paths.running, paths.executable)) {
+        wchar *command = P__OpenCommand(scratch.arena, paths.executable);
+        u32 held = 0;
+        for (u32 i = 0; i < CArrayCount(P__DefaultKeys); ++i) held += P__DefaultCommandIs(HKEY_CURRENT_USER, P__UserClasses, i, command) ? 1 : 0;
+        if (held && held < CArrayCount(P__DefaultKeys)) P__SetDefault(HKEY_CURRENT_USER, P__UserClasses, command, true);
+    }
     wchar saved[64] = {0};
     DWORD size = sizeof(saved);
     LSTATUS status = paths.executable && P__SamePathWide(paths.running, paths.executable)
