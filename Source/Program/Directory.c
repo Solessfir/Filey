@@ -7535,7 +7535,7 @@ function void Prog__SwapTab(Prog_State *state, Prog_Tab *tab)
 #undef Prog__SwapField
 }
 
-// Lets go of a model's mesh and its pictures' textures, before the preview's arena that lists them is cleared.
+// Lets go of a model's mesh, its pictures' textures and its arena's lists of them.
 function void Prog__DropModel(Prog_ModelView *model)
 {
     R_MeshRelease(model->mesh);
@@ -7547,6 +7547,7 @@ function void Prog__DropModel(Prog_ModelView *model)
     model->seeIndices = NULL;
     model->seeMiddles = NULL;
     model->seeTriangles = 0;
+    ArenaClear(&model->arena);
 }
 
 // Lets go of an inspector's preview: its jobs, its textures, its model's mesh and its arena.
@@ -7571,6 +7572,7 @@ function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, R_Text
     R_TextureRelease(texture);
     R_TextureRelease(model->texture);
     Prog__DropModel(model);
+    ArenaRelease(&model->arena);
     ArenaRelease(arena);
 }
 
@@ -8339,8 +8341,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             Prog__TakeIcons(state, job);
             changed = true;
         } else if (input->kind == Prog_JobKind_Preview) {
-            // Only the latest one is shown; the texture is made on first use and refilled after.
+            // Only the latest one is shown; the texture is made on first use and refilled after, and the last picture, kept up while it
+            // was read, goes unless it brought one.
             const Prog_Preview *preview = job->result;
+            if (job == state->previewJob) {
+                state->previewPicture = state->previewImage = false;
+                Prog__DropModel(&state->model);
+            }
             if (job == state->previewJob && preview && preview->hex) {
                 // Its first page, and room for the rest as they are read.
                 state->previewJob = NULL;
@@ -8370,14 +8377,17 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->previewDocument = preview->document;
                 if (preview->model.indexCount) {
                     const Prog_ModelShape *shape = &preview->model;
+                    // A new model starts from the view the fixed previews had: turned 30 degrees and tipped 20.
+                    state->model.yaw = 0.5235988f, state->model.pitch = 0.3490659f, state->model.zoom = 1;
+                    state->model.shownZoom = 0;
                     state->model.mesh = R_MeshCreate(shape->positions, shape->uvs, shape->colors, shape->vertexCount, shape->indices, shape->indexCount);
-                    state->model.images = ArenaPushArray(&state->previewArena, Max(shape->imageCount, 1u), R_TextureHandle);
+                    state->model.images = ArenaPushArray(&state->model.arena, Max(shape->imageCount, 1u), R_TextureHandle);
                     state->model.imageCount = shape->imageCount;
                     for (u32 i = 0; i < shape->imageCount; ++i) {
                         state->model.images[i] = R_TextureCreateRGBA(shape->images[i].width, shape->images[i].height, shape->images[i].pixels);
                         R_TextureSmooth(state->model.images[i]);
                     }
-                    state->model.parts = ArenaPushArray(&state->previewArena, Max(shape->partCount, 1u), R_MeshPart);
+                    state->model.parts = ArenaPushArray(&state->model.arena, Max(shape->partCount, 1u), R_MeshPart);
                     state->model.partCount = shape->partCount;
                     state->model.seeTriangles = 0;
                     for (u32 i = 0; i < shape->partCount; ++i) {
@@ -8390,8 +8400,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         if (part->blend) state->model.seeTriangles += part->count / 3;
                     }
                     // The see-through triangles as they came, to be put in order from the farthest as the view turns.
-                    state->model.seeIndices = ArenaPushArrayNoZero(&state->previewArena, Max(state->model.seeTriangles, (u64)1) * 3, u32);
-                    state->model.seeMiddles = ArenaPushArrayNoZero(&state->previewArena, Max(state->model.seeTriangles, (u64)1) * 3, f32);
+                    state->model.seeIndices = ArenaPushArrayNoZero(&state->model.arena, Max(state->model.seeTriangles, (u64)1) * 3, u32);
+                    state->model.seeMiddles = ArenaPushArrayNoZero(&state->model.arena, Max(state->model.seeTriangles, (u64)1) * 3, f32);
                     for (u32 i = 0, at = 0; i < shape->partCount; ++i) {
                         const Prog_MeshPart *part = &shape->parts[i];
                         if (!part->blend) continue;

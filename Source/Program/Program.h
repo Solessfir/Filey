@@ -1465,6 +1465,7 @@ typedef struct Prog_ModelView {
     i32 textureWidth, textureHeight;
     f32 drawn[3];
     b32 stale;
+    Arena arena;  // the parts, the pictures and the see-through triangles, which stay with the mesh while the next file is read
 } Prog_ModelView;
 
 // A PDF a tab's inspector scrolls through: its pages' sizes in points, in previewArena, the pages in sight drawn the view's width wide, and

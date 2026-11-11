@@ -2864,7 +2864,9 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewStamp = stamp;
     if (state->previewJob) P_RequestCancel(&state->previewJob->cancelToken);
     state->previewJob = NULL;
-    Prog__DropModel(&state->model);
+    // A file after a picture or a model keeps that up until its own preview is read, rather than its details showing for a moment between them.
+    b32 hold = want.length && !folder && !archive && !online;
+    if (!hold) Prog__DropModel(&state->model);
     ArenaClear(&state->previewArena);
     state->previewPath = StrCopy(&state->previewArena, want);
     state->previewText = state->previewMedia = (String){0};
@@ -2880,11 +2882,8 @@ function void Prog__UpdatePreview(Prog_State *state)
     if (state->playerJob && state->playerHash != MapHashBytes(want.value, want.length)) Prog__StopPlayer(state);
     state->previewAnchor = state->previewCaret = 0;
     state->previewTextFocus = false;
-    state->previewPicture = state->previewImage = false;
+    if (!hold || !state->previewImage) state->previewPicture = state->previewImage = false;
     state->previewPixels = NULL;
-    // A new model starts from the view the fixed previews had: turned 30 degrees and tipped 20.
-    state->model.yaw = 0.5235988f, state->model.pitch = 0.3490659f, state->model.zoom = 1;
-    state->model.shownZoom = 0;
     state->previewFolder = folder || archive;
     state->previewHex = state->previewArchive = state->previewArchiveCounted = state->previewDocument = false;
     state->hexPages = state->hexSlots = NULL;
