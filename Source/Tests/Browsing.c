@@ -1474,6 +1474,27 @@ function void TestFileIcons(TestFileFixture *fixture)
             Check(P__TestRemovePath(fixture, S("PartInto/.a.txt.filey.part"), false) && P__TestRemovePath(fixture, S("PartInto/a.txt"), false) && P__TestRemovePath(fixture, S("PartInto"), true));
             Check(P__TestRemovePath(fixture, S("parts.zip"), false));
         }
+        // An audio file's tags go in and read back, an emptied one goes, and a picture becomes its cover, which is drawn and saved beside it.
+        if (P_ProgramFound(S("ffmpeg")) && P_ProgramFound(S("ffprobe"))) {
+            String song = Prog_JoinPath(&arena, fixture->path, S("song.mp3")), picture = Prog_JoinPath(&arena, fixture->path, S("front.png")), said = {0};
+            String makeSong[] = { S("ffmpeg"), S("-v"), S("error"), S("-y"), S("-f"), S("lavfi"), S("-i"), S("sine=d=1"), song };
+            String makePicture[] = { S("ffmpeg"), S("-v"), S("error"), S("-y"), S("-f"), S("lavfi"), S("-i"), S("color=red:s=32x32:d=1"), S("-frames:v"), S("1"), picture };
+            Check(P_RunCommand(&arena, fixture->path, makeSong, CArrayCount(makeSong), 30000, &said, true));
+            Check(P_RunCommand(&arena, fixture->path, makePicture, CArrayCount(makePicture), 30000, &said, true));
+            String title = S("A \"quoted\" title | with = signs");
+            Check(!Prog_WriteAudioTags(&arena, song, StrFormat(&arena, "title\t%S\nartist\tSomeone", title), (String){0}, NULL).code);
+            Prog_AudioTags tags = {0};
+            Check(Prog_ReadAudioTags(&arena, song, NULL, &tags) && StrIsEqual(tags.values[0], title) && StrIsEqual(tags.values[1], S("Someone")) && !tags.cover.length);
+            Check(!Prog_WriteAudioTags(&arena, song, S("artist\t"), picture, NULL).code);
+            Check(Prog_ReadAudioTags(&arena, song, NULL, &tags) && StrIsEqual(tags.values[0], title) && !tags.values[1].length && StrIsEqual(tags.cover, S("png")));
+            P_Image cover = {0};
+            i32 coverWidth = 0, coverHeight = 0;
+            Check(Prog_AudioCover(&arena, song, NULL, 64, &cover, &coverWidth, &coverHeight) && coverWidth == 32 && coverHeight == 32);
+            String saved = {0};
+            Check(!Prog_ExtractCover(&arena, song, NULL, &saved).code && TestEndsWith(saved, S("/song cover.png")) && P_PathExists(saved));
+            Check(!P_PathExists(Prog_JoinPath(&arena, fixture->path, S(".song.filey-tags.mp3"))));
+            Check(P__TestRemovePath(fixture, S("song cover.png"), false) && P__TestRemovePath(fixture, S("song.mp3"), false) && P__TestRemovePath(fixture, S("front.png"), false));
+        }
 #if defined(_WIN32)
         // A device's path keeps its form, has no Win32 one for the file APIs, and one of no device is not there.
         {

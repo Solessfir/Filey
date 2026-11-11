@@ -3737,3 +3737,63 @@ No room to split
 
 The panel is too small to split this way.
 = Le panneau est trop petit pour être divisé ainsi.
+
+Not a cover
+= Pas une pochette
+
+Drop a picture on an MP3, FLAC or M4A file's cover.
+= Déposez une image sur la pochette d'un fichier MP3, FLAC ou M4A.
+
+Saving the tags
+= Enregistrement des tags
+
+Saving the album cover
+= Enregistrement de la pochette
+
+Drop a picture here to replace the album cover.
+= Déposez une image ici pour remplacer la pochette de l'album.
+
+Drop a picture here to add an album cover.
+= Déposez une image ici pour ajouter une pochette d'album.
+
+Saving the tags failed
+= Échec de l'enregistrement des tags
+
+Saving the cover failed
+= Échec de l'enregistrement de la pochette
+
+Title
+= Titre
+
+Artist
+= Artiste
+
+Album
+= Album
+
+Album artist
+= Artiste de l'album
+
+Year
+= Année
+
+Track
+= Piste
+
+Genre
+= Genre
+
+Comment
+= Commentaire
+
+FFmpeg is not installed, or could not read the file
+= FFmpeg n'est pas installé ou n'a pas pu lire le fichier
+
+The file has no cover
+= Le fichier n'a pas de pochette
+
+Save Album Cover
+= Enregistrer la pochette
+
+Save the album cover of the audio file shown in the inspector beside it as a picture.
+= Enregistrer la pochette du fichier audio affiché dans l'inspecteur à côté de lui, en image.

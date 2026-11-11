@@ -3736,3 +3736,63 @@ No room to split
 
 The panel is too small to split this way.
 = Der Bereich ist zu klein, um ihn so zu teilen.
+
+Not a cover
+= Kein Cover
+
+Drop a picture on an MP3, FLAC or M4A file's cover.
+= Ziehen Sie ein Bild auf das Cover einer MP3-, FLAC- oder M4A-Datei.
+
+Saving the tags
+= Tags werden gespeichert
+
+Saving the album cover
+= Albumcover wird gespeichert
+
+Drop a picture here to replace the album cover.
+= Ziehen Sie ein Bild hierher, um das Albumcover zu ersetzen.
+
+Drop a picture here to add an album cover.
+= Ziehen Sie ein Bild hierher, um ein Albumcover hinzuzufügen.
+
+Saving the tags failed
+= Speichern der Tags fehlgeschlagen
+
+Saving the cover failed
+= Speichern des Covers fehlgeschlagen
+
+Title
+= Titel
+
+Artist
+= Interpret
+
+Album
+= Album
+
+Album artist
+= Albuminterpret
+
+Year
+= Jahr
+
+Track
+= Titelnummer
+
+Genre
+= Genre
+
+Comment
+= Kommentar
+
+FFmpeg is not installed, or could not read the file
+= FFmpeg ist nicht installiert oder konnte die Datei nicht lesen
+
+The file has no cover
+= Die Datei hat kein Cover
+
+Save Album Cover
+= Albumcover speichern
+
+Save the album cover of the audio file shown in the inspector beside it as a picture.
+= Das Albumcover der im Inspektor gezeigten Audiodatei als Bild daneben speichern.

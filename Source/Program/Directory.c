@@ -1686,6 +1686,13 @@ function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, 
         if (P_IsCancelled(cancel) && input->progress && atomic_load(&input->progress->discard)) Prog_DiscardTorrent(arena, input->paths[0], input->path);
         return result;
     }
+    if (input->transferOp == Prog_TransferOp_AudioTags) return Prog_WriteAudioTags(arena, input->paths[0], input->name, input->pathCount > 1 ? input->paths[1] : (String){0}, cancel);
+    if (input->transferOp == Prog_TransferOp_ExtractCover) {
+        String cover = {0};
+        result = Prog_ExtractCover(arena, input->paths[0], cancel, &cover);
+        if (!result.code) ArrayPush(arena, *placed, cover);
+        return result;
+    }
     if (input->transferOp == Prog_TransferOp_TorrentFetch) return Prog_FetchTorrent(arena, input->paths[0], input->path, input->progress, cancel, placed);
     if (input->transferOp == Prog_TransferOp_Download) return Prog_DownloadUrl(arena, input->paths[0], input->path, input->downloadAudio, input->downloadPlaylist, input->progress, cancel, placed);
     if (input->transferOp == Prog_TransferOp_Pack) {
@@ -3490,6 +3497,14 @@ function void Prog__DirectoryJob(P_Job *job)
         f64 seconds = 0;
         if (audio || video) result->media = Prog_MediaDetails(&job->arena, path, &job->cancelToken, &seconds);
         result->seconds = seconds;
+        // An audio file's tags to edit, and its cover, drawn for the inspector beside its name.
+        if (audio && Prog_ReadAudioTags(&job->arena, path, &job->cancelToken, &result->tags) && result->tags.cover.length && !P_IsCancelled(&job->cancelToken)) {
+            P_Image cover = {0};
+            i32 coverWidth = 0, coverHeight = 0;
+            if (Prog_AudioCover(&job->arena, path, &job->cancelToken, Prog_CoverSide, &cover, &coverWidth, &coverHeight)) {
+                result->coverPixels = cover.pixels, result->coverWidth = cover.width, result->coverHeight = cover.height;
+            }
+        }
         if (input->archive) {
             // Counted up to the same limit as a listing; short of it, that is all there is.
             if (!P_IsCancelled(&job->cancelToken)) {
@@ -4680,7 +4695,7 @@ function void Prog_InspectFolder(Prog_State *state, String path)
 
 function b32 Prog__TakeNumber(String *text, u64 *value);
 function String Prog__ApplyWindowLine(String text);
-function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_ModelView *model, Prog_PdfView *pdf, P_Job *job, P_Job *hexJob);
+function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, R_TextureHandle cover, Prog_ModelView *model, Prog_PdfView *pdf, P_Job *job, P_Job *hexJob);
 function void Prog__ReleaseTextWindow(Arena *window, Arena *index, Arena *find, P_Job *windowJob, P_Job *indexJob, P_Job *findJob);
 function void Prog__ApplyFolderView(Prog_State *state, String path);
 function void Prog__SetFolderView(Prog_State *state, String path, const Prog_ViewSettings *view);
@@ -6180,7 +6195,7 @@ function void Prog__ReleaseCurrentPanel(Prog_State *state)
     ArenaRelease(&state->viewArena);
     ArenaRelease(&state->errorArena);
     ArenaRelease(&state->pickArena);
-    Prog__ReleasePreview(&state->previewArena, state->previewTexture, &state->model, &state->pdf, state->previewJob, state->hexPageJob);
+    Prog__ReleasePreview(&state->previewArena, state->previewTexture, state->previewCover, &state->model, &state->pdf, state->previewJob, state->hexPageJob);
     Prog__ReleaseTextWindow(&state->textWindowArena, &state->textIndexArena, &state->textFindArena, state->textWindowJob, state->textIndexJob, state->textFindJob);
     for (u32 i = 0; i < state->tabCount; ++i) {
         if (i != state->activeTab) Prog__ReleaseTab(&state->tabs[i]);
@@ -7480,8 +7495,9 @@ function void Prog__ReleaseTextWindow(Arena *window, Arena *index, Arena *find, 
     ArenaRelease(find);
 }
 
-function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_ModelView *model, Prog_PdfView *pdf, P_Job *job, P_Job *hexJob)
+function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, R_TextureHandle cover, Prog_ModelView *model, Prog_PdfView *pdf, P_Job *job, P_Job *hexJob)
 {
+    R_TextureRelease(cover);
     if (job) P_RequestCancel(&job->cancelToken);
     if (hexJob) P_RequestCancel(&hexJob->cancelToken);
     if (pdf->job) P_RequestCancel(&pdf->job->cancelToken);
@@ -7494,7 +7510,7 @@ function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_M
 
 function void Prog__ReleaseTab(Prog_Tab *tab)
 {
-    Prog__ReleasePreview(&tab->previewArena, tab->previewTexture, &tab->model, &tab->pdf, tab->previewJob, tab->hexPageJob);
+    Prog__ReleasePreview(&tab->previewArena, tab->previewTexture, tab->previewCover, &tab->model, &tab->pdf, tab->previewJob, tab->hexPageJob);
     Prog__ReleaseTextWindow(&tab->textWindowArena, &tab->textIndexArena, &tab->textFindArena, tab->textWindowJob, tab->textIndexJob, tab->textFindJob);
     ArenaRelease(&tab->directoryArena);
     ArenaRelease(&tab->historyArena);
@@ -8275,6 +8291,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->previewText = StrCopy(textArena, preview->text);
                 state->previewMedia = StrCopy(&state->previewArena, preview->media);
                 state->previewSeconds = preview->seconds;
+                state->previewTags = preview->tags;
+                for (u32 t = 0; t < Prog_AudioTagCount; ++t) state->previewTags.values[t] = StrCopy(&state->previewArena, preview->tags.values[t]);
+                state->previewTags.cover = StrCopy(&state->previewArena, preview->tags.cover);
+                R_TextureRelease(state->previewCover);
+                state->previewCover = preview->coverPixels ? R_TextureCreateRGBA(preview->coverWidth, preview->coverHeight, preview->coverPixels) : (R_TextureHandle){0};
+                if (state->previewCover.u64[0]) R_TextureSmooth(state->previewCover);
                 state->previewAnchor = state->previewCaret = 0;
                 state->previewTextFocus = false;
                 state->previewHex = false;
@@ -8663,12 +8685,14 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             P_FileError error = created ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
-            String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? NoTr("Download") : input->kind == Prog_JobKind_Trash ? NoTr("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? NoTr("Delete") : input->kind == Prog_JobKind_Create ? NoTr("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
+            String verb = input->transferOp == Prog_TransferOp_AudioTags ? NoTr("Save tags") : input->transferOp == Prog_TransferOp_ExtractCover ? NoTr("Save cover") :
+                          input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? NoTr("Download") : input->kind == Prog_JobKind_Trash ? NoTr("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? NoTr("Delete") : input->kind == Prog_JobKind_Create ? NoTr("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
                           input->kind == Prog_JobKind_Restore ? NoTr("Restore") : input->transferOp == Prog_TransferOp_Pack ? NoTr("Compress") :
                           input->transferOp == Prog_TransferOp_ExtractHere || input->transferOp == Prog_TransferOp_ExtractToFolder ? NoTr("Extract") : input->move ? NoTr("Move") : NoTr("Copy");
             // One stopped from its card, with Escape or in the system's own progress window ends without an error.
             if (error.code && !P_IsCancelled(&job->cancelToken) && !P_FileErrorIsCancel(error)) {
-                String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Remove failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
+                String failed = input->transferOp == Prog_TransferOp_AudioTags ? Tr("Saving the tags failed") : input->transferOp == Prog_TransferOp_ExtractCover ? Tr("Saving the cover failed") :
+                                input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Remove failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
                               : input->kind == Prog_JobKind_Create ? Tr("Create failed") : input->kind == Prog_JobKind_Link ? Tr("Paste shortcut failed")
                               : input->kind == Prog_JobKind_Restore ? Tr("Restore failed") : input->transferOp == Prog_TransferOp_Pack ? Tr("Compress failed")
                               : input->transferOp == Prog_TransferOp_ExtractHere || input->transferOp == Prog_TransferOp_ExtractToFolder ? Tr("Extract failed")
@@ -8687,6 +8711,15 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog_Notify(state, Prog_NoticeKind_Info, S("video.compressed"), Tr("Compressed"),
                             StrFormat(&state->frameArena, TrF("%S became %S, %u%% of the size."), Prog_FormatSize(&state->frameArena, compressed->sizeBefore),
                                       Prog_FormatSize(&state->frameArena, compressed->sizeAfter), percent));
+            }
+            // An audio file whose tags or cover changed is read again where it shows, as its listing's own changes leave the inspector be.
+            if (input->transferOp == Prog_TransferOp_AudioTags) {
+                u32 current = state->currentPanel;
+                for (u32 panel = 0; panel < state->panelCount; ++panel) {
+                    Prog__UsePanel(state, panel);
+                    if (StrIsEqual(state->previewPath, input->paths[0])) state->previewPath = (String){0};
+                }
+                Prog__UsePanel(state, current);
             }
             // A torrent's files are read once more when its download is over, to show what it left.
             if (input->transferOp == Prog_TransferOp_Torrent && StrIsEqual(state->previewPath, input->paths[0])) state->torrentRead = false;

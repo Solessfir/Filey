@@ -600,10 +600,10 @@ typedef struct P__Drop {
     String bound;         // the folder `shell` belongs to
     b32 entered;          // `bound` was chosen during this drag
     b32 dragging;         // a drag started by P_DragFiles is running
-    b32 takesFolders;     // drops are kept for the program instead of going to `wanted`
+    P_DropKeep keeps;     // what drops keep for the program instead of sending it to `wanted`
     b32 onFile;           // `wanted` is a file, as a program, whose own drop target takes the drop
     Arena droppedArena;
-    ArrayStr dropped;     // folders dropped while `takesFolders` was on, until the program takes them
+    ArrayStr dropped;     // what was dropped and kept, until the program takes it
     // A folder inside an archive takes no drop from another program, so its files are kept for the program, which adds them itself.
     b32 keepsFiles;       // `bound` is such a folder
     Arena filesArena;
@@ -623,7 +623,7 @@ function void P_SetDropDirectory(String path)
     P__drop.wanted = StrCopy(&P__drop.wantedArena, path);
 }
 
-function void P_SetDropTakesFolders(b32 takes) { P__drop.takesFolders = takes; }
+function void P_SetDropKeeps(P_DropKeep keeps) { P__drop.keeps = keeps; }
 
 function void P_SetDropOnFile(b32 onFile) { P__drop.onFile = onFile; }
 
@@ -724,7 +724,7 @@ function b32 P_RealPath(Arena *arena, String path, String *real)
     return result && real->length;
 }
 
-function ArrayStr P_TakeDroppedFolders(Arena *arena)
+function ArrayStr P_TakeDroppedKept(Arena *arena)
 {
     ArrayStr result = {0};
     for (u64 i = 0; i < P__drop.dropped.header.count; ++i) ArrayPush(arena, result, StrCopy(arena, P__drop.dropped.v[i]));
@@ -733,8 +733,8 @@ function ArrayStr P_TakeDroppedFolders(Arena *arena)
     return result;
 }
 
-// The folders among the files `data` carries, with forward slashes.
-function void P__DropKeepFolders(IDataObject *data)
+// The folders, or the files, among the items `data` carries, as P__drop.keeps says, with forward slashes.
+function void P__DropKeepItems(IDataObject *data)
 {
     FORMATETC format = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
     STGMEDIUM medium = {0};
@@ -746,7 +746,7 @@ function void P__DropKeepFolders(IDataObject *data)
         u32 length = DragQueryFileW(drop, i, path, (u32)CArrayCount(path));
         if (!length || length >= CArrayCount(path)) continue;
         DWORD attributes = GetFileAttributesW(path);
-        if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY) != (P__drop.keeps == P_DropKeep_Files)) continue;
         String folder = P__FileStringWide(&P__drop.droppedArena, path, (i32)length);
         for (u64 at = 0; at < folder.length; ++at) {
             if (folder.value[at] == '\\') ((char *)folder.value)[at] = '/';
@@ -958,11 +958,11 @@ function void P__DropOver(DWORD keys, POINTL point, DWORD *effect)
     DWORD allowed = *effect;
     *effect = DROPEFFECT_NONE;
     if (!P__drop.data) return;
-    // Pinning only links to the folders, so the cursor says link where the source allows it.
-    if (P__drop.takesFolders) {
+    // Pinning only links to the folders, so the cursor says link where the source allows it; a cover is copied in.
+    if (P__drop.keeps) {
         P__DropLeaveShell();
         P__drop.entered = false;
-        if (P__DropHasFiles(P__drop.data)) *effect = (allowed & DROPEFFECT_LINK) ? DROPEFFECT_LINK : allowed & DROPEFFECT_COPY;
+        if (P__DropHasFiles(P__drop.data)) *effect = P__drop.keeps == P_DropKeep_Folders && (allowed & DROPEFFECT_LINK) ? DROPEFFECT_LINK : allowed & DROPEFFECT_COPY;
         return;
     }
     if (!P__drop.entered || !StrIsEqual(P__drop.bound, P__drop.wanted)) {
@@ -1007,8 +1007,8 @@ function b32 P__DropDrop(DWORD keys, POINTL point, DWORD *effect)
 {
     P__DropOver(keys, point, effect);
     b32 result = false;
-    if (P__drop.takesFolders && *effect != DROPEFFECT_NONE) {
-        P__DropKeepFolders(P__drop.data);
+    if (P__drop.keeps && *effect != DROPEFFECT_NONE) {
+        P__DropKeepItems(P__drop.data);
         result = true;
     } else if (P__drop.keepsFiles && *effect != DROPEFFECT_NONE) {
         P__DropKeepFiles(P__drop.data);

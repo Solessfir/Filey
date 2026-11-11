@@ -468,11 +468,11 @@ function b32 P_DragArchiveItems(String archive, String inner, const String *name
 }
 
 // Where dropped files go; the window's drop handler reads it.
-// While `takesFolders` is on, drops are kept in `dropped` for the program instead. The window sets `pending` while a drag is over it.
+// While `keeps` keeps something, drops are kept in `dropped` for the program instead. The window sets `pending` while a drag is over it.
 global struct {
     char path[PATH_MAX];
     u64 length;
-    b32 takesFolders;
+    P_DropKeep keeps;
     b32 pending;
     Arena droppedArena;
     ArrayStr dropped;
@@ -482,14 +482,14 @@ global struct {
     b32 filesMove;
 } P__drop;
 
-function void P_SetDropTakesFolders(b32 takes) { P__drop.takesFolders = takes; }
+function void P_SetDropKeeps(P_DropKeep keeps) { P__drop.keeps = keeps; }
 
 // Wayland drags have no handlers of a file's own, so a drop on a file goes to its folder.
 function void P_SetDropOnFile(b32 onFile) { (void)onFile; }
 
 function b32 P_DropPending(void) { return P__drop.pending; }
 
-function ArrayStr P_TakeDroppedFolders(Arena *arena)
+function ArrayStr P_TakeDroppedKept(Arena *arena)
 {
     ArrayStr result = {0};
     for (u64 i = 0; i < P__drop.dropped.header.count; ++i) ArrayPush(arena, result, StrCopy(arena, P__drop.dropped.v[i]));
@@ -498,14 +498,14 @@ function ArrayStr P_TakeDroppedFolders(Arena *arena)
     return result;
 }
 
-// Keeps the folders among `paths` for P_TakeDroppedFolders.
-function void P__KeepDroppedFolders(const ArrayStr *paths)
+// Keeps the folders, or the files, among `paths` for P_TakeDroppedKept, as P__drop.keeps says.
+function void P__KeepDropped(const ArrayStr *paths)
 {
     Scratch scratch = GetScratch();
     for (u64 i = 0; i < paths->header.count; ++i) {
         char *native = P__FilePathCString(scratch.arena, paths->v[i]);
         struct stat metadata;
-        if (native && stat(native, &metadata) == 0 && S_ISDIR(metadata.st_mode)) {
+        if (native && stat(native, &metadata) == 0 && (P__drop.keeps == P_DropKeep_Files ? S_ISREG(metadata.st_mode) : S_ISDIR(metadata.st_mode))) {
             ArrayPush(&P__drop.droppedArena, P__drop.dropped, StrCopy(&P__drop.droppedArena, paths->v[i]));
         }
     }

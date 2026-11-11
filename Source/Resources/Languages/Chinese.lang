@@ -3736,3 +3736,63 @@ No room to split
 
 The panel is too small to split this way.
 = 面板太小，无法这样拆分。
+
+Not a cover
+= 不是封面
+
+Drop a picture on an MP3, FLAC or M4A file's cover.
+= 请将图片拖放到 MP3、FLAC 或 M4A 文件的封面上。
+
+Saving the tags
+= 正在保存标签
+
+Saving the album cover
+= 正在保存专辑封面
+
+Drop a picture here to replace the album cover.
+= 将图片拖放到此处以替换专辑封面。
+
+Drop a picture here to add an album cover.
+= 将图片拖放到此处以添加专辑封面。
+
+Saving the tags failed
+= 保存标签失败
+
+Saving the cover failed
+= 保存封面失败
+
+Title
+= 标题
+
+Artist
+= 艺术家
+
+Album
+= 专辑
+
+Album artist
+= 专辑艺术家
+
+Year
+= 年份
+
+Track
+= 音轨
+
+Genre
+= 流派
+
+Comment
+= 备注
+
+FFmpeg is not installed, or could not read the file
+= FFmpeg 未安装，或无法读取该文件
+
+The file has no cover
+= 该文件没有封面
+
+Save Album Cover
+= 保存专辑封面
+
+Save the album cover of the audio file shown in the inspector beside it as a picture.
+= 将检查器中显示的音频文件的专辑封面另存为图片，放在其旁边。

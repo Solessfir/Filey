@@ -3735,3 +3735,63 @@ No room to split
 
 The panel is too small to split this way.
 = Панель слишком мала, чтобы разделить её так.
+
+Not a cover
+= Не обложка
+
+Drop a picture on an MP3, FLAC or M4A file's cover.
+= Перетащите картинку на обложку файла MP3, FLAC или M4A.
+
+Saving the tags
+= Сохранение тегов
+
+Saving the album cover
+= Сохранение обложки альбома
+
+Drop a picture here to replace the album cover.
+= Перетащите сюда картинку, чтобы заменить обложку альбома.
+
+Drop a picture here to add an album cover.
+= Перетащите сюда картинку, чтобы добавить обложку альбома.
+
+Saving the tags failed
+= Не удалось сохранить теги
+
+Saving the cover failed
+= Не удалось сохранить обложку
+
+Title
+= Название
+
+Artist
+= Исполнитель
+
+Album
+= Альбом
+
+Album artist
+= Исполнитель альбома
+
+Year
+= Год
+
+Track
+= Номер
+
+Genre
+= Жанр
+
+Comment
+= Комментарий
+
+FFmpeg is not installed, or could not read the file
+= FFmpeg не установлен или не смог прочитать файл
+
+The file has no cover
+= В файле нет обложки
+
+Save Album Cover
+= Сохранить обложку альбома
+
+Save the album cover of the audio file shown in the inspector beside it as a picture.
+= Сохранить обложку альбома аудиофайла из инспектора рядом с ним как картинку.

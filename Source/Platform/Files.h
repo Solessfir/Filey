@@ -616,13 +616,15 @@ function b32 P_DragFiles(String directory, const String *names, u64 count);
 function b32 P_ShowProperties(String directory, const String *names, u64 count);
 // The folder that files dropped on the window go into, updated as the pointer moves; empty refuses drops.
 function void P_SetDropDirectory(String path);
-// While on, drops are not transferred: the folders among the dropped items are kept for P_TakeDroppedFolders, as a place to pin them is under the pointer.
-function void P_SetDropTakesFolders(b32 takes);
+// What drops keep for the program rather than transfer: the folders among the dropped items, as a place to pin them is under the pointer, or
+// the files, as an audio file's cover is.
+typedef enum P_DropKeep { P_DropKeep_None, P_DropKeep_Folders, P_DropKeep_Files } P_DropKeep;
+function void P_SetDropKeeps(P_DropKeep keeps);
 // The path P_SetDropDirectory gives is a file whose own handler takes the drop, as Explorer starts a program or a script with the files dropped
 // on it; only Windows has such handlers.
 function void P_SetDropOnFile(b32 onFile);
-// The folders dropped since the last call while P_SetDropTakesFolders was on, copied into `arena`.
-function ArrayStr P_TakeDroppedFolders(Arena *arena);
+// What was dropped and kept since the last call while P_SetDropKeeps kept something, copied into `arena`.
+function ArrayStr P_TakeDroppedKept(Arena *arena);
 // A drag, Filey's own or another program's, is over the window.
 function b32 P_DropPending(void);
 // Where the system leaves dropped files to Filey, as on Linux and for a folder inside an archive on Windows, the files dropped into a folder

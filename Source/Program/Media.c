@@ -62,7 +62,7 @@ function String Prog_MediaDetails(Arena *arena, String path, const P_CancelToken
     *seconds = 0;
     Scratch scratch = GetScratchEx(arena);
     String arguments[] = { S("ffprobe"), S("-v"), S("error"), S("-show_entries"),
-                           S("format=duration,bit_rate:stream=codec_type,codec_name,width,height,avg_frame_rate,sample_rate,channels"), S("-of"), S("compact=p=0"), path };
+                           S("format=duration,bit_rate:stream=codec_type,codec_name,width,height,avg_frame_rate,sample_rate,channels:stream_disposition=attached_pic"), S("-of"), S("compact=p=0"), path };
     String output = {0};
     StrBuilder text = {0};
     if (P_RunCommandWith(scratch.arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), NULL, 0, 10000, &output, false, cancel)) {
@@ -73,6 +73,8 @@ function String Prog_MediaDetails(Arena *arena, String path, const P_CancelToken
             String line = lines.v[i];
             if (line.length && line.value[line.length - 1] == '\r') --line.length;
             String type = Prog__MediaField(line, S("codec_type")), codec = Prog__MediaField(line, S("codec_name"));
+            // An audio file's cover comes as a video stream of one picture, which is no video.
+            if (StrIsEqual(type, S("video")) && StrIsEqual(Prog__MediaField(line, S("disposition:attached_pic")), S("1"))) continue;
             if (StrIsEqual(type, S("video")) && !video) {
                 video = true;
                 f64 fps = Prog__MediaNumber(Prog__MediaField(line, S("avg_frame_rate")));
@@ -148,6 +150,193 @@ function b32 Prog_MediaFrame(Arena *arena, String path, f64 duration, const P_Ca
     Scratch scratch = GetScratchEx(arena);
     String at = StrFormat(scratch.arena, "%.2f", duration * 0.1);
     b32 result = Prog__MediaPicture(arena, path, S("frame"), at, S("scale='min(1600,iw)':-2"), cancel, side, image, width, height);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// The last line with anything on it of what a tool wrote, which says why it failed.
+function String Prog__LastLine(String text)
+{
+    while (text.length && (text.value[text.length - 1] == '\n' || text.value[text.length - 1] == '\r' || text.value[text.length - 1] == ' ')) --text.length;
+    Index newline = StrIndexChar(text, '\n', SSF_SearchBackwards);
+    return newline.exists ? StrFrom(text, newline.value + 1) : text;
+}
+
+// The tags the inspector shows and edits, by FFmpeg's names, which it maps to each format's own, as ID3's TPE2 or Vorbis' ALBUMARTIST.
+global const String Prog_AudioTagKeys[Prog_AudioTagCount] = {
+    SInit("title"), SInit("artist"), SInit("album"), SInit("album_artist"), SInit("date"), SInit("track"), SInit("genre"), SInit("comment"),
+};
+global const String Prog_AudioTagLabels[Prog_AudioTagCount] = {
+    TrInit("Title"), TrInit("Artist"), TrInit("Album"), TrInit("Album artist"), TrInit("Year"), TrInit("Track"), TrInit("Genre"), TrInit("Comment"),
+};
+
+// Whether FFmpeg puts a cover into the audio file at `path`: MP3, FLAC and M4A take one, and Ogg, Opus and WAV do not.
+function b32 Prog_AudioHoldsCover(String path)
+{
+    const String extensions[] = { S("mp3"), S("flac"), S("m4a") };
+    return Prog__HasExtension(path, extensions, CArrayCount(extensions));
+}
+
+// Ogg's and Opus' tags are their audio stream's, where FFmpeg reads and writes them, rather than the file's.
+function b32 Prog__AudioStreamTags(String path)
+{
+    const String extensions[] = { S("ogg"), S("oga"), S("opus") };
+    return Prog__HasExtension(path, extensions, CArrayCount(extensions));
+}
+
+// The tags of the audio file at `path`, the file's or else its audio stream's, and the codec of its cover, empty without one; false without
+// ffprobe. A value of more than one line keeps its first.
+function b32 Prog_ReadAudioTags(Arena *arena, String path, const P_CancelToken *cancel, Prog_AudioTags *tags)
+{
+    *tags = (Prog_AudioTags){0};
+    Scratch scratch = GetScratchEx(arena);
+    String arguments[] = { S("ffprobe"), S("-v"), S("error"), S("-show_entries"), S("format_tags:stream=codec_type,codec_name:stream_tags:stream_disposition=attached_pic"),
+                           S("-of"), S("default"), path };
+    String output = {0};
+    if (P_RunCommandWith(scratch.arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), NULL, 0, 10000, &output, false, cancel)) {
+        tags->read = true;
+        String streamValues[Prog_AudioTagCount] = {0}, codec = {0}, type = {0};
+        b32 inFormat = false, picture = false, firstAudio = false;
+        ArrayStr lines = StrSplit(scratch.arena, output, '\n');
+        for (u64 i = 0; i < lines.header.count; ++i) {
+            String line = lines.v[i];
+            if (line.length && line.value[line.length - 1] == '\r') --line.length;
+            if (StrIsEqual(line, S("[STREAM]"))) inFormat = false, picture = false, codec = type = (String){0};
+            else if (StrIsEqual(line, S("[FORMAT]"))) inFormat = true;
+            else if (StrIsEqual(line, S("[/STREAM]"))) {
+                if (picture && !tags->cover.length) tags->cover = StrCopy(arena, codec);
+                if (StrIsEqual(type, S("audio"))) firstAudio = true;
+            }
+            Index equals = StrIndexChar(line, '=', SSF_None);
+            if (!equals.exists) continue;
+            String key = StrFromTo(line, 0, (i64)equals.value), value = StrFrom(line, equals.value + 1);
+            if (StrIsEqual(key, S("codec_name"))) codec = value;
+            else if (StrIsEqual(key, S("codec_type"))) type = value;
+            else if (StrIsEqual(key, S("DISPOSITION:attached_pic"))) picture = StrIsEqual(value, S("1"));
+            if (key.length <= 4 || !StrIsEqual(StrFromTo(key, 0, 4), S("TAG:"))) continue;
+            key = StrFrom(key, 4);
+            for (u32 t = 0; t < Prog_AudioTagCount; ++t) {
+                if (!Prog__EqualFolded(key, Prog_AudioTagKeys[t])) continue;
+                // The file's tags, else those of its first audio stream, which a cover's stream would otherwise take.
+                if (inFormat) tags->values[t] = StrCopy(arena, value);
+                else if (!firstAudio && StrIsEqual(type, S("audio")) && !streamValues[t].length) streamValues[t] = value;
+            }
+        }
+        for (u32 t = 0; t < Prog_AudioTagCount; ++t) if (!tags->values[t].length && streamValues[t].length) tags->values[t] = StrCopy(arena, streamValues[t]);
+    }
+    ReleaseScratch(scratch);
+    return tags->read;
+}
+
+// The cover of the audio file at `path`, which has one, fit to a `side` square; drawn into the run's folder under a name of its own each time,
+// so that one replaced shows as it is now.
+function b32 Prog_AudioCover(Arena *arena, String path, const P_CancelToken *cancel, i32 side, P_Image *image, i32 *width, i32 *height)
+{
+    Scratch scratch = GetScratchEx(arena);
+    String folder = P_RunFolder(scratch.arena);
+    b32 result = false;
+    if (folder.length) {
+        local_persist atomic_uint drawings;
+        String picture = Prog_JoinPath(scratch.arena, folder, StrFormat(scratch.arena, "cover-%u.png", atomic_fetch_add(&drawings, 1)));
+        String scale = StrFormat(scratch.arena, "scale='min(%d,iw)':'min(%d,ih)':force_original_aspect_ratio=decrease", side, side);
+        String arguments[] = { S("ffmpeg"), S("-v"), S("error"), S("-nostdin"), S("-y"), S("-i"), path, S("-map"), S("0:v:0"), S("-frames:v"), S("1"), S("-vf"), scale, picture };
+        String output = {0};
+        if (P_RunCommandWith(scratch.arena, folder, arguments, CArrayCount(arguments), NULL, 0, 20000, &output, true, cancel)) result = P_LoadImageFile(arena, picture, side, image, width, height);
+        if (P_PathExists(picture)) P_DeleteItems(scratch.arena, &picture, 1, false, NULL);
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// Writes the tags `changes`, a "key\tvalue" line each, an empty value taking the tag away, and the picture at `cover` as the cover in place of
+// any there, into the audio file at `path`. The audio goes along as it is, into a hidden file beside it that then takes its place, so that
+// one cut short leaves it whole.
+// Writes go one at a time, so that two saved quickly one after the other on a tool's threads each read what the one before wrote.
+// ponytail: the new file has the default permissions rather than the old one's; copy them over if a shared music folder needs them.
+// ponytail: one lock for every file, waited on by sleeping; a lock for each file if many are tagged at once.
+function P_FileError Prog_WriteAudioTags(Arena *arena, String path, String changes, String cover, const P_CancelToken *cancel)
+{
+    local_persist atomic_uint writing;
+    while (atomic_exchange(&writing, 1u)) P_Sleep(10);
+    Scratch scratch = GetScratchEx(arena);
+    String folder = Prog_ParentPath(path), leaf = Prog_EntryLeaf(path);
+    Index dot = StrIndexChar(leaf, '.', SSF_SearchBackwards);
+    String extension = dot.exists ? StrFrom(leaf, dot.value + 1) : (String){0};
+    String written = Prog_JoinPath(scratch.arena, folder, StrFormat(scratch.arena, ".%S.filey-tags.%S", Prog__NameStem(leaf), extension));
+    ArrayStr arguments = {0};
+    const String start[] = { S("ffmpeg"), S("-v"), S("error"), S("-nostdin"), S("-y"), S("-i"), path };
+    for (u32 i = 0; i < CArrayCount(start); ++i) ArrayPush(scratch.arena, arguments, start[i]);
+    if (cover.length) { ArrayPush(scratch.arena, arguments, S("-i")); ArrayPush(scratch.arena, arguments, cover); }
+    ArrayPush(scratch.arena, arguments, S("-map"));
+    ArrayPush(scratch.arena, arguments, S("0"));
+    if (cover.length) {
+        const String mapped[] = { S("-map"), S("-0:v"), S("-map"), S("1:0") };
+        for (u32 i = 0; i < CArrayCount(mapped); ++i) ArrayPush(scratch.arena, arguments, mapped[i]);
+    }
+    const String copy[] = { S("-map_metadata"), S("0"), S("-c"), S("copy") };
+    for (u32 i = 0; i < CArrayCount(copy); ++i) ArrayPush(scratch.arena, arguments, copy[i]);
+    if (cover.length) {
+        // A JPEG or PNG goes in as it is, anything else FFmpeg reads as a PNG.
+        const String kept[] = { S("jpg"), S("jpeg"), S("png") };
+        if (!Prog__HasExtension(cover, kept, CArrayCount(kept))) { ArrayPush(scratch.arena, arguments, S("-c:v")); ArrayPush(scratch.arena, arguments, S("png")); }
+        ArrayPush(scratch.arena, arguments, S("-disposition:v:0"));
+        ArrayPush(scratch.arena, arguments, S("attached_pic"));
+    }
+    b32 stream = Prog__AudioStreamTags(path);
+    ArrayStr lines = StrSplit(scratch.arena, changes, '\n');
+    for (u64 i = 0; i < lines.header.count; ++i) {
+        Index tab = StrIndexChar(lines.v[i], '\t', SSF_None);
+        if (!tab.exists) continue;
+        String tag = StrFormat(scratch.arena, "%S=%S", StrFromTo(lines.v[i], 0, (i64)tab.value), StrFrom(lines.v[i], tab.value + 1));
+        ArrayPush(scratch.arena, arguments, S("-metadata"));
+        ArrayPush(scratch.arena, arguments, tag);
+        if (stream) { ArrayPush(scratch.arena, arguments, S("-metadata:s:a:0")); ArrayPush(scratch.arena, arguments, tag); }
+    }
+    // ID3 2.3, which more players read than 2.4.
+    const String mp3[] = { S("mp3") };
+    if (Prog__HasExtension(path, mp3, 1)) { ArrayPush(scratch.arena, arguments, S("-id3v2_version")); ArrayPush(scratch.arena, arguments, S("3")); }
+    ArrayPush(scratch.arena, arguments, written);
+    String output = {0};
+    P_FileError result = {0};
+    if (!P_RunCommandWith(scratch.arena, folder, arguments.v, (u32)arguments.header.count, NULL, 0, 120000, &output, true, cancel)) {
+        String message = Prog__LastLine(output);
+        result = (P_FileError){ .code = 1, .message = message.length ? StrCopy(arena, message) : TrMark("FFmpeg is not installed, or could not read the file") };
+    } else {
+        result = P_ReplaceFile(arena, written, path);
+    }
+    if (P_PathExists(written)) P_DeleteItems(scratch.arena, &written, 1, false, NULL);
+    ReleaseScratch(scratch);
+    atomic_store(&writing, 0u);
+    return result;
+}
+
+// Saves the cover of the audio file at `path` beside it as "<name> cover.jpg", or .png, numbered past one taken, whose path goes into `placed`.
+function P_FileError Prog_ExtractCover(Arena *arena, String path, const P_CancelToken *cancel, String *placed)
+{
+    *placed = (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    Prog_AudioTags tags = {0};
+    P_FileError result = {0};
+    if (!Prog_ReadAudioTags(scratch.arena, path, cancel, &tags) || !tags.cover.length) {
+        ReleaseScratch(scratch);
+        return (P_FileError){ .code = 1, .message = TrMark("The file has no cover") };
+    }
+    // A JPEG's or a PNG's bytes go out as they are; another kind is written as a PNG.
+    b32 jpeg = StrIsEqual(tags.cover, S("mjpeg")), png = StrIsEqual(tags.cover, S("png"));
+    String folder = Prog_ParentPath(path), made = {0};
+    result = P_CreateItem(arena, folder, StrFormat(scratch.arena, "%S cover.%s", Prog__NameStem(Prog_EntryLeaf(path)), jpeg ? "jpg" : "png"), false, &made);
+    if (!result.code) {
+        String output = Prog_JoinPath(arena, folder, made), said = {0};
+        String arguments[] = { S("ffmpeg"), S("-v"), S("error"), S("-nostdin"), S("-y"), S("-i"), path, S("-map"), S("0:v:0"), S("-frames:v"), S("1"), S("-c:v"),
+                               jpeg || png ? S("copy") : S("png"), output };
+        if (P_RunCommandWith(scratch.arena, folder, arguments, CArrayCount(arguments), NULL, 0, 20000, &said, true, cancel)) {
+            *placed = output;
+        } else {
+            P_DeleteItems(scratch.arena, &output, 1, false, NULL);
+            String message = Prog__LastLine(said);
+            result = (P_FileError){ .code = 1, .message = message.length ? StrCopy(arena, message) : TrMark("FFmpeg is not installed, or could not read the file") };
+        }
+    }
     ReleaseScratch(scratch);
     return result;
 }

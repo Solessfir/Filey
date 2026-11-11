@@ -525,6 +525,8 @@ typedef enum Prog_TransferOp {
     Prog_TransferOp_Download,       // downloads the video at the web address `paths[0]` into `path` with yt-dlp
     Prog_TransferOp_Torrent,        // downloads the torrent file `paths[0]` beside itself with aria2c, the files `name` chooses, as --select-file takes them, or all
     Prog_TransferOp_TorrentFetch,   // fetches the torrent `paths[0]`, a magnet link or a .torrent's web address, into `path` as a .torrent file
+    Prog_TransferOp_AudioTags,      // writes the tags `name`, a "key\tvalue" line each, into the audio file `paths[0]`, and the picture `paths[1]` as its cover when given
+    Prog_TransferOp_ExtractCover,   // saves the cover of the audio file `paths[0]` beside it
     Prog_TransferOp_Count,
 } Prog_TransferOp;
 
@@ -681,6 +683,8 @@ typedef struct Prog_FoundLines {
 // A picture is the file's own at up to Prog_PreviewImageSide on its longer side when it is an image,
 // else the system's thumbnail of Prog_PreviewSize squared.
 #define Prog_PreviewImageSide 4096
+// An audio file's cover is drawn at up to this on its longer side, for the inspector's square beside its name.
+#define Prog_CoverSide 512
 
 // What git says of an item that is not as last committed, the folders by the most telling of what is inside them.
 typedef enum Prog_GitMark {
@@ -811,6 +815,14 @@ typedef struct Prog_TorrentProgress {
     b32 control;
 } Prog_TorrentProgress;
 
+// An audio file's tags as the inspector edits them, by Prog_AudioTagKeys, and its cover's codec, empty without one; `read` once ffprobe read them.
+#define Prog_AudioTagCount 8
+typedef struct Prog_AudioTags {
+    String values[Prog_AudioTagCount];
+    String cover;
+    b32 read;
+} Prog_AudioTags;
+
 typedef struct Prog_Preview {
     u32 *pixels;
     i32 width, height;              // of pixels
@@ -828,6 +840,9 @@ typedef struct Prog_Preview {
     Prog_ModelShape model;          // a 3D model's mesh, when it has indices
     String media;                   // an audio or video file's details from ffprobe, a "label\tvalue" line each
     f64 seconds;                    // and its length
+    Prog_AudioTags tags;            // an audio file's tags
+    u32 *coverPixels;               // and its cover's picture
+    i32 coverWidth, coverHeight;
     Prog_TorrentInfo torrent;       // a .torrent's files; none for any other file
     // The text's lines, where each starts and one past its end, and with its syntax what each starts inside of; `windowed` when the text
     // is the start of a file too big to hold, read from `readPath`, its copy taken out when it is inside an archive.
@@ -1467,6 +1482,7 @@ typedef struct Prog_PdfView {
 //     their lines' numbers
 #define Prog_PreviewFields(X) \
     X(b32, inspectorDetails) X(b32, inspectorDetailsFolded) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(String, previewMedia) X(f64, previewSeconds) X(R_TextureHandle, previewTexture) \
+    X(Prog_AudioTags, previewTags) X(R_TextureHandle, previewCover) \
     X(Prog_ModelView, model) X(Prog_PdfView, pdf) \
     X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(i32, previewImageWidth) X(i32, previewImageHeight) \
     X(u32 *, previewPixels) \
@@ -1872,6 +1888,15 @@ typedef struct Prog_State {
     R_TextureHandle pickerSquare, pickerStrip;  // the saturations and brightnesses of pickerSquareHue, and the hues
     f32 pickerSquareHue;
     u8 hexOption;                 // the color group whose hex box is being typed in, or 0
+    // The tag of the inspector's audio file being typed in, plus one, or 0, the file's path, and the value it had.
+    u8 tagField;
+    u8 tagPath[1024];
+    u32 tagPathLength;
+    Prog_TextEdit tagEdit, tagBefore;
+    // The audio file whose cover a drag is over in the last build, which a drop there replaces, and the one the drop goes to as this frame
+    // takes it.
+    u8 coverDropShown[1024], coverDrop[1024];
+    u32 coverDropShownLength, coverDropLength;
     Prog_TextEdit hexEdit;
     u8 sliderOption;              // the option whose slider is being typed in, plus one, or 0
     b32 sliderInvalid;            // what was typed there does not read as a number
@@ -2441,6 +2466,13 @@ function b32 Prog_PlayAudio(Arena *arena, String path, u64 start, const atomic_u
 function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op);
 function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, b32 playlist, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
 function P_FileError Prog_CompressVideo(Arena *arena, String path, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel, String *output);
+function b32 Prog_AudioHoldsCover(String path);
+function b32 Prog_ReadAudioTags(Arena *arena, String path, const P_CancelToken *cancel, Prog_AudioTags *tags);
+function b32 Prog_AudioCover(Arena *arena, String path, const P_CancelToken *cancel, i32 side, P_Image *image, i32 *width, i32 *height);
+function P_FileError Prog_WriteAudioTags(Arena *arena, String path, String changes, String cover, const P_CancelToken *cancel);
+function P_FileError Prog_ExtractCover(Arena *arena, String path, const P_CancelToken *cancel, String *placed);
+function void Prog_EndTagEdit(Prog_State *state, b32 keep);
+function void Prog_SetCover(Prog_State *state, String path, String picture);
 function String Prog__NameStem(String name);
 function String Prog__FreeName(Arena *arena, String directory, String stem, String extension);
 function String Prog_FormatSize(Arena *arena, u64 bytes);

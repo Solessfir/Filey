@@ -614,11 +614,11 @@ function void LinuxAcceptDrag(void)
 {
     if (!Wl.dragOffer) return;
     // Pinning folders takes their paths only, so it asks for a copy, which leaves the source alone.
-    b32 welcome = Wl.dragFiles && (P__drop.length || P__drop.takesFolders);
+    b32 welcome = Wl.dragFiles && (P__drop.length || P__drop.keeps);
     wl_data_offer_accept(Wl.dragOffer, Wl.dragSerial, welcome ? Wl.dragFiles : NULL);
     if (wl_data_offer_get_version(Wl.dragOffer) >= 3) {
-        u32 actions = !welcome ? 0 : P__drop.takesFolders ? WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY : WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE;
-        u32 preferred = !actions ? 0 : Wl.dragSource && !P__drop.takesFolders ? WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE : WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY;
+        u32 actions = !welcome ? 0 : P__drop.keeps ? WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY : WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE;
+        u32 preferred = !actions ? 0 : Wl.dragSource && !P__drop.keeps ? WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE : WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY;
         wl_data_offer_set_actions(Wl.dragOffer, actions, preferred);
     }
 }
@@ -714,13 +714,13 @@ function void DataDeviceDrop(void *data, struct wl_data_device *device)
         DataDeviceLeave(data, device);
         return;
     }
-    if (Wl.dragOffer && Wl.dragFiles && P__drop.takesFolders) {
+    if (Wl.dragOffer && Wl.dragFiles && P__drop.keeps) {
         Scratch scratch = GetScratch();
         String list = Wl.dragSource ? Wl.dragList : LinuxReceive(scratch.arena, Wl.dragOffer, Wl.dragFiles);
         ArrayStr paths = {0};
         b32 cut = false;
         P__ParseFileList(scratch.arena, list, strcmp(Wl.dragFiles, LinuxFileMimes[0]) == 0, &paths, &cut);
-        P__KeepDroppedFolders(&paths);
+        P__KeepDropped(&paths);
         if (wl_data_offer_get_version(Wl.dragOffer) >= 3) wl_data_offer_finish(Wl.dragOffer);
         ReleaseScratch(scratch);
     } else if (Wl.dragOffer && Wl.dragFiles && P__drop.length) {

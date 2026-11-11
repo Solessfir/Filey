@@ -834,7 +834,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Inspector),
     Prog_CommandKind_TogglePreview, Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
     Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap, Prog_CommandKind_InspectorToggleLineNumbers,
-    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorToggleUsage, Prog_CommandKind_InspectorUsageRescan, Prog_CommandKind_InspectorUsageShowInFolder, Prog_CommandKind_InspectorPlay, Prog_CommandKind_InspectorMute, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorStartFind, Prog_CommandKind_InspectorToggleImageGrid,
+    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorToggleUsage, Prog_CommandKind_InspectorUsageRescan, Prog_CommandKind_InspectorUsageShowInFolder, Prog_CommandKind_InspectorPlay, Prog_CommandKind_InspectorMute, Prog_CommandKind_InspectorSaveCover, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorStartFind, Prog_CommandKind_InspectorToggleImageGrid,
     Prog_CommandKind_InspectorToggleImageMinimap, Prog_CommandKind_InspectorToggleImageScale, Prog_CommandKind_InspectorScaleImageUp,
     Prog_CommandKind_InspectorScaleImageDown,
     Prog__PaletteGroup(Panels),
@@ -2792,6 +2792,9 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewPath = StrCopy(&state->previewArena, want);
     state->previewText = state->previewMedia = (String){0};
     state->previewSeconds = 0;
+    state->previewTags = (Prog_AudioTags){0};
+    R_TextureRelease(state->previewCover);
+    state->previewCover = (R_TextureHandle){0};
     state->torrent = (Prog_TorrentInfo){0};
     state->torrentSkip = NULL;
     state->torrentDone = NULL;
@@ -2861,7 +2864,7 @@ function void Prog__ScaleImage(Prog_State *state, b32 up)
 function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op)
 {
     if (!directory.length || (kind != Prog_JobKind_Create && kind != Prog_JobKind_Restore && !count)) return NULL;
-    b32 tool = op == Prog_TransferOp_CompressVideo || op == Prog_TransferOp_Download || op == Prog_TransferOp_Torrent || op == Prog_TransferOp_TorrentFetch;
+    b32 tool = op == Prog_TransferOp_CompressVideo || op == Prog_TransferOp_AudioTags || op == Prog_TransferOp_ExtractCover || op == Prog_TransferOp_Download || op == Prog_TransferOp_Torrent || op == Prog_TransferOp_TorrentFetch;
     Prog_Transfer *transfer = NULL;
     // A torrent's download takes one of the torrents' own slots, and the rest the others.
     u32 first = op == Prog_TransferOp_Torrent ? Prog_MaxTransfers : 0, end = op == Prog_TransferOp_Torrent ? Prog_TransferSlots : Prog_MaxTransfers;
@@ -5400,6 +5403,24 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (state->playerJob && state->playerHash == MapHashBytes(path.value, path.length)) atomic_store(&progress->paused, !atomic_load(&progress->paused));
                 else Prog__StartPlayer(state, path, 0);
             } break;
+            case Prog_CommandKind_InspectorSaveCover: {
+                if (state->focusedRow >= state->directory.count || !state->previewTags.cover.length) break;
+                String path = Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name);
+                if (StrIsEqual(path, state->previewPath)) Prog__FileJobOp(state, Prog_JobKind_Transfer, &path, 1, state->directory.path, false, (String){0}, Prog_TransferOp_ExtractCover);
+            } break;
+            case Prog_CommandKind_InspectorTagEdit: {
+                if (command->row >= Prog_AudioTagCount || !state->previewTags.read || !state->previewPath.length) break;
+                if (state->tagField) Prog_EndTagEdit(state, true);
+                state->tagField = (u8)(command->row + 1);
+                state->tagPathLength = (u32)Min(state->previewPath.length, sizeof(state->tagPath));
+                MemCopy(state->tagPath, state->previewPath.value, state->tagPathLength);
+                // Its whole value selected, to be typed over or added to.
+                String value = state->previewTags.values[command->row];
+                state->tagEdit = (Prog_TextEdit){0};
+                Prog__EditReplace(&state->tagEdit, (const u8 *)value.value, (u32)Min(value.length, (u64)sizeof(state->tagEdit.text)));
+                state->tagEdit.anchor = 0;
+                state->tagBefore = state->tagEdit;
+            } break;
             case Prog_CommandKind_InspectorMute:
             case Prog_CommandKind_InspectorVolume: {
                 if (command->kind == Prog_CommandKind_InspectorMute) state->audioMuted = !state->audioMuted;
@@ -5538,17 +5559,21 @@ function b32 Prog_ProcessCommands(Prog_State *state)
         Prog__UsePanel(state, current);
         changed = true;
     }
-    // Folders dropped on the bookmarks, or on a group of the user's, go where the last build showed the drop would go.
-    ArrayStr pinned = P_TakeDroppedFolders(&state->frameArena);
+    // Folders dropped on the bookmarks, or on a group of the user's, go where the last build showed the drop would go; a picture dropped on an
+    // audio file's cover takes its place.
+    ArrayStr pinned = P_TakeDroppedKept(&state->frameArena);
     if (pinned.header.count) {
-        if (state->userGroupDropIn) Prog_UserGroupAdd(state, state->userGroupDropIn - 1, &pinned, state->userGroupDrop - 1);
+        if (state->coverDropLength) Prog_SetCover(state, StrMake((const char *)state->coverDrop, state->coverDropLength), pinned.v[0]);
+        else if (state->userGroupDropIn) Prog_UserGroupAdd(state, state->userGroupDropIn - 1, &pinned, state->userGroupDrop - 1);
         else Prog_PinBookmarks(state, &pinned, state->bookmarkDrop ? state->bookmarkDrop - 1 : state->bookmarks.header.count);
         changed = true;
     }
     state->bookmarkDrop = state->bookmarkDropShown;
     state->userGroupDrop = state->userGroupDropShown;
     state->userGroupDropIn = state->userGroupDropShownIn;
-    P_SetDropTakesFolders(state->bookmarkDrop != 0 || state->userGroupDropIn != 0);
+    MemCopy(state->coverDrop, state->coverDropShown, state->coverDropShownLength);
+    state->coverDropLength = state->coverDropShownLength;
+    P_SetDropKeeps(state->coverDropLength ? P_DropKeep_Files : state->bookmarkDrop != 0 || state->userGroupDropIn != 0 ? P_DropKeep_Folders : P_DropKeep_None);
     // The schemes' dropdown goes with the Options it opened from.
     if (!state->paletteOpen || state->paletteMode != Prog_PaletteMode_Options) state->schemesOpen = 0, state->mutedOpen = false;
     Prog_SubmitIconRequests(state);
@@ -5888,6 +5913,26 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 state->swallowText = true;
             } else {
                 Prog__EditKey(state, hex, event);
+            }
+            continue;
+        }
+        // A tag of the inspector's audio file being typed in takes the keyboard; Enter or a press anywhere saves it, Escape leaves it, and Tab
+        // saves it and goes on to the next tag, Shift+Tab to the one before. It ends as another item shows.
+        if (state->tagField && !StrIsEqual(state->previewPath, StrMake((const char *)state->tagPath, state->tagPathLength))) state->tagField = 0;
+        if (state->tagField && event->kind == PlatformEventKind_MouseDown) Prog_EndTagEdit(state, true);
+        if (state->tagField && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            if (event->kind == PlatformEventKind_Text) {
+                if (event->codepoint >= ' ' && event->codepoint != 0x7F) Prog__EditInsert(&state->tagEdit, event->codepoint);
+            } else if (event->key == Key_Escape || event->key == Key_Enter) {
+                Prog_EndTagEdit(state, event->key == Key_Enter);
+                state->swallowText = true;
+            } else if (event->key == Key_Tab) {
+                u32 next = (state->tagField - 1 + ((event->mods & KeyMod_Shift) ? Prog_AudioTagCount - 1 : 1)) % Prog_AudioTagCount;
+                Prog_EndTagEdit(state, true);
+                Prog_QueueCommand(state, Prog_CommandKind_InspectorTagEdit, next, 0, order);
+                state->swallowText = true;
+            } else {
+                Prog__EditKey(state, &state->tagEdit, event);
             }
             continue;
         }

@@ -847,6 +847,16 @@ command InspectorMute {
     repeat  = "false"
 }
 
+command InspectorSaveCover {
+    label   = "Save Album Cover^extract,picture,artwork,image"
+    tooltip = "Save the album cover of the audio file shown in the inspector beside it as a picture."
+    repeat  = "false"
+}
+
+// A click on a tag of the audio file in the inspector's details, which starts typing in it; carries the tag.
+command InspectorTagEdit {
+}
+
 // The inspector's volume bar, pressed, dragged or turned; carries the volume, 0 to 100.
 command InspectorVolume {
 }
