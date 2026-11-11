@@ -2017,8 +2017,9 @@ function u32 P__SetUserPath(Arena *arena, const wchar *folder, b32 on)
 
 // What Set as default writes under the user's classes: the open commands of folders and drives, and the command Win+E starts.
 #define P__UserClasses L"Software\\Classes"
-global const wchar *P__DefaultKeys[3] = { L"Directory\\shell", L"Drive\\shell", L"CLSID\\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\\shell" };
-global const wchar *P__DefaultVerbs[3] = { L"open", L"open", L"opennewwindow" };
+// Win+E runs that command's open verb on newer Windows and its opennewwindow on older, so both are taken.
+global const wchar *P__DefaultKeys[4] = { L"Directory\\shell", L"Drive\\shell", L"CLSID\\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\\shell", L"CLSID\\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\\shell" };
+global const wchar *P__DefaultVerbs[4] = { L"open", L"open", L"opennewwindow", L"open" };
 
 // Whether the command of `P__DefaultKeys[i]` under `classes` is `command`, which tells Filey's apart from what something else wrote.
 function b32 P__DefaultCommandIs(HKEY root, const wchar *classes, u32 i, const wchar *command)
@@ -2045,7 +2046,7 @@ function u32 P__SetDefault(HKEY root, const wchar *classes, const wchar *command
         wchar shell[512], verb[512];
         swprintf(shell, CArrayCount(shell), L"%ls\\%ls", classes, P__DefaultKeys[i]);
         swprintf(verb, CArrayCount(verb), L"%ls\\%ls", shell, P__DefaultVerbs[i]);
-        b32 clsid = i == 2;
+        b32 clsid = i >= 2;
         if (on) {
             DWORD commandSize = (DWORD)(((u64)lstrlenW(command) + 1) * sizeof(wchar));
             wchar commandKey[600];
