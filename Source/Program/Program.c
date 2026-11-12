@@ -2212,8 +2212,16 @@ function R_Color Prog__FloatingFill(void)
     return theme->background.a < 1 ? theme->menu : theme->background;
 }
 
-// How far a floating box blurs what is under it: only where its fill lets that show through, as in the transparent theme, and with no blur
-// set there, -1, which tints what is under it unblurred the same way.
+// How far a floating box blurs what is under it: only where its fill lets that show through, as in the transparent theme.
+// With no blur set there, -1, which tints what is under it unblurred the same way.
+// The menus' color, opaque enough to read over what is under it, for a box with no blur to set it apart, as a dragged tab.
+function R_Color Prog__ReadableFill(void)
+{
+    R_Color result = Prog_CurrentTheme()->menu;
+    result.a = MaxF32(result.a, 0.9f);
+    return result;
+}
+
 function f32 Prog__FloatingBlur(const Prog_Metrics *m)
 {
     if (Prog_CurrentTheme()->menu.a >= 1) return 0;
@@ -10413,7 +10421,7 @@ function void Prog__Notices(Prog_State *state, Prog__CardStack stack, const Prog
         UI_SetNextChildrenLayout(UI_Layout_Vertical);
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
         UI_SetNextCornerRadius(m->radius * 2);
-        UI_SetNextBorderThickness(m->separator);
+        UI_SetNextBorderThickness(m->stroke);
         UI_SetNextBlur(Prog__FloatingBlur(m));
         UI_SetNextOpacity(opacity);
         R_Color edge = tint;
@@ -10633,10 +10641,12 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
                 }
             }
             // A video's progress is in milliseconds of it, shown as times.
-            String amount = transfer->op == Prog_TransferOp_CompressVideo && bytes ? StrFormat(&state->frameArena, TrF("%S of %S"), Prog__Clock(&state->frameArena, Min(doneBytes, bytes)),
-                                                                                               Prog__Clock(&state->frameArena, bytes))
-                          : bytes ? StrFormat(&state->frameArena, TrF("%S of %S"), Prog__FormatSize(&state->frameArena, Min(doneBytes, bytes), true), Prog__FormatSize(&state->frameArena, bytes, true))
+            // What is done, and of how much: a video's time, or a size, keeping its tenths so that it holds its width, or a count of items.
+            b32 clock = transfer->op == Prog_TransferOp_CompressVideo && bytes;
+            String doneText = clock ? Prog__Clock(&state->frameArena, Min(doneBytes, bytes)) : bytes ? Prog__FormatSize(&state->frameArena, Min(doneBytes, bytes), true) : (String){0};
+            String amount = bytes ? StrFormat(&state->frameArena, TrF("%S of %S"), doneText, clock ? Prog__Clock(&state->frameArena, bytes) : Prog__FormatSize(&state->frameArena, bytes, true))
                                   : StrFormat(&state->frameArena, TrF("%u of %u"), (u32)Min(doneItems, items), (u32)items);
+            if (!bytes) doneText = StrFormat(&state->frameArena, "%u", (u32)Min(doneItems, items));
             // A narrow card's bar is as wide as it is, over the amount.
             f32 lineHeight = narrow ? m->gap : m->row;
             UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(lineHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
@@ -10667,12 +10677,8 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
             if (narrow) {
                 UI_Block *under = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, (R_Color){0}, 0);
                 // The amount gives way to the percent when both do not fit, as a paused one's longer text: the done part alone, then cut.
-                f32 room = width - 2 * pad - R_TextWidth(m->font, percent) - m->gap;
-                if (R_TextWidth(m->font, amount) > room) {
-                    String done = transfer->op == Prog_TransferOp_CompressVideo && bytes ? Prog__Clock(&state->frameArena, Min(doneBytes, bytes))
-                                : bytes ? Prog__FormatSize(&state->frameArena, Min(doneBytes, bytes), true) : StrFormat(&state->frameArena, "%u", (u32)Min(doneItems, items));
-                    amount = Prog__Ellipsize(&state->frameArena, m->font, done, room);
-                }
+                f32 room = MaxF32(0, width - 2 * pad - R_TextWidth(m->font, percent) - m->gap);
+                if (R_TextWidth(m->font, amount) > room) amount = Prog__Ellipsize(&state->frameArena, m->font, doneText, room);
                 UI_Parent(under) {
                     Prog__Label(amount, UI_Flex(), m->row, 0, theme->textDim, 0);
                     Prog__Label(percent, UI_TextContent(), m->row, 0, theme->text, 1);
@@ -11097,7 +11103,7 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
     // Wide enough for what it says, and kept inside the window, which it cannot draw outside of.
     f32 width = MaxF32(floorf(m->line * 12.0f), words + 2 * m->gap), height = floorf(m->bar * 0.85f), radius = floorf(8.0f * scale + 0.5f);
     // A translucent theme's panels would leave it unreadable over the list, so it takes the menus' color there.
-    R_Color face = theme->panel.a < 1 ? theme->menu : theme->panel, foot = theme->background.a < 1 ? theme->menu : theme->background;
+    R_Color face = theme->panel.a < 1 ? Prog__ReadableFill() : theme->panel, foot = theme->background.a < 1 ? Prog__ReadableFill() : theme->background;
     R_Rect view = UI->root->rect;
     // Outside the window it is a window of its own over the others, at the window's top left to be drawn on its own, and only the tab.
     b32 outside = !UI__Contains(view, UI->mouse);
@@ -12647,7 +12653,7 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, 0 });
             UI_SetNextCornerRadius(m->radius);
             UI_SetNextBorderThickness(m->stroke);
-            UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+            UI_SetNextColors((UI_Colors){ .background = Prog__ReadableFill(), .border = theme->tabBorder });
             UI_Block *card = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
             UI_Parent(card) {
                 UI_SetNextPrefWidth(UI_Pixels(swatch));

@@ -71,8 +71,8 @@ typedef struct UI_Properties {
     f32 borderThickness;  // 0 draws one pixel
     f32 fade;  // 0 is opaque and 1 invisible, for this block and everything inside it
     f32 scale; // 0 draws it at its size; otherwise it and everything inside it are drawn that much larger around its center
-    f32 blur;  // 0 draws over what is under it; above 0 it first blurs that, this many pixels across, inside its corners; below 0 its fill only
-               // tints what is under it, as it would a blur
+    f32 blur;  // 0 draws over what is under it; above 0 it first blurs that, this many pixels across, inside its corners;
+               // below 0 its fill only tints what is under it, as it would a blur
     f32 softness;  // 0 gives the background a sharp edge; otherwise it fades in from its edge over this many pixels
     f32 edgeFade;  // a scrolling block's content fades into its background over this many pixels at an edge it has more past
     u32 shape;     // R_Shape flags for its blur, background and border

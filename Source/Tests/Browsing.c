@@ -2888,6 +2888,8 @@ function void TestMeasure(TestFileFixture *fixture)
     Check(StrIsEqual(Prog_FormatSize(&arena, 0), S("0 B")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 1010), S("1010 B")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 1024), S("1 kB")));
+    // A size counting up keeps its tenths, so that it holds its width.
+    Check(StrIsEqual(Prog__FormatSize(&arena, 1024, true), S("1.0 kB")) && StrIsEqual(Prog__FormatSize(&arena, 1010, true), S("1010 B")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 1200), S("1.1 kB")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 1842), S("1.8 kB")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 2047), S("1.9 kB")));
