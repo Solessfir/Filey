@@ -10730,14 +10730,26 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
                                             : StrFormat(frame, TrN(state->confirmCount, "Permanently delete %u item?", "Permanently delete %u items?"), (u32)state->confirmCount);
     String details[1] = {0};
     u32 detailCount = 0;
-    // The names go under the count, one alone too, in the same place and color.
+    // The names go under the count, one alone too, in the same place and color: as many of the first three as fit whole in the line's room
+    // beside what it says of the rest, and the first at least, cut in its middle when even it does not.
     if (!state->confirmEmptyTrash) {
-        u64 named = Min(state->confirmCount, (u64)3);
-        StrBuilder names = {0};
-        // Each name cut in its middle when long, so that the line stays short enough to show its end.
-        for (u64 i = 0; i < named; ++i) StrBuildF(frame, &names, "%s%S", i ? ", " : "", Prog__EllipsizeMiddle(frame, m->font, Prog__FolderName(state->confirmPaths[i]), m->line * 9));
-        if (state->confirmCount > named) StrBuildF(frame, &names, " %S", StrFormat(frame, TrF("and %u more"), (u32)(state->confirmCount - named)));
-        details[detailCount++] = names.buffer;
+        f32 room = m->line * 26;
+        u64 count = state->confirmCount, named = 0;
+        String line = {0};
+        for (u64 n = 1; n <= Min(count, (u64)3); ++n) {
+            StrBuilder names = {0};
+            for (u64 i = 0; i < n; ++i) StrBuildF(frame, &names, "%s%S", i ? ", " : "", Prog__FolderName(state->confirmPaths[i]));
+            String tail = count > n ? StrFormat(frame, TrF("and %u more"), (u32)(count - n)) : (String){0};
+            String candidate = tail.length ? StrFormat(frame, "%S %S", names.buffer, tail) : names.buffer;
+            if (n > 1 && R_TextWidth(m->font, candidate) > room) break;
+            line = candidate, named = n;
+        }
+        if (named == 1 && R_TextWidth(m->font, line) > room) {
+            String tail = count > 1 ? StrFormat(frame, TrF("and %u more"), (u32)(count - 1)) : (String){0};
+            String first = Prog__EllipsizeMiddle(frame, m->font, Prog__FolderName(state->confirmPaths[0]), room - (tail.length ? R_TextWidth(m->font, tail) + m->gap : 0));
+            line = tail.length ? StrFormat(frame, "%S %S", first, tail) : first;
+        }
+        details[detailCount++] = line;
     }
     Prog__Answer answer = Prog__Question(S("DeletePanel"), Icon_TriangleAlert, title, details, detailCount, Tr("This cannot be undone."), Tr("Delete"), Prog_CurrentTheme()->danger, m);
     if (answer.answered) Prog_QueueCommand(state, answer.confirmed ? Prog_CommandKind_DeleteConfirm : Prog_CommandKind_DeleteCancel, 0, 0, answer.order);
