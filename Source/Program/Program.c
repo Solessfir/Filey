@@ -509,8 +509,8 @@ static_assert(sizeof(Prog_ThemeColors) / sizeof(Prog_ThemeColors[0]) * sizeof(R_
 
 // The transparent theme's tints as the settings give them, each at its opacity: the window's over what is behind it, and the floating
 // boxes' over the blur under them. Their colors are the scheme's unless the settings give their own.
-#define Prog_DefaultGlassOpacity 0.55f
-#define Prog_DefaultPopupOpacity 0.75f
+#define Prog_DefaultGlassOpacity 0.9f
+#define Prog_DefaultPopupOpacity 0.9f
 global R_Color Prog_GlassWindow = { 0, 0, 0, Prog_DefaultGlassOpacity }, Prog_GlassPopup = { 0, 0, 0, Prog_DefaultPopupOpacity };
 global b32 Prog_GlassWindowOwn, Prog_GlassPopupOwn;
 
@@ -743,8 +743,8 @@ global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit
 //   color.<theme field> = #rrggbb[aa]
 //   glass.window = #rrggbbaa      the transparent theme's tint over what is behind the window, the scheme's window color without it
 //   glass.popup = #rrggbbaa       its tint over the blur under menus, the palette and the other floating boxes, the scheme's surface color without it
-//   glass.opacity = 55            how much of glass.window's tint covers what is behind, in percent, where there is no backdrop to choose
-//   glass.popupOpacity = 75       how much of glass.popup's tint covers that blur, in percent, over its own opacity
+//   glass.opacity = 90            how much of glass.window's tint covers what is behind, in percent, where there is no backdrop to choose
+//   glass.popupOpacity = 90       how much of glass.popup's tint covers that blur, in percent, over its own opacity
 //   glass.blur = 24               how far that blur reaches, in logical pixels; 0 leaves them unblurred
 //   glass.backdrop = acrylic      what Windows draws behind the window: acrylic, mica, tabbed or none
 //   transparent = true            the transparent theme
@@ -1147,7 +1147,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# under menus, the palette and the other floating boxes. glass.opacity is the window tint's opacity alone in percent, where there\n"
                                 "# is no backdrop to choose, glass.popupOpacity the popups', and glass.blur is how far that blur reaches in pixels, 0 for none.\n"
                                 "# glass.backdrop is what Windows draws behind the window: acrylic (its blur), mica, tabbed or none.\n"
-                                "# transparent = false\n# glass.opacity = 55\n# glass.popupOpacity = 75\n# glass.blur = 24\n# glass.backdrop = acrylic\n"));
+                                "# transparent = false\n# glass.opacity = 90\n# glass.popupOpacity = 90\n# glass.blur = 24\n# glass.backdrop = acrylic\n"));
     StrBuildStr(arena, &text, S("\n# Hotkeys, several separated by commas, and \"G G\" for G pressed twice; \"none\" removes a command's.\n"));
     Prog_State defaults = {0};
     (void)state;
