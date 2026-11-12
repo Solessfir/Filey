@@ -191,7 +191,7 @@ typedef struct GL_ArrayInstance { ArrayHeader header; GL_Instance *v; } GL_Array
 typedef struct GL_ArrayBatch    { ArrayHeader header; GL_Batch *v; } GL_ArrayBatch;
 
 #define GL_MaxClipDepth 64
-#define GL_BlurLevels 6
+#define GL_BlurLevels 8
 
 #define GL_MaxSolids 8
 

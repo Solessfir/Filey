@@ -4515,7 +4515,7 @@ function void TestTabs(TestFileFixture *fixture)
         Prog_ReloadSettingsFile(&state);
         Check(Prog_OptionValue(&state, Prog_Option_FontSize) == 10);
         Check(Prog_OptionValue(&state, Prog_Option_FontSize) == 10 && state.uiScale > 1.1f && state.animationsOff);
-        Check(state.inspectorLayout == Prog_InspectorLayout_Below && Prog_OptionValue(&state, Prog_Option_PopupBlur) == 100);
+        Check(state.inspectorLayout == Prog_InspectorLayout_Below && Prog_OptionValue(&state, Prog_Option_PopupBlur) == 300);
         String settings = {0};
         Check(P_ReadFile(&driveArena, Prog_JoinPath(&driveArena, cache, S("Settings.conf")), &settings));
         ArrayStr lines = StrSplit(&driveArena, settings, '\n');

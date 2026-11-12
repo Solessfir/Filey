@@ -861,7 +861,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         } else if (StrIsEqual(name, S("glass.popupOpacity"))) {
             if (number >= 0 && number <= 100) Prog_GlassPopup.a = number / 100.0f;
         } else if (StrIsEqual(name, S("glass.blur"))) {
-            if (number >= 0 && number <= 100) Prog_GlassBlur = number;
+            if (number >= 0 && number <= 300) Prog_GlassBlur = number;
         } else if (StrIsEqual(name, S("glass.backdrop"))) {
             for (u32 i = 0; i < PlatformBackdrop_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionBackdrops[i])) state->glassBackdrop = (u8)i;
         } else if (StrIsEqual(name, S("theme"))) {
@@ -1335,7 +1335,7 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                    Prog_OptionSwitch, 2, SInit("transparent") },
     [Prog_Option_WindowOpacity] = { TrInit("Window Opacity"), TrInit("How much the window's color covers what is behind it."),
                                     Prog_OptionControl_Slider, 0, 100, NULL, 0, SInit("glass.opacity") },
-    [Prog_Option_PopupBlur] = { TrInit("Popup Blur"), TrInit("How far menus and popups blur what is under them."), Prog_OptionControl_Slider, 0, 100,
+    [Prog_Option_PopupBlur] = { TrInit("Popup Blur"), TrInit("How far menus and popups blur what is under them."), Prog_OptionControl_Slider, 0, 300,
                                 NULL, 0, SInit("glass.blur") },
     [Prog_Option_PopupOpacity] = { TrInit("Popup Opacity"), TrInit("How much the color of menus and popups covers the blur under them."),
                                    Prog_OptionControl_Slider, 0, 100, NULL, 0, SInit("glass.popupOpacity") },
