@@ -3856,3 +3856,18 @@ Sign out or restart once to use Win+E
 
 Win+E opens Filey from the next sign-in or restart. Windows now starts Explorer ahead of time, which keeps the key until then.
 = 下次登录或重启后，Win+E 将打开 Filey。Windows 现在会提前启动资源管理器，在此之前它会占用该快捷键。
+
+Type the server's password...
+= 输入服务器的密码...
+
+The server did not accept that password.
+= 服务器不接受该密码。
+
+Couldn't connect to %S
+= 无法连接到 %S
+
+Connect to Server
+= 连接到服务器
+
+Connect to a server by its address, as sftp://host or smb://server/share, and open it.
+= 按地址连接到服务器（如 sftp://host 或 smb://server/share）并打开它。
