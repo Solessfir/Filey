@@ -10313,10 +10313,10 @@ function String Prog__TransferName(Arena *arena, P_Progress *progress)
 // How long a warning and an info show, from when they came or were last under the pointer, and how long they take to fade.
 enum { Prog_NoticeInfoMicroseconds = 3000000, Prog_NoticeWarningMicroseconds = 6000000, Prog_NoticeFadeMicroseconds = 300000 };
 
-// How long `notice` has left before it is gone, or UINT64_MAX for an error, which stays until closed.
+// How long `notice` has left before it is gone, or UINT64_MAX for an error or one made to stay, which stays until closed.
 function u64 Prog_NoticeLeft(const Prog_Notice *notice, u64 now)
 {
-    if (notice->kind == Prog_NoticeKind_Error || notice->action) return UINT64_MAX;
+    if (notice->kind == Prog_NoticeKind_Error || notice->action || notice->stays) return UINT64_MAX;
     u64 lasts = notice->kind == Prog_NoticeKind_Warning ? Prog_NoticeWarningMicroseconds : Prog_NoticeInfoMicroseconds, gone = now - Min(notice->since, now);
     return gone < lasts ? lasts - gone : 0;
 }

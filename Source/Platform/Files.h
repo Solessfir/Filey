@@ -94,7 +94,13 @@ function String P_RunFolder(Arena *arena);
 function void P_RemoveStaleRunFolders(void);
 // Brings the installed copy's entry in the system's list of installed apps up to its own version and size, as an update leaves the entry
 // Filey Setup wrote as it was; any other copy, or one with no entry, changes nothing. Nothing on Linux.
-function void P_RefreshInstallEntry(void);
+// A default set before Windows started Explorer ahead of time takes Win+E over too; the result is P_WinEKeyWaits'.
+function b32 P_RefreshInstallEntry(void);
+// Whether Filey is set to take Win+E over from the Explorer that newer Windows starts ahead of time, but does not have it yet, as Explorer
+// lets it go only once it starts again, at the next sign-in. Always false on Linux.
+function b32 P_WinEKeyWaits(void);
+// What `filey --hotkey` runs: it holds Win+E and starts Filey with it, until the default is taken back. Nothing on Linux.
+function i32 P_WinEKeyServe(void);
 function void P__RemoveStaleRunFolders(String root, u32 own);
 
 typedef struct P_DirectoryTotals {

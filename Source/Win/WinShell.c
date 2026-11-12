@@ -2073,6 +2073,160 @@ function u32 P__SetDefault(HKEY root, const wchar *classes, const wchar *command
     return error;
 }
 
+// Explorer started ahead of time, as newer Windows does, opens Win+E itself whatever command the user's classes give it.
+function b32 P__ExplorerPreloads(void)
+{
+    DWORD session = 0;
+    wchar key[160];
+    if (!ProcessIdToSessionId(GetCurrentProcessId(), &session)) return false;
+    swprintf(key, CArrayCount(key), L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\SessionInfo\\%lu\\DirectLaunchHandlers", session);
+    return RegGetValueW(HKEY_CURRENT_USER, key, L"microsoft.windows.explorer", RRF_RT_ANY, NULL, NULL, NULL) == ERROR_SUCCESS;
+}
+
+// Against the preload Filey owns Win+E: Explorer leaves the key alone from its next start once E is in its DisabledHotkeys, and `filey --hotkey`,
+// started at sign-in, registers it.
+#define P__RunKey L"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+#define P__AdvancedKey L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced"
+#define P__WinEEntry L"Filey Win+E"
+#define P__WinEHost L"Local\\Filey.WinEHost"
+#define P__WinEOwned L"Local\\Filey.WinEOwned"
+#define P__WinEQuit L"Local\\Filey.WinEQuit"
+
+function b32 P__WinEEntryThere(void)
+{
+    return RegGetValueW(HKEY_CURRENT_USER, P__RunKey, P__WinEEntry, RRF_RT_REG_SZ, NULL, NULL, NULL) == ERROR_SUCCESS;
+}
+
+function void P__WinEHostStart(const wchar *executable)
+{
+    HANDLE running = OpenMutexW(SYNCHRONIZE, FALSE, P__WinEHost);
+    if (running) {
+        CloseHandle(running);
+        return;
+    }
+    // A host started by a Filey run as an administrator would start every Filey of Win+E so too, so it is left to the one the sign-in starts.
+    HANDLE token = NULL;
+    TOKEN_ELEVATION elevation = {0};
+    DWORD size = 0;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size);
+        CloseHandle(token);
+    }
+    if (elevation.TokenIsElevated) return;
+    wchar line[MAX_PATH + 32], system[MAX_PATH + 1];
+    swprintf(line, CArrayCount(line), L"\"%ls\" --hotkey", executable);
+    // It runs until sign-out, so it works from the system folder rather than holding the one Filey started in.
+    u32 length = GetSystemDirectoryW(system, (u32)CArrayCount(system));
+    STARTUPINFOW startup = { .cb = sizeof(startup) };
+    PROCESS_INFORMATION process = {0};
+    if (CreateProcessW(executable, line, NULL, NULL, FALSE, 0, NULL, length && length < CArrayCount(system) ? system : NULL, &startup, &process)) {
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+    }
+}
+
+function u32 P__SetWinEKey(const wchar *executable, b32 on)
+{
+    wchar disabled[64] = {0}, run[MAX_PATH + 32];
+    DWORD size = sizeof(disabled);
+    LSTATUS read = RegGetValueW(HKEY_CURRENT_USER, P__AdvancedKey, L"DisabledHotkeys", RRF_RT_REG_SZ, NULL, disabled, &size);
+    // A list that cannot be read, such as one longer than any keyboard's keys, is left as it is.
+    b32 editable = read == ERROR_SUCCESS || read == ERROR_FILE_NOT_FOUND;
+    if (!editable) disabled[0] = 0;
+    wchar *e = wcspbrk(disabled, L"Ee");
+    u32 error = ERROR_SUCCESS;
+    if (on) {
+        if (editable && !e && lstrlenW(disabled) + 1 < (i32)CArrayCount(disabled)) {
+            lstrcatW(disabled, L"E");
+            error = (u32)RegSetKeyValueW(HKEY_CURRENT_USER, P__AdvancedKey, L"DisabledHotkeys", REG_SZ, disabled, (DWORD)(((u64)lstrlenW(disabled) + 1) * sizeof(wchar)));
+        }
+        swprintf(run, CArrayCount(run), L"\"%ls\" --hotkey", executable);
+        if (!error) error = (u32)RegSetKeyValueW(HKEY_CURRENT_USER, P__RunKey, P__WinEEntry, REG_SZ, run, (DWORD)(((u64)lstrlenW(run) + 1) * sizeof(wchar)));
+        if (!error) P__WinEHostStart(executable);
+    } else if (P__WinEEntryThere()) {
+        RegDeleteKeyValueW(HKEY_CURRENT_USER, P__RunKey, P__WinEEntry);
+        // The running host quits at once, and is waited for a moment, so that its executable is free to be removed after.
+        HANDLE quit = OpenEventW(EVENT_MODIFY_STATE, FALSE, P__WinEQuit);
+        if (quit) {
+            SetEvent(quit);
+            CloseHandle(quit);
+            for (u32 tries = 0; tries < 50; ++tries) {
+                HANDLE host = OpenMutexW(SYNCHRONIZE, FALSE, P__WinEHost);
+                if (!host) break;
+                CloseHandle(host);
+                Sleep(20);
+            }
+        }
+        if (e) {
+            MemMove(e, e + 1, ((u64)lstrlenW(e + 1) + 1) * sizeof(wchar));
+            if (disabled[0]) RegSetKeyValueW(HKEY_CURRENT_USER, P__AdvancedKey, L"DisabledHotkeys", REG_SZ, disabled, (DWORD)(((u64)lstrlenW(disabled) + 1) * sizeof(wchar)));
+            else RegDeleteKeyValueW(HKEY_CURRENT_USER, P__AdvancedKey, L"DisabledHotkeys");
+        }
+    }
+    return error;
+}
+
+function b32 P_WinEKeyWaits(void)
+{
+    if (!P__WinEEntryThere() || !P__ExplorerPreloads()) return false;
+    HANDLE owned = OpenMutexW(SYNCHRONIZE, FALSE, P__WinEOwned);
+    if (owned) {
+        CloseHandle(owned);
+        return false;
+    }
+    // A key no one holds is the host's to take as it next tries; one held but not by the host is Explorer's.
+    b32 free = RegisterHotKey(NULL, 0x7E57, MOD_WIN | MOD_NOREPEAT, 'E');
+    if (free) UnregisterHotKey(NULL, 0x7E57);
+    return !free;
+}
+
+function i32 P_WinEKeyServe(void)
+{
+    HANDLE single = CreateMutexW(NULL, FALSE, P__WinEHost);
+    if (!single || GetLastError() == ERROR_ALREADY_EXISTS) return 0;
+    wchar executable[MAX_PATH + 1];
+    DWORD length = GetModuleFileNameW(NULL, executable, (DWORD)CArrayCount(executable));
+    if (!length || length >= CArrayCount(executable)) return 1;
+    // An update or install puts a new executable where this one ran and this one aside, so the host hands over to a host of the new one,
+    // which leaves the old file free to be removed.
+    WIN32_FILE_ATTRIBUTE_DATA started = {0}, now = {0};
+    b32 dated = GetFileAttributesExW(executable, GetFileExInfoStandard, &started);
+    // Explorer holds the key until it starts again after DisabledHotkeys took E, so it is tried again until it is had.
+    SetTimer(NULL, 0, 5000, NULL);
+    HANDLE owned = NULL, quit = CreateEventW(NULL, TRUE, FALSE, P__WinEQuit);
+    b32 replaced = false, done = false;
+    MSG message;
+    while (!done) {
+        if (!owned && RegisterHotKey(NULL, 1, MOD_WIN | MOD_NOREPEAT, 'E')) owned = CreateMutexW(NULL, FALSE, P__WinEOwned);
+        if (MsgWaitForMultipleObjects(quit ? 1 : 0, &quit, FALSE, INFINITE, QS_ALLINPUT) == WAIT_OBJECT_0 && quit) break;
+        while (!done && PeekMessageW(&message, NULL, 0, 0, PM_REMOVE)) {
+            if (message.message == WM_QUIT || (message.message == WM_TIMER && !P__WinEEntryThere())) done = true;
+            else if (message.message == WM_TIMER && dated && GetFileAttributesExW(executable, GetFileExInfoStandard, &now) && CompareFileTime(&now.ftLastWriteTime, &started.ftLastWriteTime)) done = replaced = true;
+            else if (message.message == WM_HOTKEY) {
+                // The key press lets this process bring a window forward, which it passes on to the Filey it starts or hands over to.
+                AllowSetForegroundWindow(ASFW_ANY);
+                STARTUPINFOW startup = { .cb = sizeof(startup) };
+                PROCESS_INFORMATION process = {0};
+                wchar line[MAX_PATH + 8];
+                swprintf(line, CArrayCount(line), L"\"%ls\"", executable);
+                if (CreateProcessW(executable, line, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &process)) {
+                    CloseHandle(process.hThread);
+                    CloseHandle(process.hProcess);
+                }
+            }
+        }
+    }
+    if (replaced) {
+        if (owned) {
+            UnregisterHotKey(NULL, 1);
+            CloseHandle(owned);
+        }
+        CloseHandle(single);
+        P__WinEHostStart(executable);
+    }
+    return 0;
+}
+
 // Explorer's right-click entries, under the user's classes too: a file shown in its folder, a folder opened, and Filey opened in a folder's or
 // the desktop's background, which the shell passes as %V.
 global const wchar *P__MenuKeys[4] = { L"*\\shell\\Filey", L"Directory\\shell\\Filey", L"Directory\\Background\\shell\\Filey", L"DesktopBackground\\shell\\Filey" };
@@ -2163,9 +2317,10 @@ function u32 P__SetUninstallEntry(Arena *arena, const P__InstallPaths *paths, b3
 
 function wchar *P__OpenCommand(Arena *arena, const wchar *executable);
 
-function void P_RefreshInstallEntry(void)
+function b32 P_RefreshInstallEntry(void)
 {
     Scratch scratch = GetScratch();
+    b32 waits = false;
     P__InstallPaths paths = P__InstallPathsGet(scratch.arena);
     // A default set by an older version, which took fewer keys, as Win+E's open verb, takes them all.
     if (paths.executable && P__SamePathWide(paths.running, paths.executable)) {
@@ -2173,6 +2328,15 @@ function void P_RefreshInstallEntry(void)
         u32 held = 0;
         for (u32 i = 0; i < CArrayCount(P__DefaultKeys); ++i) held += P__DefaultCommandIs(HKEY_CURRENT_USER, P__UserClasses, i, command) ? 1 : 0;
         if (held && held < CArrayCount(P__DefaultKeys)) P__SetDefault(HKEY_CURRENT_USER, P__UserClasses, command, true);
+        // The preload, which can come with an update after the default was set, has Filey take Win+E over then.
+        if (held && P__ExplorerPreloads()) {
+            if (!P__WinEEntryThere()) P__SetWinEKey(paths.executable, true);
+            else P__WinEHostStart(paths.executable);
+            waits = P_WinEKeyWaits();
+        } else if (!held) {
+            // A default taken back without Filey Setup takes Win+E back with it.
+            P__SetWinEKey(paths.executable, false);
+        }
     }
     wchar saved[64] = {0};
     DWORD size = sizeof(saved);
@@ -2183,6 +2347,7 @@ function void P_RefreshInstallEntry(void)
         if (status != ERROR_SUCCESS || (version && lstrcmpW(version, saved))) P__SetUninstallEntry(scratch.arena, &paths, true);
     }
     ReleaseScratch(scratch);
+    return waits;
 }
 
 // `"<executable>" "%1"`, the command the shell starts Filey with for a folder.
@@ -2259,6 +2424,7 @@ function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPat
     if (!error && paths.desktopLink && !desktopShortcut && P__ShortcutStarts(scratch.arena, paths.desktopLink, paths.executable)) DeleteFileW(paths.desktopLink);
     if (!error) error = P__SetUserPath(scratch.arena, paths.folder, onPath);
     if (!error) error = P__SetDefault(HKEY_CURRENT_USER, P__UserClasses, P__OpenCommand(scratch.arena, paths.executable), setDefault);
+    if (!error) error = P__SetWinEKey(paths.executable, setDefault && P__ExplorerPreloads());
     if (!error) error = P__SetContextMenu(scratch.arena, paths.executable, contextMenu, labels);
     if (!error) error = P__SetUninstallEntry(scratch.arena, &paths, true);
     ReleaseScratch(scratch);
@@ -2276,6 +2442,7 @@ function P_FileError P_Uninstall(Arena *arena)
         error = P__SetUserPath(scratch.arena, paths.folder, false);
         u32 defaultError = P__SetDefault(HKEY_CURRENT_USER, P__UserClasses, P__OpenCommand(scratch.arena, paths.executable), false);
         if (!error) error = defaultError;
+        P__SetWinEKey(paths.executable, false);
         P__SetContextMenu(scratch.arena, paths.executable, false, (P_MenuLabels){0});
         P__SetUninstallEntry(scratch.arena, &paths, false);
         DeleteFileW(paths.aside);

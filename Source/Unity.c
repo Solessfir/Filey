@@ -381,6 +381,8 @@ int main(void)
         P_StdoutWrite(S(Prog_HelpText));
         return 0;
     }
+    // Set as default's holder of Win+E, which newer Windows' Explorer keeps for itself otherwise, opens no window.
+    if (P_StartupFlag(S("--hotkey"))) return P_WinEKeyServe();
     // The window opens at the size the last run left it at, rather than growing to it once the settings are read, and as they make it look.
     Scratch startup = GetScratch();
     P_CompleteSearchPath();

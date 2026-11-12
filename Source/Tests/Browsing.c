@@ -460,6 +460,7 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(noticed.noticeCount == Prog_MaxNotices && noticed.notices[0].kind == Prog_NoticeKind_Warning);
         Check(Prog_NoticeLeft(&(Prog_Notice){ .kind = Prog_NoticeKind_Error, .since = 0 }, UINT64_C(1) << 40) == UINT64_MAX);
         Check(Prog_NoticeLeft(&(Prog_Notice){ .kind = Prog_NoticeKind_Info, .since = 0 }, UINT64_C(1) << 40) == 0);
+        Check(Prog_NoticeLeft(&(Prog_Notice){ .kind = Prog_NoticeKind_Info, .stays = true, .since = 0 }, UINT64_C(1) << 40) == UINT64_MAX);
         // Set to errors only, a warning does not show; set to none, nothing does.
         Prog_State quiet = {0};
         Prog_ApplySettings(&quiet, S("notices = errors\n"));

@@ -4476,6 +4476,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                                             : P_Uninstall(&state->frameArena);
                 if (error.code) {
                     Prog_Notify(state, Prog_NoticeKind_Error, install ? S("install.failed") : S("uninstall.failed"), install ? Tr("Install failed") : Tr("Uninstall failed"), error.message);
+                } else if (install && P_WinEKeyWaits()) {
+                    Prog_NotifyWinEKey(state);
                 }
                 Prog__ReadSetup(state);
             } break;

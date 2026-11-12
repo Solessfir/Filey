@@ -647,6 +647,8 @@ global const char *const Prog_Strings[] = {
     "Filey closed unexpectedly",
     "Report on GitHub",
     "Downloading Filey %S...",
+    "Sign out or restart once to use Win+E",
+    "Win+E opens Filey from the next sign-in or restart. Windows now starts Explorer ahead of time, which keeps the key until then.",
     "Cannot resolve the initial directory",
     "No room to split",
     "The panel is too small to split this way.",

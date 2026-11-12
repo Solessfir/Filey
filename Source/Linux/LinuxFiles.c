@@ -1299,7 +1299,9 @@ function void P__RemoveStaleRunFolders(String root, u32 own)
     ReleaseScratch(scratch);
 }
 
-function void P_RefreshInstallEntry(void) {}
+function b32 P_RefreshInstallEntry(void) { return false; }
+function b32 P_WinEKeyWaits(void) { return false; }
+function i32 P_WinEKeyServe(void) { return 0; }
 
 function void P_RemoveStaleRunFolders(void)
 {

@@ -41,7 +41,7 @@ Filey uses these when they are on your `PATH`. Without them, their features just
 ### Windows
 
 Download `Filey-<version>-windows-x64.zip` from [Releases](https://github.com/Solessfir/Filey/releases), unzip it and run `Filey.exe`.
-**Filey Setup** in the main menu installs it for your user, with shortcuts, the `PATH` entry, and the option to make it your default file manager.
+**Filey Setup** in the main menu installs it for your user, with shortcuts, the `PATH` entry, and the option to make it your default file manager. On Windows 11 builds that start Explorer ahead of time, which keeps Win+E for itself, the default also takes Win+E over with a small `filey --hotkey` process started at sign-in, from the next sign-in or restart on.
 
 ### Linux
 

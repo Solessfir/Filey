@@ -3849,3 +3849,9 @@ A file has the name of the folder converted audio goes into
 
 An Ogg or Opus file's cover is one of its tags, which saving would lose
 = Обложка файла Ogg или Opus хранится в его тегах, и сохранение её потеряет
+
+Sign out or restart once to use Win+E
+= Выйдите или перезагрузитесь для Win+E
+
+Win+E opens Filey from the next sign-in or restart. Windows now starts Explorer ahead of time, which keeps the key until then.
+= Win+E будет открывать Filey после следующего входа в систему или перезагрузки. Windows теперь заранее запускает Проводник, который до тех пор удерживает это сочетание.

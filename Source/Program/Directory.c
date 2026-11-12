@@ -3754,7 +3754,9 @@ function void Prog__DirectoryJob(P_Job *job)
     }
     if (input->kind == Prog_JobKind_Tidy) {
         P_RemoveStaleRunFolders();
-        P_RefreshInstallEntry();
+        b32 *waits = ArenaPushStruct(&job->arena, b32);
+        *waits = P_RefreshInstallEntry();
+        job->result = waits;
         return;
     }
     if (input->kind == Prog_JobKind_LongPaths) {
@@ -4609,6 +4611,17 @@ function String Prog_UrlEncode(Arena *arena, String text)
         else StrBuildStr(arena, &out, StrFormat(arena, "%%%02X", c));
     }
     return out.buffer;
+}
+
+// Win+E, which newer Windows' Explorer keeps for itself, comes to Filey once Explorer starts again; until the user signs out the notice stays.
+function void Prog_NotifyWinEKey(Prog_State *state)
+{
+    u32 before = state->noticeCount;
+    u64 id = state->noticeIds;
+    Prog_Notify(state, Prog_NoticeKind_Warning, S("default.winE"), Tr("Sign out or restart once to use Win+E"),
+                Tr("Win+E opens Filey from the next sign-in or restart. Windows now starts Explorer ahead of time, which keeps the key until then."));
+    if (state->noticeCount < before || state->noticeIds == id || !state->noticeCount) return;
+    state->notices[state->noticeCount - 1].stays = true;
 }
 
 function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, String title, String message)
@@ -9161,7 +9174,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : slot == 3 ? state->menuPins : slot == 4 ? state->quickCommands : slot == 5 ? state->mutedNotices
                                                  : slot == 6 ? state->menuHidden : slot == 7 ? state->menuOrder : slot == 8 ? state->torrents : state->bookmarks);
             }
-        } else if (input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Tidy) {
+        } else if (input->kind == Prog_JobKind_WarmMenu) {
+        } else if (input->kind == Prog_JobKind_Tidy) {
+            const b32 *waits = job->result;
+            if (waits && *waits) Prog_NotifyWinEKey(state);
         } else if (input->kind == Prog_JobKind_LongPaths) {
             state->longPaths = P_LongPathsEnabled();
             state->longPathsSetting = false;

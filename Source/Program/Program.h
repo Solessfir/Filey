@@ -916,6 +916,7 @@ typedef struct Prog_Notice {
     u64 id;       // keys its card and its buttons' commands
     u64 since;    // when it came, or came again, or was last under the pointer, which its fading counts from
     enum8(Prog_NoticeKind) kind;
+    b8 stays;     // stays until closed whatever its kind, for what holds until the user acts
     u32 count;
     u32 titleLength, messageLength, keyLength;
     u8 key[48];   // what kind of notice it is, as "rename.failed", which muting it keeps out from then on
@@ -2613,6 +2614,7 @@ function void Prog_KeepLockedView(Prog_State *state);
 function u32 Prog_ChoiceAt(Prog_Option option, u32 place);
 function void Prog_CheckRecents(Prog_State *state);
 function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, String title, String message);
+function void Prog_NotifyWinEKey(Prog_State *state);
 function String Prog__NoticeKey(Arena *arena, String verb);
 function String Prog_NoticeKindName(Arena *arena, String key);
 function u64 Prog_NoticeLeft(const Prog_Notice *notice, u64 now);
