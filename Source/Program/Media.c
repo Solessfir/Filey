@@ -144,13 +144,89 @@ function b32 Prog_MediaWaveform(Arena *arena, String path, const P_CancelToken *
                               height);
 }
 
+// The video frames read last, up to Prog_FrameCacheBytes of their pixels, so that going back to a video shows its frame without starting ffmpeg
+// again; the one used longest ago goes first. Each is keyed by its path and its file's time, so a video changed since is read again.
+// ponytail: one lock over all of it, held while a frame is copied in or out, as the previews read one video at a time.
+#define Prog_FrameCacheBytes (UINT64_C(64) << 20)
+typedef struct Prog__CachedFrame {
+    Arena arena;   // its pixels
+    u64 key, used;
+    u32 *pixels;
+    i32 width, height, sourceWidth, sourceHeight;
+} Prog__CachedFrame;
+global struct {
+    atomic_flag lock;
+    Prog__CachedFrame frames[32];
+    u64 bytes, clock;
+} Prog__frameCache = { .lock = ATOMIC_FLAG_INIT };
+
+function void Prog__FrameCacheLock(void) { while (atomic_flag_test_and_set_explicit(&Prog__frameCache.lock, memory_order_acquire)) {} }
+function void Prog__FrameCacheUnlock(void) { atomic_flag_clear_explicit(&Prog__frameCache.lock, memory_order_release); }
+
+function u64 Prog__FrameKey(String path, f64 duration)
+{
+    u64 key = MapHashBytes(path.value, path.length) ^ ((u64)P_FileModifiedTime(path) * UINT64_C(0x9E3779B97F4A7C15));
+    return key ^ (u64)(duration * 1000) ^ (key == 0);
+}
+
+function b32 Prog__FrameCacheGet(Arena *arena, u64 key, P_Image *image, i32 *width, i32 *height)
+{
+    b32 found = false;
+    Prog__FrameCacheLock();
+    for (u32 i = 0; i < CArrayCount(Prog__frameCache.frames) && !found; ++i) {
+        Prog__CachedFrame *frame = &Prog__frameCache.frames[i];
+        if (frame->key != key || !frame->pixels) continue;
+        u64 count = (u64)frame->width * (u64)frame->height;
+        image->pixels = ArenaPushArrayNoZero(arena, count, u32);
+        MemCopy(image->pixels, frame->pixels, count * sizeof(u32));
+        image->width = frame->width, image->height = frame->height;
+        *width = frame->sourceWidth, *height = frame->sourceHeight;
+        frame->used = ++Prog__frameCache.clock;
+        found = true;
+    }
+    Prog__FrameCacheUnlock();
+    return found;
+}
+
+function void Prog__FrameCachePut(u64 key, const P_Image *image, i32 width, i32 height)
+{
+    u64 bytes = (u64)image->width * (u64)image->height * sizeof(u32);
+    if (!image->pixels || bytes > Prog_FrameCacheBytes) return;
+    Prog__FrameCacheLock();
+    // Room for it: the frames used longest ago go until it fits, and a free slot is taken, or the oldest one's.
+    for (;;) {
+        Prog__CachedFrame *oldest = NULL, *empty = NULL;
+        for (u32 i = 0; i < CArrayCount(Prog__frameCache.frames); ++i) {
+            Prog__CachedFrame *frame = &Prog__frameCache.frames[i];
+            if (!frame->pixels) { if (!empty) empty = frame; continue; }
+            if (!oldest || frame->used < oldest->used) oldest = frame;
+        }
+        if (empty && Prog__frameCache.bytes + bytes <= Prog_FrameCacheBytes) {
+            empty->pixels = ArenaPushArrayNoZero(&empty->arena, bytes / sizeof(u32), u32);
+            MemCopy(empty->pixels, image->pixels, bytes);
+            empty->key = key, empty->used = ++Prog__frameCache.clock;
+            empty->width = image->width, empty->height = image->height, empty->sourceWidth = width, empty->sourceHeight = height;
+            Prog__frameCache.bytes += bytes;
+            break;
+        }
+        if (!oldest) break;
+        Prog__frameCache.bytes -= (u64)oldest->width * (u64)oldest->height * sizeof(u32);
+        ArenaRelease(&oldest->arena);
+        *oldest = (Prog__CachedFrame){0};
+    }
+    Prog__FrameCacheUnlock();
+}
+
 // A video's frame a tenth of the way in, or its first in one too short to tell, for one the system has no picture of.
 function b32 Prog_MediaFrame(Arena *arena, String path, f64 duration, const P_CancelToken *cancel, i32 side, P_Image *image, i32 *width, i32 *height)
 {
+    u64 key = Prog__FrameKey(path, duration);
+    if (Prog__FrameCacheGet(arena, key, image, width, height)) return true;
     Scratch scratch = GetScratchEx(arena);
     String at = StrFormat(scratch.arena, "%.2f", duration * 0.1);
     b32 result = Prog__MediaPicture(arena, path, S("frame"), at, S("scale='min(1600,iw)':-2"), cancel, side, image, width, height);
     ReleaseScratch(scratch);
+    if (result) Prog__FrameCachePut(key, image, *width, *height);
     return result;
 }
 

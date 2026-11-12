@@ -1510,6 +1510,19 @@ function void TestFileIcons(TestFileFixture *fixture)
             Check(Prog_SeekTarget(12000, 60000, true) == 7000 && Prog_SeekTarget(3000, 60000, true) == 0 && Prog_SeekTarget(12000, 60000, false) == 17000);
             Check(Prog_SeekTarget(58000, 60000, false) == 59500 && Prog_SeekTarget(100, 300, false) == 0 && Prog_SeekTarget(58000, 0, false) == 63000);
             // Covers the same as one saved already are told apart from new ones, which are kept.
+            // A video's frame kept is given back by its key, and the one used longest ago goes once the frames pass their budget.
+            {
+                Arena frames = {0};
+                u32 *pixels = ArenaPushArray(&frames, 2048 * 2048, u32);
+                pixels[5] = 0xFF00FF00u;
+                P_Image big = { pixels, 2048, 2048 }, back = {0};
+                i32 sourceWidth = 0, sourceHeight = 0;
+                for (u64 k = 1; k <= 5; ++k) Prog__FrameCachePut(UINT64_C(0xF00D0000) + k, &big, 3840, 2160);
+                Check(Prog__frameCache.bytes <= Prog_FrameCacheBytes && Prog__frameCache.bytes == UINT64_C(4) * 2048 * 2048 * 4);
+                Check(!Prog__FrameCacheGet(&frames, UINT64_C(0xF00D0001), &back, &sourceWidth, &sourceHeight));
+                Check(Prog__FrameCacheGet(&frames, UINT64_C(0xF00D0005), &back, &sourceWidth, &sourceHeight) && back.width == 2048 && back.pixels[5] == 0xFF00FF00u && sourceWidth == 3840);
+                ArenaRelease(&frames);
+            }
             u64 seen[3] = {0}, seenCount = 0;
             Check(!Prog_NoteHash(seen, &seenCount, 7) && Prog_NoteHash(seen, &seenCount, 7) && !Prog_NoteHash(seen, &seenCount, 9) && seenCount == 2 && Prog_NoteHash(seen, &seenCount, 9));
             // Converted into a folder beside it, made as it is missing, with its tags, and its cover where the format takes one.
