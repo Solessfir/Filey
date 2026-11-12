@@ -99,8 +99,9 @@ function b32 P_RefreshInstallEntry(void);
 // Whether Filey is set to take Win+E over from the Explorer that newer Windows starts ahead of time, but does not have it yet, as Explorer
 // lets it go only once it starts again, at the next sign-in. Always false on Linux.
 function b32 P_WinEKeyWaits(void);
-// What `filey --hotkey` runs: it holds Win+E and starts Filey with it, until the default is taken back. Nothing on Linux.
-function i32 P_WinEKeyServe(void);
+// What `filey --hotkey` runs: it holds Win+E and starts Filey with it, until the default is taken back. As it starts it runs `warm` on a
+// thread of its own, so that Filey's first start after sign-in finds what it reads already in memory. Nothing on Linux.
+function i32 P_WinEKeyServe(void (*warm)(void));
 function void P__RemoveStaleRunFolders(String root, u32 own);
 
 typedef struct P_DirectoryTotals {

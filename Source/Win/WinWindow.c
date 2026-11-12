@@ -788,6 +788,39 @@ function b32 WinCreateGLContext(void)
     return true;
 }
 
+function void PlatformWarmStart(void)
+{
+    // A context of its own opens the graphics driver as Filey's window does, which reads its files off the disk the first time after sign-in.
+    HWND window = CreateWindowExW(0, L"STATIC", L"", WS_POPUP, 0, 0, 1, 1, NULL, NULL, GetModuleHandleW(NULL), NULL);
+    HDC dc = window ? GetDC(window) : NULL;
+    PIXELFORMATDESCRIPTOR format = {
+        .nSize = sizeof(format), .nVersion = 1, .dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
+        .iPixelType = PFD_TYPE_RGBA, .cColorBits = 32, .cAlphaBits = 8, .iLayerType = PFD_MAIN_PLANE,
+    };
+    i32 index = dc ? ChoosePixelFormat(dc, &format) : 0;
+    if (index && SetPixelFormat(dc, index, &format)) {
+        HGLRC context = wglCreateContext(dc);
+        if (context) {
+            if (wglMakeCurrent(dc, context)) wglMakeCurrent(NULL, NULL);
+            wglDeleteContext(context);
+        }
+    }
+    if (dc) ReleaseDC(window, dc);
+    if (window) DestroyWindow(window);
+    // The default fonts, with a glyph each, as their first text draws them.
+    const String families[] = { S("Segoe UI"), S("Consolas") };
+    for (u32 i = 0; i < CArrayCount(families); ++i) {
+        PlatformFontMetrics metrics = {0};
+        PlatformFontFace *face = PlatformFontOpen((PlatformFontSource){ .family = families[i] }, 16, &metrics);
+        if (!face) continue;
+        Arena arena = {0};
+        PlatformGlyph glyph = {0};
+        PlatformFontGlyph(face, &arena, 'A', &glyph);
+        ArenaRelease(&arena);
+        PlatformFontClose(face);
+    }
+}
+
 function b32 PlatformWindowOpen(PlatformWindowDesc desc)
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);

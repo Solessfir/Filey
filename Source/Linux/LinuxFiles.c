@@ -1301,7 +1301,7 @@ function void P__RemoveStaleRunFolders(String root, u32 own)
 
 function b32 P_RefreshInstallEntry(void) { return false; }
 function b32 P_WinEKeyWaits(void) { return false; }
-function i32 P_WinEKeyServe(void) { return 0; }
+function i32 P_WinEKeyServe(void (*warm)(void)) { (void)warm; return 0; }
 
 function void P_RemoveStaleRunFolders(void)
 {

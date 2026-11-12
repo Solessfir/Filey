@@ -2180,10 +2180,20 @@ function b32 P_WinEKeyWaits(void)
     return !free;
 }
 
-function i32 P_WinEKeyServe(void)
+function DWORD WINAPI P__WinEWarm(void *warm)
+{
+    // At a low priority, for its reading off the disk too, so that it takes nothing from the sign-in's own start.
+    SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+    ((void (*)(void))warm)();
+    return 0;
+}
+
+function i32 P_WinEKeyServe(void (*warm)(void))
 {
     HANDLE single = CreateMutexW(NULL, FALSE, P__WinEHost);
     if (!single || GetLastError() == ERROR_ALREADY_EXISTS) return 0;
+    HANDLE warming = warm ? CreateThread(NULL, 0, P__WinEWarm, (void *)warm, 0, NULL) : NULL;
+    if (warming) CloseHandle(warming);
     wchar executable[MAX_PATH + 1];
     DWORD length = GetModuleFileNameW(NULL, executable, (DWORD)CArrayCount(executable));
     if (!length || length >= CArrayCount(executable)) return 1;

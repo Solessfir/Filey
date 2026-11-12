@@ -306,6 +306,8 @@ typedef struct PlatformFontSource {
     u64 size;
 } PlatformFontSource;
 
+// Opens the graphics driver and the default fonts once and lets them go, so that a later first start finds their files in memory rather than on the disk.
+function void PlatformWarmStart(void);
 // Opens a font at a pixel size with its line metrics; NULL when it cannot be opened.
 function PlatformFontFace *PlatformFontOpen(PlatformFontSource source, f32 pixelSize, PlatformFontMetrics *metrics);
 // `codepoint`'s glyph, its pixels from `arena`: the font's own, or for an installed family a fallback font's; false when none has it.
