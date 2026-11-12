@@ -1513,7 +1513,7 @@ typedef struct Prog_PdfView {
 //     textFindArena; textFound: they show in place of the window, kept meanwhile in textSaved and textSavedScroll, and previewNumbers is
 //     their lines' numbers
 #define Prog_PreviewFields(X) \
-    X(b32, inspectorDetails) X(b32, inspectorDetailsFolded) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(String, previewMedia) X(f64, previewSeconds) X(R_TextureHandle, previewTexture) \
+    X(b32, inspectorDetails) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(String, previewMedia) X(f64, previewSeconds) X(R_TextureHandle, previewTexture) \
     X(Prog_AudioTags, previewTags) X(R_TextureHandle, previewCover) \
     X(Prog_ModelView, model) X(Prog_PdfView, pdf) \
     X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(b32, previewWaveform) X(i32, previewImageWidth) X(i32, previewImageHeight) \

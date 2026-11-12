@@ -4009,7 +4009,6 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->previewPath = (String){0};
             } break;
             case Prog_CommandKind_InspectorToggleDetails: state->inspectorDetails = !state->inspectorDetails; break;
-            case Prog_CommandKind_InspectorFoldDetails: state->inspectorDetailsFolded = !state->inspectorDetailsFolded; break;
             case Prog_CommandKind_InspectorChangeLayout: state->inspectorLayout = state->inspectorBelow ? Prog_InspectorLayout_Right : Prog_InspectorLayout_Below; break;
             case Prog_CommandKind_InspectorSetLayout: if (command->row < Prog_InspectorLayout_Count) state->inspectorLayout = (u8)command->row; break;
             case Prog_CommandKind_InspectorStartFilter:

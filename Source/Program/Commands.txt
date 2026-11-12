@@ -2221,10 +2221,6 @@ command InspectorStartFilter {
     hotkey  = "Shift+F"
 }
 
-// Details card button that folds it to its title.
-command InspectorFoldDetails {
-}
-
 // Inspector filter buttons.
 // The box finds rather than filters: every line stays, the matches lit, Enter going to the next and Shift+Enter to the one before.
 command InspectorStartFind {

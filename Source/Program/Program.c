@@ -11966,11 +11966,15 @@ function void Prog__TagField(Prog_State *state, u32 field, String value, b32 dim
     if (typing) UI_Parent(box) Prog__EditContents(&state->tagEdit, inset, floorf((row - m->line) * 0.5f), true, m);
 }
 
-function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry, f32 paneWidth, f32 room, const Prog_Metrics *m)
+function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry, f32 paneWidth, f32 under, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 s = m->scale, head = floorf(32.0f * s + 0.5f), row = floorf(20.8f * s + 0.5f), margin = floorf(9.6f * s + 0.5f);
-    f32 width = floorf(MinF32(MaxF32(paneWidth - margin - room - floorf(8.0f * s + 0.5f), 244.0f * s), 358.4f * s) + 0.5f);
+    // It opens under the toolbar, whose name and button stay in sight over it, as a menu does: fading in while its rows spread from a little closer together.
+    if (!state->inspectorDetails) return;
+    UI_Key reveal = UI_KeyFromStr(0, S("InspectorDetailsReveal"));
+    f32 opacity = Prog__FadeIn(reveal);
+    f32 s = m->scale, row = floorf(20.8f * s * Prog__PopupGrow(reveal) + 0.5f), margin = floorf(9.6f * s + 0.5f);
+    f32 width = floorf(MinF32(MaxF32(paneWidth - 2 * margin, 244.0f * s), 358.4f * s) + 0.5f);
     f32 top = floorf(3.2f * s + 0.5f), bottom = floorf(6.4f * s + 0.5f), left = floorf(13.6f * s + 0.5f), right = floorf(12.8f * s + 0.5f), radius = floorf(8.0f * s + 0.5f);
     Arena *frame = &state->frameArena;
     b32 folder = entry->file.kind == P_FileKind_Directory;
@@ -12018,11 +12022,9 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     // Under them, their shared cover, and the row that converts them, or the one file, to another format.
     b32 converts = tools && (bulk || (!folder && Prog_IsAudio(entry->file.name)));
     f32 coverSide = 3 * row, extra = (bulk ? coverSide + top : 0) + (converts ? 2 * row + 3 * top : 0);
-    // Folding eases it shut to its title and open again, as the sidebar's groups do; the card clips what does not fit.
-    f32 body = m->separator + (f32)count * row + extra + top + bottom, folded = state->inspectorDetailsFolded ? 0.0f : 1.0f;
-    f32 open = UI_Animate(UI_KeyFromStr(0, S("InspectorDetailsOpen")), folded, folded);
-    f32 height = head + floorf(body * open + 0.5f);
-    UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - margin, floorf(4.8f * s + 0.5f) });
+    f32 height = (f32)count * row + extra + top + bottom;
+    UI_SetNextOpacity(opacity);
+    UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - margin, under });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
@@ -12031,19 +12033,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill() });
     UI_Block *card = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorDetails")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(card) {
-        UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
-        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-        UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, theme->menu, 0);
-        UI_Parent(title) {
-            // Folding it, then closing it at the far right.
-            Prog__Label(entry->file.name, UI_Flex(), head, 0, theme->text, 0);
-            UI_Interaction fold = Prog__TextButton(S("InspectorDetailsFold"), state->inspectorDetailsFolded ? Icon_ChevronRight : Icon_ChevronDown, m->icons,
-                                                   UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0, theme->icon, theme->text, theme->iconDisabled, true, m);
-            if (fold.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorFoldDetails, 0, 0, fold.clickOrder);
-            Prog__ToolbarButton(state, S("InspectorDetailsClose"), Icon_X, Prog_CommandKind_InspectorToggleDetails, true, m);
-        }
-        if (open > 0) {
-            Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
+        {
             Prog__Spacer(UI_Flex(), UI_Pixels(top));
             for (u32 i = 0; i < count; ++i) {
                 UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
@@ -12142,7 +12132,8 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
             }
         }
     }
-    UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - margin, floorf(4.8f * s + 0.5f) });
+    UI_SetNextOpacity(opacity);
+    UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - margin, under });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextCornerRadius(radius);
@@ -13434,7 +13425,6 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     UI_SetNextColors((UI_Colors){ .background = theme->background });
     UI_Block *pane = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Inspector")), UI_Flag_DrawBackground | UI_Flag_Clip);
     state->panels[state->currentPanel].inspectorRect = pane->rect;
-    f32 room = 0;
     UI_Parent(pane) {
         UI_Block *toolbar = Prog__Box(UI_Flex(), UI_Pixels(bar), UI_Layout_Horizontal, theme->background, 0);
         UI_Parent(toolbar) {
@@ -13517,11 +13507,10 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
                 Prog__PermissionChips(state, entry, bar, m);
             }
-            // Where the controls end, which the card of the details reaches to.
+            // Where the controls end, which the name is cut to.
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(bar));
             UI_Block *rest = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorToolbarRest")), 0);
-            room = rest->rect.x0 - pane->rect.x0;
             // The item's name, cut to the room the controls leave beside the button for the card of its details.
             String name = entry ? entry->file.name : Prog_PathName(state, state->directory.path);
             f32 after = floorf(m->inset * 0.4f), button = entry ? m->gap + Prog__ToolbarButtonWidth(m) : 0;
@@ -13529,7 +13518,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, name, fits), UI_TextContent(), bar, 0, theme->text, 0);
             if (entry) {
                 Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
-                Prog__ToolbarButton(state, S("InspectorDetailsButton"), Icon_ChevronRight, Prog_CommandKind_InspectorToggleDetails, true, m);
+                // It points where the card goes: down to open it under the toolbar, up to shut it.
+                Prog__ToolbarButton(state, S("InspectorDetailsButton"), state->inspectorDetails ? Icon_ChevronUp : Icon_ChevronDown, Prog_CommandKind_InspectorToggleDetails, true, m);
             }
             Prog__Spacer(UI_Pixels(after), UI_Pixels(bar));
         }
@@ -13690,7 +13680,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 }
             }
         }
-        if (entry && state->inspectorDetails) Prog__InspectorDetails(state, entry, pane->rect.x1 - pane->rect.x0, room, m);
+        if (entry) Prog__InspectorDetails(state, entry, pane->rect.x1 - pane->rect.x0, bar, m);
     }
 }
 
