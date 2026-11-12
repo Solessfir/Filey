@@ -2892,7 +2892,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     if (state->playerJob && state->playerHash != MapHashBytes(want.value, want.length)) Prog__StopPlayer(state);
     state->previewAnchor = state->previewCaret = 0;
     state->previewTextFocus = false;
-    if (!hold || !state->previewImage) state->previewPicture = state->previewImage = false;
+    if (!hold || !state->previewImage) state->previewPicture = state->previewImage = state->previewWaveform = false;
     state->previewPixels = NULL;
     state->previewFolder = folder || archive;
     state->previewHex = state->previewArchive = state->previewArchiveCounted = state->previewDocument = false;

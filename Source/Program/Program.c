@@ -12565,7 +12565,7 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
     // The wheel zooms by a steady ratio, a fine-grained one smoothly, and a double click goes between fitting the view and 1:1, both about
     // the point under the pointer, which stays where it is.
     f32 wanted = scale;
-    b32 audio = state->previewSeconds > 0 && Prog_IsAudio(state->previewPath);
+    b32 audio = state->previewWaveform;
     if (!audio && UI->hotKey == view->key && UI->wheel.y != 0 && !(UI->mods & KeyMod_Control)) wanted = MinF32(MaxF32(scale * powf(1.2f, UI->wheel.y), least), 32.0f);
     b32 toFit = !audio && drag.pressed && drag.pressCount == 2 && state->imageScaleMode != Prog_ImageScale_Fit;
     if (!audio && drag.pressed && drag.pressCount == 2) wanted = toFit ? least : 1;

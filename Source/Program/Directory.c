@@ -8361,7 +8361,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             // was read, goes unless it brought one.
             const Prog_Preview *preview = job->result;
             if (job == state->previewJob) {
-                state->previewPicture = state->previewImage = false;
+                state->previewPicture = state->previewImage = state->previewWaveform = false;
                 Prog__DropModel(&state->model);
             }
             if (job == state->previewJob && preview && preview->hex) {
@@ -8478,6 +8478,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->previewTextureHeight = preview->height;
                     state->previewPicture = state->previewTexture.u64[0] != 0;
                     state->previewImage = state->previewPicture && preview->image;
+                    // What the picture is, kept with it while the next item's preview is read, which draws it as it was drawn.
+                    state->previewWaveform = state->previewImage && state->previewSeconds > 0 && Prog_IsAudio(state->previewPath);
                     state->previewPixels = NULL;
                     if (state->previewImage) {
                         u64 pixels = (u64)preview->width * (u64)preview->height;
