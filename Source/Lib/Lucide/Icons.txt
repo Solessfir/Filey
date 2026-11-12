@@ -96,3 +96,4 @@ volume-2
 volume-x
 eye-off
 layout-dashboard
+folder-filled

@@ -1707,9 +1707,9 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             b32 drive;
             Prog__CrumbStart(state, path, &drive);
             if (drive || StrIsEqual(state->directory.path, Prog_ThisPC)) Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = 0, .label = Tr("This PC"), .icon = Icon_Monitor);
-            if (Prog_PathServer(path).length && P_NetworkFolder().length) Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = Prog_NetworkCrumb, .label = Tr("Network"), .icon = Icon_Folder);
+            if (Prog_PathServer(path).length && P_NetworkFolder().length) Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = Prog_NetworkCrumb, .label = Tr("Network"), .icon = Icon_FolderFilled);
             for (u32 i = 0; i < total && i < command->row; ++i) {
-                Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = ends[i], .label = Prog_CrumbLabel(state, path, ends[i], drive, i == 0), .icon = Icon_Folder);
+                Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = ends[i], .label = Prog_CrumbLabel(state, path, ends[i], drive, i == 0), .icon = Icon_FolderFilled);
             }
         } break;
         case Prog_CommandKind_HistoryMenu: {
@@ -1781,7 +1781,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             u64 at = command->row;
             String target = Prog__CrumbTarget(state, at);
             b32 folder = target.length && !StrIsEqual(target, Prog_ThisPC);
-            Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = at, .label = Tr("Open"), .icon = Icon_Folder, .disabled = (b8)(!target.length || StrIsEqual(target, state->directory.path)));
+            Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = at, .label = Tr("Open"), .icon = Icon_FolderFilled, .disabled = (b8)(!target.length || StrIsEqual(target, state->directory.path)));
             Prog__Item(.kind = Prog_CommandKind_PanelHeaderDirInTab, .row = at, .label = Tr("Open in New Tab"), .icon = Icon_SquarePlus, .disabled = (b8)!target.length, .mouse = Tr("Middle Click"));
             Prog__Item(.kind = Prog_CommandKind_PathOpenInWindow, .row = at, .label = Tr("Open in New Window"), .icon = Icon_AppWindow, .disabled = (b8)!target.length);
             Prog__Item(.kind = Prog_CommandKind_PathOpenInRightSplit, .row = at, .label = Tr("Open in Right Split"), .icon = Icon_UnfoldHorizontal, .disabled = (b8)!target.length);

@@ -3054,7 +3054,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                     UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, spinner ? theme->icon : (R_Color){ 1, 1, 1, 1 });
                     UI_AddBlock(UI_Flag_DrawImage);
                 } else {
-                    Prog__Icon(StrIsEqual(path, Prog_ThisPC) ? Icon_Monitor : Icon_Folder, (f32)state->iconSize + floorf(4.8f * scale + 0.5f), height, theme->icon, 0, m);
+                    Prog__Icon(StrIsEqual(path, Prog_ThisPC) ? Icon_Monitor : Icon_FolderFilled, (f32)state->iconSize + floorf(4.8f * scale + 0.5f), height, theme->icon, 0, m);
                 }
                 Prog__Label(name, UI_Flex(), height, 0, theme->text, 0);
                 // The close button shows on the shown and the hovered tab.
@@ -4464,7 +4464,7 @@ function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 siz
         UI_SetNextImage(icon->texture, uv, drawn, spinner ? theme->icon : (R_Color){ 1, 1, 1, faded ? theme->hiddenAmount.r : 1 });
         UI_AddBlock(UI_Flag_DrawImage);
     } else {
-        Prog__Icon(entry->file.kind == P_FileKind_Directory ? Icon_Folder : Icon_File, width, height,
+        Prog__Icon(entry->file.kind == P_FileKind_Directory ? Icon_FolderFilled : Icon_File, width, height,
                    highlighted ? theme->text : faded ? theme->iconDisabled : theme->icon, alignX, m);
     }
 }
@@ -5573,7 +5573,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 total[1] = atomic_load(&walking->foundFiles);
             }
             b32 hidden[2] = { state->hideFolders, state->hideFiles };
-            String icons[2] = { Icon_Folder, Icon_File };
+            String icons[2] = { Icon_FolderFilled, Icon_File };
             String keys[2] = { S("ToggleFolders"), S("ToggleFiles") };
             Prog_CommandKind kinds[2] = { Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles };
             UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, floorf(4.8f * m->scale + 0.5f) + radius, 0 });
@@ -5965,7 +5965,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, spinner ? theme->icon : (R_Color){ 1, 1, 1, faded ? theme->hiddenAmount.r : 1 });
             UI_AddBlock(UI_Flag_DrawImage);
         } else {
-            Prog__Icon(drive ? Icon_HardDrive : StrIsEqual(path, Prog_ThisPC) ? Icon_Monitor : Icon_Folder, slot, m->row, faded ? theme->iconDisabled : theme->icon, 0, m);
+            Prog__Icon(drive ? Icon_HardDrive : StrIsEqual(path, Prog_ThisPC) ? Icon_Monitor : Icon_FolderFilled, slot, m->row, faded ? theme->iconDisabled : theme->icon, 0, m);
         }
         // Folders and drives have the folders' color, This PC the text's; what the sidebar's filter found is in the match color.
         R_Color color = hot ? theme->contentHover : faded && !current ? theme->textDim : StrIsEqual(path, Prog_ThisPC) ? theme->text : theme->folder;
@@ -6308,7 +6308,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                         const P_Place *place = &state->places.v[i];
                         found += Prog__SidebarFinds(state, place->name) && (state->placesShowHidden || !Prog_PlaceHidden(state, place->path)) ? 1 : 0;
                     }
-                    if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Places, Tr("Places"), Icon_Folder, m);
+                    if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Places, Tr("Places"), Icon_FolderFilled, m);
                     UI_Block *body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Places, m) : NULL;
                     u64 before = count;
                     f32 lineY = 0;
@@ -6351,7 +6351,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                     u64 count = userGroup->folders.header.count, found = 0;
                     for (u64 i = 0; i < count; ++i) found += Prog__SidebarFinds(state, Prog_PathName(state, userGroup->folders.v[i])) ? 1 : 0;
                     if (!found && state->sidebarFilter.length) break;
-                    Prog__GroupTitle(state, (Prog_Group)id, userGroup->name, Icon_Folder, m);
+                    Prog__GroupTitle(state, (Prog_Group)id, userGroup->name, Icon_FolderFilled, m);
                     R_Rect zone = sidebar->last ? sidebar->last->rect : (R_Rect){0};
                     UI_Block *body = Prog__GroupBody(state, (Prog_Group)id, m);
                     u64 before = count;
@@ -7607,7 +7607,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
                 } else {
                     UI_SetNextFont(m->icons);
                     UI_SetNextColors((UI_Colors){ .text = theme->icon });
-                    UI_SetNextText(Icon_Folder);
+                    UI_SetNextText(Icon_FolderFilled);
                     UI_AddBlock(UI_Flag_DrawText);
                 }
                 Prog__Spacer(UI_Pixels(textGap), UI_Pixels(rowHeight));
@@ -7926,10 +7926,10 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                     if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_GoToFold, (u64)at.section, 0, interaction.clickOrder);
                     UI_Parent(title) {
                         local_persist const String titles[] = { TrInit("Recents"), TrInit("Bookmarks"), TrInit("Storage"), TrInit("Places") };
-                        const String icons[] = { Icon_Clock, Icon_Bookmark, Icon_HardDrive, Icon_Folder };
+                        const String icons[] = { Icon_Clock, Icon_Bookmark, Icon_HardDrive, Icon_FolderFilled };
                         static_assert(CArrayCount(titles) == Prog_GoToSection_Folder, "a title for every section");
                         b32 own = at.section >= Prog_GoToSection_Count;
-                        Prog__Icon(own ? Icon_Folder : icons[at.section], (f32)state->iconSize + floorf(7.2f * s + 0.5f), face, theme->icon, 0, m);
+                        Prog__Icon(own ? Icon_FolderFilled : icons[at.section], (f32)state->iconSize + floorf(7.2f * s + 0.5f), face, theme->icon, 0, m);
                         Prog__Label(own ? state->userGroups[at.section - Prog_GoToSection_Count].name : Prog_Tr(titles[at.section]), UI_Flex(), face, 0, theme->text, 0);
                         Prog__Icon(folded ? Icon_ChevronRight : Icon_ChevronDown, floorf(m->line * 1.2f), face, theme->icon, 0.5f, m);
                     }
@@ -7962,7 +7962,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                         UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, faded ? theme->hiddenAmount.r : 1 });
                         UI_AddBlock(UI_Flag_DrawImage);
                     } else {
-                        Prog__Icon(item.file ? Icon_File : item.drive ? Icon_HardDrive : Icon_Folder, slot, face, faded ? theme->iconDisabled : theme->icon, 0, m);
+                        Prog__Icon(item.file ? Icon_File : item.drive ? Icon_HardDrive : Icon_FolderFilled, slot, face, faded ? theme->iconDisabled : theme->icon, 0, m);
                     }
                     // What was searched for shows in the match color, in the name and in the path.
                     String name = item.name.length ? item.name : Prog_PathName(state, item.path), where = Prog__GoToWhere(state, item.path), typed = Prog_EditText(&state->palette);
@@ -10109,7 +10109,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         local_persist const String groupNames[] = { TrInit("Quick"), TrInit("Folder"), TrInit("View"), TrInit("Sort"), TrInit("Inspector"), TrInit("Panels"), TrInit("Tabs"), TrInit("Go To"),
                                                     TrInit("Misc"), TrInit("Options"), TrInit("Rename"), TrInit("Text"), TrInit("Scroll") };
-        const String groupIcons[] = { Icon_StarFilled, Icon_Folder, Icon_Image, Icon_ArrowDownAZ, Icon_ScanEye, Icon_LayoutPanelLeft, Icon_AppWindow,
+        const String groupIcons[] = { Icon_StarFilled, Icon_FolderFilled, Icon_Image, Icon_ArrowDownAZ, Icon_ScanEye, Icon_LayoutPanelLeft, Icon_AppWindow,
                                                     Icon_FolderSearch, Icon_Share2, Icon_SlidersHorizontal, Icon_TextCursorInput, Icon_TextAlignStart, Icon_ChevronsUpDown };
         static_assert(CArrayCount(groupNames) == Prog_CommandGroup_Count && CArrayCount(groupIcons) == Prog_CommandGroup_Count, "a name and an icon for every group");
         const String sectionIcons[] = { Icon_Eye, Icon_File, Icon_Play, Icon_Info, Icon_Clock, Icon_TextCursorInput, Icon_ScanEye, Icon_AppWindow };
@@ -11149,7 +11149,7 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
                 UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, 1 });
                 UI_AddBlock(UI_Flag_DrawImage);
             } else {
-                Prog__Icon(Icon_Folder, (f32)state->iconSize + m->gap, height, theme->icon, 0, m);
+                Prog__Icon(Icon_FolderFilled, (f32)state->iconSize + m->gap, height, theme->icon, 0, m);
             }
             Prog__Label(Prog_PathName(state, path), UI_Flex(), height, 0, theme->text, 0);
         }
@@ -13723,7 +13723,7 @@ function void Prog__MillerColumnUI(Prog_State *state, Prog_MillerColumn *column,
                     UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ size, size }, (R_Color){ 1, 1, 1, entry->file.hidden ? theme->hiddenAmount.r : 1 });
                     UI_AddBlock(UI_Flag_DrawImage);
                 } else {
-                    Prog__Icon(folder ? Icon_Folder : Icon_File, m->iconSlot - m->gap, pitch, theme->icon, 1, m);
+                    Prog__Icon(folder ? Icon_FolderFilled : Icon_File, m->iconSlot - m->gap, pitch, theme->icon, 1, m);
                 }
                 Prog__Label(entry->file.name, UI_Flex(), pitch, m->gap, entry->file.hidden ? theme->textDim : theme->text, 0);
                 // A folder goes on into another column.
