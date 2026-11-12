@@ -5325,7 +5325,7 @@ function void TestSettings(void)
     Check(hotkey && hotkey->command == Prog_CommandKind_Back);
     hotkey = Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_MouseX2, 0);
     Check(hotkey && hotkey->command == Prog_CommandKind_Forward);
-    Check(Prog_ThemeGlassUser.menu.a == Prog_DefaultPopupOpacity && Prog_GlassBlur == 24 && state.glassBackdrop == PlatformBackdrop_Acrylic);
+    Check(Prog_ThemeGlassUser.menu.a == Prog_DefaultPopupOpacity && Prog_GlassBlur == Prog_DefaultGlassBlur && state.glassBackdrop == PlatformBackdrop_Acrylic);
     // The transparent theme is the scheme's, its window and surfaces see-through, unless the settings give tints of their own.
     Prog_ApplySettings(&state, S("theme = nord\n"));
     Check(Prog_ThemeGlassUser.text.r == Prog_ThemeUser.text.r && Prog_ThemeGlassUser.menu.b == Prog_ThemeUser.menu.b && Prog_ThemeGlassUser.menu.a == Prog_DefaultPopupOpacity);

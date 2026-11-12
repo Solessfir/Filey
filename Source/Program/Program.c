@@ -510,13 +510,14 @@ static_assert(sizeof(Prog_ThemeColors) / sizeof(Prog_ThemeColors[0]) * sizeof(R_
 // The transparent theme's tints as the settings give them, each at its opacity: the window's over what is behind it, and the floating
 // boxes' over the blur under them. Their colors are the scheme's unless the settings give their own.
 #define Prog_DefaultGlassOpacity 0.9f
-#define Prog_DefaultPopupOpacity 0.9f
+#define Prog_DefaultPopupOpacity 0.35f
+#define Prog_DefaultGlassBlur 50
 global R_Color Prog_GlassWindow = { 0, 0, 0, Prog_DefaultGlassOpacity }, Prog_GlassPopup = { 0, 0, 0, Prog_DefaultPopupOpacity };
 global b32 Prog_GlassWindowOwn, Prog_GlassPopupOwn;
 
 // The transparent theme, and how far its floating boxes blur what is under them, in logical pixels.
 global Prog_Theme Prog_ThemeGlassUser;
-global f32 Prog_GlassBlur = 24;
+global f32 Prog_GlassBlur = Prog_DefaultGlassBlur;
 
 // The scheme over a see-through window: the window is one translucent layer of its color and the surfaces on it faint tints of its text,
 // so that they do not stack into an opaque color, on a dark scheme or a light one. The floating boxes blur what is under them, so their
@@ -744,8 +745,8 @@ global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit
 //   glass.window = #rrggbbaa      the transparent theme's tint over what is behind the window, the scheme's window color without it
 //   glass.popup = #rrggbbaa       its tint over the blur under menus, the palette and the other floating boxes, the scheme's surface color without it
 //   glass.opacity = 90            how much of glass.window's tint covers what is behind, in percent, where there is no backdrop to choose
-//   glass.popupOpacity = 90       how much of glass.popup's tint covers that blur, in percent, over its own opacity
-//   glass.blur = 24               how far that blur reaches, in logical pixels; 0 leaves them unblurred
+//   glass.popupOpacity = 35       how much of glass.popup's tint covers that blur, in percent, over its own opacity
+//   glass.blur = 50               how far that blur reaches, in logical pixels; 0 leaves them unblurred
 //   glass.backdrop = acrylic      what Windows draws behind the window: acrylic, mica, tabbed or none
 //   transparent = true            the transparent theme
 //   inspector.fontSize = 10       the inspector's text size in points, and inspector.layout = auto, right or below where it sits
@@ -790,7 +791,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     Prog_GlassWindow = (R_Color){ 0, 0, 0, Prog_DefaultGlassOpacity };
     Prog_GlassPopup = (R_Color){ 0, 0, 0, Prog_DefaultPopupOpacity };
     Prog_GlassWindowOwn = Prog_GlassPopupOwn = false;
-    Prog_GlassBlur = 24;
+    Prog_GlassBlur = Prog_DefaultGlassBlur;
     state->glassBackdrop = PlatformBackdrop_Acrylic;
     state->uiScale = 1;
     state->animationsOff = false;
@@ -1147,7 +1148,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# under menus, the palette and the other floating boxes. glass.opacity is the window tint's opacity alone in percent, where there\n"
                                 "# is no backdrop to choose, glass.popupOpacity the popups', and glass.blur is how far that blur reaches in pixels, 0 for none.\n"
                                 "# glass.backdrop is what Windows draws behind the window: acrylic (its blur), mica, tabbed or none.\n"
-                                "# transparent = false\n# glass.opacity = 90\n# glass.popupOpacity = 90\n# glass.blur = 24\n# glass.backdrop = acrylic\n"));
+                                "# transparent = false\n# glass.opacity = 90\n# glass.popupOpacity = 35\n# glass.blur = 50\n# glass.backdrop = acrylic\n"));
     StrBuildStr(arena, &text, S("\n# Hotkeys, several separated by commas, and \"G G\" for G pressed twice; \"none\" removes a command's.\n"));
     Prog_State defaults = {0};
     (void)state;
@@ -2057,7 +2058,7 @@ function i32 Prog__OptionDefault(Prog_Option option)
         case Prog_Option_StoreRecents: return Prog_StoreRecents_Persistent;
         case Prog_Option_Notices: return Prog_NoticeKind_Info;
         case Prog_Option_CharacterKeyAction: return Prog_CharacterKeys_TypeInFilter;
-        case Prog_Option_PopupBlur: return 24;
+        case Prog_Option_PopupBlur: return Prog_DefaultGlassBlur;
         case Prog_Option_CompressionLevel: return 9;
         case Prog_Option_VideoQuality: return 20;
         case Prog_Option_AudioVolume: return 100;
