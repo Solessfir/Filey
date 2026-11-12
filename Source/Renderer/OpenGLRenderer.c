@@ -378,7 +378,6 @@ global const char GL_FragmentShader[] =
     "flat in vec4 vSegment;\n"
     "in vec2 vPosition;\n"
     "out vec4 fragColor;\n"
-    // A batch draws from up to four textures, each instance from its own, which is the same over all of its pixels.
     // Up to a step of the frame's eight bits either way, by where the pixel is, as it shows once blended in at `alpha`: two random
     // numbers added, which fall mostly near none, so that a slope's steps dissolve evenly and no pattern shows in the noise.
     "float Random(vec2 p) {\n"
@@ -391,6 +390,7 @@ global const char GL_FragmentShader[] =
     "    float noise = Random(gl_FragCoord.xy) + Random(gl_FragCoord.xy + 59.7) - 1.0;\n"
     "    return vec3(noise / (255.0 * max(alpha, 0.1)));\n"
     "}\n"
+    // A batch draws from up to four textures, each instance from its own, which is the same over all of its pixels.
     "vec4 Sample(vec2 uv) {\n"
     "    return vSlot == 1 ? texture(uTexture1, uv) : vSlot == 2 ? texture(uTexture2, uv) : vSlot == 3 ? texture(uTexture3, uv) : texture(uTexture, uv);\n"
     "}\n"
@@ -461,11 +461,13 @@ global const char GL_BlurFragmentShader[] =
     "    vec4 noise = vec4(vec3(fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5), 0.0);\n"
     "    vec2 uv = gl_FragCoord.xy * uScale, h = uTexel;\n"
     "    if (uMode == 0) {\n"
-    "        fragColor = (Read(uv) * 4.0 + Read(uv - h) + Read(uv + h) + Read(uv + vec2(h.x, -h.y)) + Read(uv - vec2(h.x, -h.y))) / 8.0 + noise / 255.0;\n"
+    "        fragColor = (Read(uv) * 4.0 + Read(uv - h) + Read(uv + h) + Read(uv + vec2(h.x, -h.y)) + Read(uv - vec2(h.x, -h.y))) / 8.0;\n"
     "    } else {\n"
     "        fragColor = (Read(uv + vec2(-2.0 * h.x, 0.0)) + Read(uv + vec2(-h.x, h.y)) * 2.0 + Read(uv + vec2(0.0, 2.0 * h.y)) + Read(uv + vec2(h.x, h.y)) * 2.0 +\n"
-    "                     Read(uv + vec2(2.0 * h.x, 0.0)) + Read(uv + vec2(h.x, -h.y)) * 2.0 + Read(uv + vec2(0.0, -2.0 * h.y)) + Read(uv + vec2(-h.x, -h.y)) * 2.0) / 12.0 + noise / 255.0;\n"
+    "                     Read(uv + vec2(2.0 * h.x, 0.0)) + Read(uv + vec2(h.x, -h.y)) * 2.0 + Read(uv + vec2(0.0, -2.0 * h.y)) + Read(uv + vec2(-h.x, -h.y)) * 2.0) / 12.0;\n"
     "    }\n"
+    // The noise is as strong as what it is added to is opaque, so that a clear pixel stays clear.
+    "    fragColor += noise * (fragColor.a / 255.0);\n"
     "}\n";
 
 function R_TextureHandle GL__TextureHandleFromRef(GLuint ref)
@@ -628,8 +630,7 @@ function void R_TextureUpdateAlpha(R_TextureHandle texture, i32 x, i32 y, i32 wi
 function void R_TextureRelease(R_TextureHandle texture)
 {
     GLuint ref = GL__TextureRefFromHandle(texture);
-    if (ref) GL.DeleteTextures(1, &ref);
-    ++GL.textureEpoch;
+    if (ref) GL.DeleteTextures(1, &ref), ++GL.textureEpoch;
 }
 
 function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels)
@@ -1442,12 +1443,17 @@ function void R_EndFrame(void)
     GL.BindBuffer(GL_ARRAY_BUFFER, GL.instanceBuffer);
     GL.BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(GL.instances.header.count * sizeof(GL_Instance)), GL.instances.v, GL_STREAM_DRAW);
 
+    // A frame of one blur can find it held, and then also leaves out the copy of the frame it would read; with more, each would only make
+    // the levels anew for the next, so they are not looked for.
+    u64 blurs = 0, onlyBlur = 0, onlyKey = 0;
+    for (u64 i = 0; i < GL.batches.header.count; ++i) if (GL.batches.v[i].blur) ++blurs, onlyBlur = i;
+    if (blurs == 1) onlyKey = GL__BlurKey(onlyBlur);
+    b32 held = blurs == 1 && onlyKey == GL.blurHeld;
+    GL.blurHeld = onlyKey;
     for (u64 i = 0; i < GL.batches.header.count; ++i) {
         GL_Batch *batch = &GL.batches.v[i];
         if (batch->blur) {
-            u64 key = GL__BlurKey(i);
-            GL__Blur(batch, key == GL.blurHeld);
-            GL.blurHeld = key;
+            GL__Blur(batch, held);
             continue;
         }
         if (batch->source) {
@@ -1458,7 +1464,7 @@ function void R_EndFrame(void)
                 if (!blur->blur || !blur->fromSource) continue;
                 x0 = Min(x0, blur->region[0]), y0 = Min(y0, blur->region[1]), x1 = Max(x1, blur->region[2]), y1 = Max(y1, blur->region[3]);
             }
-            if (x1 > x0 && y1 > y0) {
+            if (x1 > x0 && y1 > y0 && !held) {
                 GL.BindTexture(GL_TEXTURE_2D, GL.sourceTexture);
                 GL.CopyTexSubImage2D(GL_TEXTURE_2D, 0, x0, GL.height - y1, x0, GL.height - y1, x1 - x0, y1 - y0);
             }

@@ -295,8 +295,8 @@ function void Prog__Frame(void *user, PlatformEventList events)
                 R_Rect box = { 0, 0, (f32)Min(window.width, 256), (f32)Min(window.height, 256) };
                 R_BeginFrame(window.width, window.height, Prog_CurrentTheme()->window);
                 R_DrawSoftRect(box, Prog_CurrentTheme()->window, 8, 8);
-                R_PushLayer(box);
                 R_BlurBehind(box, 8, 24, 1);
+                R_PushLayer(box);
                 R_DrawRect(box, Prog_CurrentTheme()->window, 8);
                 R_PopLayer(0.5f);
                 R_EndFrame();

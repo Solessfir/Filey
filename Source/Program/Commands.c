@@ -3074,6 +3074,7 @@ function void Prog__CloseFontPicker(Prog_State *state)
     state->paletteHighlight = state->optionsHighlight;
     state->paletteScroll = state->optionsScroll;
     state->paletteWheeled = state->optionsWheeled;
+    state->paletteWheelRows = 0;
 }
 
 // The color picker for the color of `option`, which only a custom scheme has.
@@ -5086,6 +5087,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->palette = (Prog_TextEdit){0};
                 state->paletteHighlight = 0;
                 state->gotoScroll = 0;
+                state->paletteWheelRows = 0;
                 ArenaClear(&state->gotoHistoryArena);
                 state->gotoHistory = (ArrayStr){0};
                 state->gotoHistoryAt = 0;
