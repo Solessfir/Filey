@@ -6308,7 +6308,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                         const P_Place *place = &state->places.v[i];
                         found += Prog__SidebarFinds(state, place->name) && (state->placesShowHidden || !Prog_PlaceHidden(state, place->path)) ? 1 : 0;
                     }
-                    if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Places, Tr("Places"), Icon_FolderFilled, m);
+                    if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Places, Tr("Places"), Icon_MapPin, m);
                     UI_Block *body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Places, m) : NULL;
                     u64 before = count;
                     f32 lineY = 0;
@@ -7926,7 +7926,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                     if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_GoToFold, (u64)at.section, 0, interaction.clickOrder);
                     UI_Parent(title) {
                         local_persist const String titles[] = { TrInit("Recents"), TrInit("Bookmarks"), TrInit("Storage"), TrInit("Places") };
-                        const String icons[] = { Icon_Clock, Icon_Bookmark, Icon_HardDrive, Icon_FolderFilled };
+                        const String icons[] = { Icon_Clock, Icon_Bookmark, Icon_HardDrive, Icon_MapPin };
                         static_assert(CArrayCount(titles) == Prog_GoToSection_Folder, "a title for every section");
                         b32 own = at.section >= Prog_GoToSection_Count;
                         Prog__Icon(own ? Icon_FolderFilled : icons[at.section], (f32)state->iconSize + floorf(7.2f * s + 0.5f), face, theme->icon, 0, m);
