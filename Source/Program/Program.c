@@ -11966,6 +11966,75 @@ function void Prog__TagField(Prog_State *state, u32 field, String value, b32 dim
     if (typing) UI_Parent(box) Prog__EditContents(&state->tagEdit, inset, floorf((row - m->line) * 0.5f), true, m);
 }
 
+// The format Convert Audio converts to, `format`, as a button that drops the list of them under it, and its width; with no `row` it is only measured.
+function f32 Prog__ConvertFormatButton(Prog_State *state, u32 format, f32 row, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale, apart = floorf(6.4f * s + 0.5f), chevron = floorf(m->line * 1.2f);
+    String label = Prog_AudioFormatLabels[format];
+    f32 width = R_TextWidth(m->detail, label) + 2 * apart + chevron;
+    if (row <= 0) return width;
+    UI_Key formatKey = UI_KeyFromStr(0, S("InspectorAudioFormat"));
+    // Lit while its menu is open, as the other dropdowns' buttons are.
+    b32 listed = state->menuOpen && state->menuOpener == Prog_CommandKind_InspectorAudioFormatMenu;
+    R_Color wash = listed ? theme->selection : Prog__ButtonWash(formatKey, UI->hotKey == formatKey, UI->activeKey == formatKey, theme->selection);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(row));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenPadding((UI_Padding){ apart, 0, apart, 0 });
+    UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+    UI_SetNextColors((UI_Colors){ .background = wash });
+    UI_Block *button = UI_AddBlockFromKey(formatKey, UI_Flag_LeftMouseClickable | (wash.a > 0 ? UI_Flag_DrawBackground : 0));
+    UI_Interaction pick = UI_InteractionFromBlock(button);
+    UI_Parent(button) {
+        UI_SetNextFont(m->detail);
+        Prog__Label(label, UI_TextContent(), row, 0, theme->text, 0);
+        Prog__SmallIcon(Icon_ChevronDown, chevron, row, theme->textDim, 0.5f, m);
+    }
+    if (pick.clicked) {
+        Prog_QueueCommand(state, Prog_CommandKind_InspectorAudioFormatMenu, 0, 0, pick.clickOrder)->at = (UI_Vec2){ button->rect.x0, button->rect.y1 + floorf(2.4f * s + 0.5f) };
+    }
+    if (pick.hot) Prog__PopupTooltip(state, Tr("The format Convert Audio converts to."));
+    return width;
+}
+
+// Convert Audio on one line, `room` wide, for the inspector's footer: the format, the folder beside the file it goes into, typed in as a tag is,
+// and the button that converts it, last, after everything it takes. In less room the labels go, the folder's first.
+function void Prog__ConvertLine(Prog_State *state, f32 room, f32 height, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale, row = floorf(20.8f * s + 0.5f), apart = floorf(6.4f * s + 0.5f);
+    String toLabel = Tr("Convert to"), nameLabel = Tr("Folder name"), convert = Tr("Convert");
+    // Never the format the file is in already.
+    u32 format = Prog__InspectorConvertFormat(state);
+    f32 toWidth = R_TextWidth(m->detail, toLabel) + m->gap, nameWidth = R_TextWidth(m->detail, nameLabel) + m->gap, button = R_TextWidth(m->detail, convert) + 2 * apart;
+    f32 fixed = Prog__ConvertFormatButton(state, format, 0, m) + m->gap + floorf(64.0f * s + 0.5f) + m->gap + button;
+    b32 names = room >= fixed + toWidth + nameWidth, says = room >= fixed + toWidth;
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_Block *line = Prog__Box(UI_Pixels(room), UI_Pixels(height), UI_Layout_Horizontal, (R_Color){0}, 0);
+    UI_Parent(line) {
+        if (says) {
+            UI_SetNextFont(m->detail);
+            Prog__Label(toLabel, UI_Pixels(toWidth), row, 0, theme->textDim, 0);
+        }
+        f32 used = Prog__ConvertFormatButton(state, format, row, m) + (says ? toWidth : 0) + (names ? nameWidth : 0) + 2 * m->gap + button;
+        Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
+        if (names) {
+            UI_SetNextFont(m->detail);
+            Prog__Label(nameLabel, UI_Pixels(nameWidth), row, 0, theme->textDim, 0);
+        }
+        String into = Prog_AudioFolder(format, StrMake((const char *)state->audioFolder, state->audioFolderLength));
+        Prog__TagField(state, Prog_TagFieldFolder, into, false, false, MaxF32(0, room - used), row, 0, m);
+        if (UI->hotKey == UI_KeyFromStr(0, StrFormat(&state->frameArena, "InspectorTag/%u", (u32)Prog_TagFieldFolder))) {
+            Prog__PopupTooltip(state, Tr("The folder beside the file that the converted audio goes into."));
+        }
+        Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
+        UI_Interaction go = Prog__TextButton(S("InspectorConvert"), convert, m->detail, UI_Pixels(button), row, apart, theme->accent, theme->text, theme->textDim, true, m);
+        if (go.clicked) Prog_QueueCommand(state, Prog_CommandKind_ConvertAudio, 0, 0, go.clickOrder);
+    }
+}
+
 function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry, f32 paneWidth, f32 under, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -12020,7 +12089,8 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
         values[count++] = (state->bulk.mixed & (1u << t)) ? mixed : state->bulk.values[t].length ? state->bulk.values[t] : none;
     }
     // Under them, their shared cover, and the row that converts them, or the one file, to another format.
-    b32 converts = tools && (bulk || (!folder && Prog_IsAudio(entry->file.name)));
+    // One file's is in the inspector's footer.
+    b32 converts = bulk;
     f32 coverSide = 3 * row, extra = (bulk ? coverSide + top : 0) + (converts ? 2 * row + 3 * top : 0);
     f32 height = (f32)count * row + extra + top + bottom;
     UI_SetNextOpacity(opacity);
@@ -12088,31 +12158,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                 UI_Parent(line) {
                     UI_SetNextFont(m->detail);
                     Prog__Label(toLabel, UI_Pixels(labelWidth), row, 0, theme->textDim, 0);
-                    String label = Prog_AudioFormatLabels[format];
-                    f32 chevron = floorf(m->line * 1.2f);
-                    UI_Key formatKey = UI_KeyFromStr(0, S("InspectorAudioFormat"));
-                    // Lit while its menu is open, as the other dropdowns' buttons are.
-                    b32 listed = state->menuOpen && state->menuOpener == Prog_CommandKind_InspectorAudioFormatMenu;
-                    R_Color wash = listed ? theme->selection : Prog__ButtonWash(formatKey, UI->hotKey == formatKey, UI->activeKey == formatKey, theme->selection);
-                    UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->detail, label) + 2 * apart + chevron));
-                    UI_SetNextPrefHeight(UI_Pixels(row));
-                    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-                    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-                    UI_SetNextChildrenPadding((UI_Padding){ apart, 0, apart, 0 });
-                    UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
-                    UI_SetNextColors((UI_Colors){ .background = wash });
-                    UI_Block *button = UI_AddBlockFromKey(formatKey, UI_Flag_LeftMouseClickable | (wash.a > 0 ? UI_Flag_DrawBackground : 0));
-                    UI_Interaction pick = UI_InteractionFromBlock(button);
-                    UI_Parent(button) {
-                        UI_SetNextFont(m->detail);
-                        Prog__Label(label, UI_TextContent(), row, 0, theme->text, 0);
-                        Prog__SmallIcon(Icon_ChevronDown, chevron, row, theme->textDim, 0.5f, m);
-                    }
-                    if (pick.clicked) {
-                        Prog_QueueCommand(state, Prog_CommandKind_InspectorAudioFormatMenu, 0, 0, pick.clickOrder)->at =
-                            (UI_Vec2){ button->rect.x0, button->rect.y1 + floorf(2.4f * s + 0.5f) };
-                    }
-                    if (pick.hot) Prog__PopupTooltip(state, Tr("The format Convert Audio converts to."));
+                    Prog__ConvertFormatButton(state, format, row, m);
                 }
                 Prog__Spacer(UI_Flex(), UI_Pixels(top));
                 UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
@@ -12883,19 +12929,35 @@ function b32 Prog__HasFfmpeg(Prog_State *state)
     return state->hasFfmpeg;
 }
 
-// The inspector toolbar's tools for an audio file, a video or a torrent: playing it with how far it is; the codec and quality of Compress
-// Video, which Options sets too, and the button that starts it; downloading the torrent, or pausing and stopping its download.
-function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f32 tight, const Prog_Metrics *m)
+// The inspector's tools for an audio file, a video or a torrent. Its toolbar has how an audio file plays, with how far it is. Its footer,
+// `room` wide, has what is done with the item: converting the audio file; the codec and quality of Compress Video, which Options sets too, and
+// the button that starts it; downloading the torrent, or pausing and stopping its download.
+function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f32 tight, b32 footer, f32 room, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 s = m->scale, bar = Prog__StripHeight(m), apart = floorf(6.4f * s + 0.5f);
+    f32 s = m->scale, bar = footer ? m->pill : Prog__StripHeight(m), apart = floorf(6.4f * s + 0.5f);
     Arena *frame = &state->frameArena;
     String path = Prog_JoinPath(frame, state->directory.path, entry->file.name);
     u64 hash = MapHashBytes(path.value, path.length);
-    Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
-    Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
-    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
-    if (Prog_IsAudio(entry->file.name)) {
+    b32 audio = Prog_IsAudio(entry->file.name);
+    if (footer && audio) {
+        Prog__ConvertLine(state, room, bar, m);
+        return;
+    }
+    if (!footer && !audio) return;
+    if (!footer) {
+        Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
+        Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
+        Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+    }
+    // The footer's are in a line of their own, in the middle of its height.
+    UI_Block *line = NULL, *outer = NULL;
+    if (footer) {
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+        line = Prog__Box(UI_Pixels(room), UI_Pixels(bar), UI_Layout_Horizontal, (R_Color){0}, 0);
+        outer = UI_PushParent(line);
+    }
+    if (audio) {
         P_Progress *progress = &state->playerProgress[state->playerSlot];
         b32 mine = state->playerJob && state->playerHash == hash, playing = mine && !atomic_load(&progress->paused);
         Prog__ToolbarRowButton(state, S("InspectorPlay"), playing ? Icon_Pause : Icon_Play, Prog_CommandKind_InspectorPlay, 0, (String){0}, m);
@@ -12963,8 +13025,11 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
         UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
         Prog__LabelPadded(StrFormat(frame, TrF("Q %u"), (u32)state->videoQuality), UI_Pixels(floorf(36.0f * s + 0.5f)), bar, 0, 0, theme->text, 0.5f);
         Prog__ToolbarRowButton(state, S("InspectorQualityUp"), Icon_Plus, Prog_CommandKind_InspectorVideoQuality, 1, tip, m);
-        Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));
-        Prog__ToolbarButton(state, S("InspectorCompress"), Icon_Shrink, Prog_CommandKind_CompressVideo, true, m);
+        // The button that compresses it comes last, in words, as Convert does.
+        Prog__Spacer(UI_Flex(), UI_Pixels(bar));
+        UI_Interaction go = Prog__TextButton(S("InspectorCompress"), Tr("Compress"), m->detail, UI_TextContent(), floorf(20.8f * s + 0.5f), apart, theme->accent, theme->text, theme->textDim, true, m);
+        Prog__NoteTooltip(state, Prog_CommandKind_CompressVideo, (String){0});
+        if (go.clicked) Prog_QueueCommand(state, Prog_CommandKind_CompressVideo, 0, 0, go.clickOrder);
     } else {
         u32 slot = Prog_TorrentSlot(state, path);
         u64 waiting = Prog_TorrentWaiting(state, path);
@@ -12980,7 +13045,9 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
                 b32 whole = state->torrentDone && state->torrentDone[i] >= state->torrent.files[i].size;
                 any |= !state->torrentSkip[i] && !state->torrent.files[i].pad && !whole;
             }
-            Prog__ToolbarButton(state, S("InspectorDownload"), Icon_Download, Prog_CommandKind_DownloadTorrent, any, m);
+            UI_Interaction go = Prog__TextButton(S("InspectorDownload"), Tr("Download"), m->detail, UI_TextContent(), floorf(20.8f * s + 0.5f), apart, theme->accent, theme->text, theme->textDim, any, m);
+            Prog__NoteTooltip(state, Prog_CommandKind_DownloadTorrent, (String){0});
+            if (go.clicked) Prog_QueueCommand(state, Prog_CommandKind_DownloadTorrent, 0, 0, go.clickOrder);
         } else {
             P_Progress *progress = &state->transfers[slot].progress;
             b32 paused = atomic_load(&progress->paused);
@@ -12998,6 +13065,7 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
             Prog__LabelPadded(text, UI_TextContent(), bar, apart, apart, theme->textDim, 0);
         }
     }
+    if (line) UI_PopParent(outer);
 }
 
 // An audio file's cover in a `side` square, or a frame with a picture's icon where it has none; a drag over it outlines it, and drops its
@@ -13466,9 +13534,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 if (grid.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorToggleImageGrid, 0, 0, grid.clickOrder);
                 Prog__ToolbarButton(state, S("InspectorMinimap"), state->imageHideMinimap ? Icon_LocateOff : Icon_Locate, Prog_CommandKind_InspectorToggleImageMinimap, true, m);
             }
-            if (entry && ((Prog_IsAudio(entry->file.name) && Prog__HasFfmpeg(state)) || Prog_IsVideo(entry->file.name) || Prog_IsTorrent(entry->file.name))) {
-                Prog__InspectorTools(state, entry, tight, m);
-            }
+            if (entry && Prog_IsAudio(entry->file.name) && Prog__HasFfmpeg(state)) Prog__InspectorTools(state, entry, tight, false, 0, m);
             if (text) {
                 f32 apart = floorf(6.4f * s + 0.5f);
                 Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
@@ -13621,8 +13687,16 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
         if (footer) UI_Parent(footer) {
             // In the hex view the box finds bytes, written as hex, or text.
             if (text) Prog__InspectorFilterBox(state, state->previewHex ? Tr("Find bytes or text...") : StrFormat(&state->frameArena, TrF("Filter %u lines..."), state->previewWindowed && state->textIndex.done ? (u32)Min(state->textIndex.lines, (u64)UINT32_MAX) : state->previewLineCount), m);
-            // An image's type, size and date where a text's filter goes, the name being in the toolbar, cut short of the scale beside it.
-            if (image && !Prog_IsAudio(entry->file.name)) {
+            // What is done with an audio file, a video or a torrent, where a text's filter goes; a video's frame has its scale after them.
+            b32 video = entry && Prog_IsVideo(entry->file.name);
+            b32 tools = entry && ((Prog_IsAudio(entry->file.name) && Prog__HasFfmpeg(state) && !state->directory.archive) || video || Prog_IsTorrent(entry->file.name));
+            if (tools) {
+                f32 scaleRoom = image && video ? floorf(m->line * 2.4f) + 2 * radius + m->gap + floorf(9.6f * s + 0.5f) : 0;
+                Prog__Spacer(UI_Pixels(radius + m->inset), UI_Pixels(m->pill));
+                Prog__InspectorTools(state, entry, 0, true, MaxF32(0, pane->rect.x1 - pane->rect.x0 - 2 * m->inset - scaleRoom), m);
+                Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
+            // An image's type, size and date there, the name being in the toolbar, cut short of the scale beside it.
+            } else if (image && !Prog_IsAudio(entry->file.name)) {
                 String facts = StrFormat(&state->frameArena, "%S, %S", Prog__FactsLine(state, entry), Prog_EntryModified(&state->frameArena, entry));
                 f32 fits = MaxF32(0, pane->rect.x1 - pane->rect.x0 - radius - m->inset - floorf(m->line * 2.4f) - 2 * radius - m->gap - floorf(9.6f * s + 0.5f));
                 Prog__LabelPadded(Prog__Ellipsize(&state->frameArena, m->font, facts, fits), UI_Flex(), m->pill, radius + m->inset, 0, theme->textDim, 0);
