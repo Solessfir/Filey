@@ -211,7 +211,8 @@ function void Prog_UseUnits(void)
     Prog_DecimalMark = sample.length == 3 && sample.value[0] == '1' && sample.value[2] == '5' ? sample.value[1] : '.';
 }
 
-function String Prog_FormatSize(Arena *arena, u64 bytes)
+// `keepTenths` shows a whole unit's tenth too, as "36.0 GB", so that a size counting up keeps its width.
+function String Prog__FormatSize(Arena *arena, u64 bytes, b32 keepTenths)
 {
     if (bytes < 1024) return StrFormat(arena, "%" PRIu64 " %S", bytes, Prog_UnitText(Prog_Unit_Bytes));
     // In whole numbers: the whole units, then the tenths the rest holds.
@@ -222,8 +223,10 @@ function String Prog_FormatSize(Arena *arena, u64 bytes)
         ++unit;
     }
     u64 whole = bytes >> shift, tenths = Min((bytes & ((UINT64_C(1) << shift) - 1)) / ((UINT64_C(1) << shift) / 10), UINT64_C(9));
-    return tenths ? StrFormat(arena, "%" PRIu64 "%c%" PRIu64 " %S", whole, Prog_DecimalMark, tenths, Prog_UnitText((Prog_UnitKind)unit)) : StrFormat(arena, "%" PRIu64 " %S", whole, Prog_UnitText((Prog_UnitKind)unit));
+    return tenths || keepTenths ? StrFormat(arena, "%" PRIu64 "%c%" PRIu64 " %S", whole, Prog_DecimalMark, tenths, Prog_UnitText((Prog_UnitKind)unit)) : StrFormat(arena, "%" PRIu64 " %S", whole, Prog_UnitText((Prog_UnitKind)unit));
 }
+
+function String Prog_FormatSize(Arena *arena, u64 bytes) { return Prog__FormatSize(arena, bytes, false); }
 
 function u8 Prog__FoldAscii(u8 c)
 {

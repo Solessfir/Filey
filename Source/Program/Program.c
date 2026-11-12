@@ -10635,7 +10635,7 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
             // A video's progress is in milliseconds of it, shown as times.
             String amount = transfer->op == Prog_TransferOp_CompressVideo && bytes ? StrFormat(&state->frameArena, TrF("%S of %S"), Prog__Clock(&state->frameArena, Min(doneBytes, bytes)),
                                                                                                Prog__Clock(&state->frameArena, bytes))
-                          : bytes ? StrFormat(&state->frameArena, TrF("%S of %S"), Prog_FormatSize(&state->frameArena, Min(doneBytes, bytes)), Prog_FormatSize(&state->frameArena, bytes))
+                          : bytes ? StrFormat(&state->frameArena, TrF("%S of %S"), Prog__FormatSize(&state->frameArena, Min(doneBytes, bytes), true), Prog__FormatSize(&state->frameArena, bytes, true))
                                   : StrFormat(&state->frameArena, TrF("%u of %u"), (u32)Min(doneItems, items), (u32)items);
             // A narrow card's bar is as wide as it is, over the amount.
             f32 lineHeight = narrow ? m->gap : m->row;
@@ -10666,6 +10666,13 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
             }
             if (narrow) {
                 UI_Block *under = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, (R_Color){0}, 0);
+                // The amount gives way to the percent when both do not fit, as a paused one's longer text: the done part alone, then cut.
+                f32 room = width - 2 * pad - R_TextWidth(m->font, percent) - m->gap;
+                if (R_TextWidth(m->font, amount) > room) {
+                    String done = transfer->op == Prog_TransferOp_CompressVideo && bytes ? Prog__Clock(&state->frameArena, Min(doneBytes, bytes))
+                                : bytes ? Prog__FormatSize(&state->frameArena, Min(doneBytes, bytes), true) : StrFormat(&state->frameArena, "%u", (u32)Min(doneItems, items));
+                    amount = Prog__Ellipsize(&state->frameArena, m->font, done, room);
+                }
                 UI_Parent(under) {
                     Prog__Label(amount, UI_Flex(), m->row, 0, theme->textDim, 0);
                     Prog__Label(percent, UI_TextContent(), m->row, 0, theme->text, 1);

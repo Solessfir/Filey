@@ -2531,6 +2531,7 @@ function P_FileError Prog_ConvertAudio(Arena *arena, String path, u32 format, St
 function String Prog__NameStem(String name);
 function String Prog__FreeName(Arena *arena, String directory, String stem, String extension);
 function String Prog_FormatSize(Arena *arena, u64 bytes);
+function String Prog__FormatSize(Arena *arena, u64 bytes, b32 keepTenths);
 function void Prog_InspectFolder(Prog_State *state, String path);
 function i32 Prog_CompareNames(String a, String b);
 function void Prog_SelectRow(Prog_State *state, u64 row, KeyMods mods);
