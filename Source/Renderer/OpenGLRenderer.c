@@ -468,6 +468,8 @@ global const char GL_BlurFragmentShader[] =
     "    }\n"
     // The noise is as strong as what it is added to is opaque, so that a clear pixel stays clear.
     "    fragColor += noise * (fragColor.a / 255.0);\n"
+    // Premultiplied, a color is never more than its alpha.
+    "    fragColor.rgb = min(fragColor.rgb, vec3(fragColor.a));\n"
     "}\n";
 
 function R_TextureHandle GL__TextureHandleFromRef(GLuint ref)
@@ -987,8 +989,9 @@ function b32 R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity
         cornerRadius *= GL.scale;
         radius *= GL.scale;
     }
-    // What is drawn around the box blurs into its edge, so the copy reaches past it by the blur's width.
+    // What is drawn around the box blurs into its edge, so the copy reaches past it by the blur's width; a box clipped away blurs nothing.
     R_Rect clip = GL__CurrentClip();
+    if (rect.x1 <= clip.x0 || rect.x0 >= clip.x1 || rect.y1 <= clip.y0 || rect.y0 >= clip.y1) return false;
     f32 margin = ceilf(radius);
     i32 region[4] = {
         (i32)MaxF32(0, floorf(MaxF32(rect.x0, clip.x0) - margin)), (i32)MaxF32(0, floorf(MaxF32(rect.y0, clip.y0) - margin)),
@@ -1036,19 +1039,12 @@ function u64 GL__HashWords(u64 hash, const void *data, u64 size)
     return hash;
 }
 
-// A hash of what the frame holds under the blur that is batch `index`: the window, the textures' pixels, the blur's own region and width,
-// and every instance drawn before it that reaches into its region, with its batch's textures and clip. An earlier blur reaching in widens
-// the region by its own, which it reads. Never 0.
+// A hash of what the frame holds under the blur that is batch `index`, the frame's only one: the window, the textures' pixels, the blur's
+// own region and width, and every instance drawn before it that reaches into its region, with its batch's textures and clip. Never 0.
 function u64 GL__BlurKey(u64 index)
 {
     const GL_Batch *blur = &GL.batches.v[index];
     R_Rect region = { (f32)blur->region[0], (f32)blur->region[1], (f32)blur->region[2], (f32)blur->region[3] };
-    for (u64 b = index; b-- > 0;) {
-        const GL_Batch *earlier = &GL.batches.v[b];
-        R_Rect its = { (f32)earlier->region[0], (f32)earlier->region[1], (f32)earlier->region[2], (f32)earlier->region[3] };
-        if (earlier->blur && its.x1 > region.x0 && its.x0 < region.x1 && its.y1 > region.y0 && its.y0 < region.y1)
-            region = (R_Rect){ MinF32(region.x0, its.x0), MinF32(region.y0, its.y0), MaxF32(region.x1, its.x1), MaxF32(region.y1, its.y1) };
-    }
     u64 hash = GL__HashWords(GL.textureEpoch + 1, &GL.clear, sizeof(GL.clear));
     i32 fields[] = { GL.width, GL.height, blur->region[0], blur->region[1], blur->region[2], blur->region[3], (i32)blur->fromSource };
     hash = GL__HashWords(hash, fields, sizeof(fields));
@@ -1109,7 +1105,7 @@ function void GL__Blur(const GL_Batch *batch, b32 held)
     // Down to the smallest level, then back up to the first.
     for (u32 pass = 0; pass < 2 * levels - 1 && !held; ++pass) {
         b32 down = pass < levels;
-        u32 from = down ? pass : 2 * levels - 1 - pass, to = down ? pass + 1 : from - 1;
+        u32 from = down ? pass : 2 * levels - pass, to = down ? pass + 1 : from - 1;
         GL.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, GL.blurLevels[to], 0);
         GL.Viewport(0, 0, sizes[to][0], sizes[to][1]);
         GL.Scissor(0, 0, sizes[to][0], sizes[to][1]);
@@ -1445,11 +1441,12 @@ function void R_EndFrame(void)
 
     // A frame of one blur can find it held, and then also leaves out the copy of the frame it would read; with more, each would only make
     // the levels anew for the next, so they are not looked for.
+    // A frame with no blur, as a dragged tab's drawn on its own, leaves the levels and what they hold as they are.
     u64 blurs = 0, onlyBlur = 0, onlyKey = 0;
     for (u64 i = 0; i < GL.batches.header.count; ++i) if (GL.batches.v[i].blur) ++blurs, onlyBlur = i;
     if (blurs == 1) onlyKey = GL__BlurKey(onlyBlur);
     b32 held = blurs == 1 && onlyKey == GL.blurHeld;
-    GL.blurHeld = onlyKey;
+    if (blurs) GL.blurHeld = onlyKey;
     for (u64 i = 0; i < GL.batches.header.count; ++i) {
         GL_Batch *batch = &GL.batches.v[i];
         if (batch->blur) {

@@ -6184,7 +6184,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 state->paletteWheeled = true;
                 continue;
             }
-            if (event->kind == PlatformEventKind_Text || (event->kind == PlatformEventKind_KeyDown && !modifier)) state->paletteWheeled = false;
+            if (event->kind == PlatformEventKind_Text || (event->kind == PlatformEventKind_KeyDown && !modifier)) state->paletteWheeled = false, state->paletteWheelRows = 0;
             if (event->kind == PlatformEventKind_Text) {
                 u32 kept = Prog__HighlightedOption(state);
                 Prog__EditInsert(&state->palette, event->codepoint);
@@ -6256,6 +6256,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                         if (found[at].file) continue;
                         state->paletteHighlight = at;
                         state->paletteWheeled = false;
+                        state->paletteWheelRows = 0;
                         break;
                     }
                     continue;
