@@ -10400,6 +10400,10 @@ function void Prog__Notices(Prog_State *state, Prog__CardStack stack, const Prog
         f32 height = 2 * pad + m->row + (f32)(titleCount - 1) * m->line + (f32)lineCount * lineHeight + actionHeight;
         bottom -= height + m->gap;
         UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Notice/%" PRIu64, notice->id));
+        // It fades in its last moment, and comes in as the menus do.
+        f32 opacity = MinF32(Prog__FadeIn(key), left < Prog_NoticeFadeMicroseconds ? (f32)left / (f32)Prog_NoticeFadeMicroseconds : 1);
+        // Over a shadow, as the dialogs are, which sets it apart from the see-through window under it.
+        Prog__DropShadow(stack.corner.x1 - view.x0 - width - stack.margin, floorf(bottom), width, height, m->radius * 2, opacity, m);
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextFloatingOffset((UI_Vec2){ stack.corner.x1 - view.x0 - width - stack.margin, floorf(bottom) });
@@ -10408,8 +10412,6 @@ function void Prog__Notices(Prog_State *state, Prog__CardStack stack, const Prog
         UI_SetNextCornerRadius(m->radius * 2);
         UI_SetNextBorderThickness(m->separator);
         UI_SetNextBlur(Prog__FloatingBlur(m));
-        // It fades in its last moment, and comes in as the menus do.
-        f32 opacity = MinF32(Prog__FadeIn(key), left < Prog_NoticeFadeMicroseconds ? (f32)left / (f32)Prog_NoticeFadeMicroseconds : 1);
         UI_SetNextOpacity(opacity);
         R_Color edge = tint;
         edge.a *= 0.7f;
@@ -10548,23 +10550,24 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
         if (dot.exists) name = StrFromTo(name, 0, (i64)dot.value);
         f32 height = 2 * pad + m->row * 3 + (asking ? m->bar : 0) + (narrow ? m->gap + (details.length && !asking ? m->row : 0) : 0);
         at->bottom -= height + m->gap;
+        // A card over a shadow and outlined as the dialogs are, which sets it apart from the see-through window under it.
+        Prog__DropShadow(at->corner.x1 - view.x0 - width - at->margin, floorf(at->bottom), width, height, m->radius * 2, 1, m);
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextFloatingOffset((UI_Vec2){ at->corner.x1 - view.x0 - width - at->margin, floorf(at->bottom) });
         UI_SetNextChildrenLayout(UI_Layout_Vertical);
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
         UI_SetNextCornerRadius(m->radius * 2);
-        UI_SetNextBorderThickness(m->separator);
+        UI_SetNextBorderThickness(m->stroke);
         UI_SetNextBlur(Prog__FloatingBlur(m));
-        // Outlined as the panels are in the sidebar, whose color it shares.
-        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = asking ? theme->accent : at == &stacks[sidebarStack] ? theme->tabBorder : theme->separator });
+        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = asking ? theme->accent : theme->hover });
         UI_Block *card = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "Transfer/%u", i)),
                                             UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         // A click shows where it goes, whichever panel has the keyboard.
         UI_Interaction picked = UI_InteractionFromBlock(card);
         if (picked.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferReveal, i, 0, picked.clickOrder)->panel = 0;
         UI_Parent(card) {
-            UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
+            UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, (R_Color){0}, 0);
             UI_Parent(head) {
                 b32 downloading = transfer->op == Prog_TransferOp_Download || transfer->op == Prog_TransferOp_Torrent || transfer->op == Prog_TransferOp_TorrentFetch;
                 String title = downloading ? StrFormat(&state->frameArena, TrF("Downloading into %S"), target)
@@ -10585,7 +10588,7 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
             if (asking) {
                 String name = StrFromCStr(progress->conflictName);
                 Prog__Label(StrFormat(&state->frameArena, TrF("\"%S\" is already in %S"), name, target), UI_Flex(), m->row, 0, theme->textHeading, 0);
-                UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->menu, 0);
+                UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, (R_Color){0}, 0);
                 UI_Parent(buttons) {
                     struct { String label; P_Conflict answer; b32 shown; } choices[] = {
                         { Tr("Replace"), P_Conflict_Replace, !progress->conflictFolder },
@@ -10612,7 +10615,7 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
             f32 done = bytes ? (f32)((f64)doneBytes / (f64)bytes) : (f32)((f64)doneItems / (f64)items);
             String percent = StrFormat(&state->frameArena, paused ? TrF("Paused at %u%%") : "%u%%", (u32)(UI__Clamp(done, 0, 1) * 100));
             if (!asking) {
-                UI_Block *now = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
+                UI_Block *now = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, (R_Color){0}, 0);
                 UI_Parent(now) {
                     f32 room = width - 2 * pad - (narrow ? 2 * m->row : 2 * m->gap + R_TextWidth(m->font, details) + R_TextWidth(m->font, percent));
                     Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, name, MaxF32(0, room)), UI_TextContent(), m->row, 0, theme->textDim, 0);
@@ -10633,7 +10636,7 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
                                   : StrFormat(&state->frameArena, TrF("%u of %u"), (u32)Min(doneItems, items), (u32)items);
             // A narrow card's bar is as wide as it is, over the amount.
             f32 lineHeight = narrow ? m->gap : m->row;
-            UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(lineHeight), UI_Layout_Horizontal, theme->menu, 0);
+            UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(lineHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
             UI_Parent(line) {
                 f32 barWidth = narrow ? width - 2 * pad : floorf(width * 0.62f), barHeight = MaxF32(3, floorf(4 * m->scale));
                 UI_SetNextPrefWidth(UI_Pixels(barWidth));
@@ -10659,7 +10662,7 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
                 if (!narrow) Prog__Label(amount, UI_Flex(), m->row, m->gap, theme->textDim, 1);
             }
             if (narrow) {
-                UI_Block *under = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
+                UI_Block *under = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, (R_Color){0}, 0);
                 UI_Parent(under) {
                     Prog__Label(amount, UI_Flex(), m->row, 0, theme->textDim, 0);
                     Prog__Label(percent, UI_TextContent(), m->row, 0, theme->text, 1);
@@ -10682,15 +10685,16 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
         f32 width = floorf(MinF32(m->line * 26, at->corner.x1 - at->corner.x0 - 2 * at->margin));
         f32 height = 2 * pad + m->row * (f32)(1 + listed + (waiting > listed));
         at->bottom -= height + m->gap;
+        Prog__DropShadow(at->corner.x1 - view.x0 - width - at->margin, floorf(at->bottom), width, height, m->radius * 2, 1, m);
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextFloatingOffset((UI_Vec2){ at->corner.x1 - view.x0 - width - at->margin, floorf(at->bottom) });
         UI_SetNextChildrenLayout(UI_Layout_Vertical);
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
         UI_SetNextCornerRadius(m->radius * 2);
-        UI_SetNextBorderThickness(m->separator);
+        UI_SetNextBorderThickness(m->stroke);
         UI_SetNextBlur(Prog__FloatingBlur(m));
-        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = at == &stacks[sidebarStack] ? theme->tabBorder : theme->separator });
+        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->hover });
         UI_Block *card = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TorrentsWaiting")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         UI_Parent(card) {
             Prog__Label(StrFormat(&state->frameArena, TrN(waiting, "%u torrent waiting to start", "%u torrents waiting to start"), waiting), UI_Flex(), m->row, 0, theme->text, 0);
