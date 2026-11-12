@@ -994,9 +994,6 @@ Paused at %u%%
 Permanently delete everything in the %S?
 = ¿Eliminar definitivamente todo el contenido de %S?
 
-Permanently delete "%S"?
-= ¿Eliminar definitivamente «%S»?
-
 This cannot be undone.
 = Esta acción no se puede deshacer.
 

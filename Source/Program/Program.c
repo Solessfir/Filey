@@ -9813,9 +9813,9 @@ function void Prog__PasswordBox(Prog_State *state, const Prog_Metrics *m)
 // outside it, and `order`, the click's order among this frame's.
 typedef struct Prog__Answer { b32 answered, confirmed; u64 order; } Prog__Answer;
 
-// A question over a dimmed window that takes every click: `icon` in a tinted circle beside its title and lines of detail, then Cancel and
+// A question over a dimmed window that takes every click: `icon` in a tinted circle beside its title, lines of detail and a `note` in `tint`, then Cancel and
 // `answer`, both in `tint`, as the danger color for what cannot be undone. It grows and fades in as the menus do, over a shadow.
-function Prog__Answer Prog__Question(String identity, String icon, String title, const String *details, u32 detailCount, String answer, R_Color tint,
+function Prog__Answer Prog__Question(String identity, String icon, String title, const String *details, u32 detailCount, String note, String answer, R_Color tint,
                                       const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -9832,8 +9832,10 @@ function Prog__Answer Prog__Question(String identity, String icon, String title,
     if (outside.pressed) result = (Prog__Answer){ .answered = true, .order = outside.pressOrder };
     f32 badge = floorf(m->row * 1.5f), textWidth = R_TextWidth(m->font, title);
     for (u32 i = 0; i < detailCount; ++i) textWidth = MaxF32(textWidth, R_TextWidth(m->font, details[i]));
+    textWidth = MaxF32(textWidth, R_TextWidth(m->font, note));
+    u32 lines = 1 + detailCount + (note.length ? 1 : 0);
     f32 width = floorf(MinF32(MaxF32(badge + textWidth + 3 * m->inset, m->line * 22), view.x1 - view.x0 - 2 * m->inset));
-    f32 header = MaxF32(badge, m->row * (f32)(1 + detailCount)), height = floorf(header + m->bar + m->inset * 3);
+    f32 header = MaxF32(badge, m->row * (f32)lines), height = floorf(header + m->bar + m->inset * 3);
     f32 shownWidth = floorf(width * grow), shownHeight = floorf(height * grow);
     UI_Vec2 at = { floorf((view.x1 - view.x0 - shownWidth) * 0.5f), floorf((view.y1 - view.y0 - shownHeight) * 0.4f) };
     f32 radius = m->radius * 2;
@@ -9870,6 +9872,7 @@ function Prog__Answer Prog__Question(String identity, String icon, String title,
             UI_Parent(lines) {
                 Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0);
                 for (u32 i = 0; i < detailCount; ++i) Prog__Label(details[i], UI_Flex(), m->row, 0, theme->textDim, 0);
+                if (note.length) Prog__Label(note, UI_Flex(), m->row, 0, tint, 0);
             }
         }
         Prog__Spacer(UI_Flex(), UI_Flex());
@@ -9898,7 +9901,7 @@ function void Prog__LayoutQuestion(Prog_State *state, const Prog_Metrics *m)
                  : deleting ? StrFormat(&state->frameArena, TrF("Delete the layout \"%S\"?"), name) : StrFormat(&state->frameArena, TrF("Overwrite the existing layout \"%S\"?"), name);
     // Deleting cannot be undone; overwriting and switching only warn.
     R_Color tint = deleting ? Prog_CurrentTheme()->danger : Prog__GitInk(Prog_GitMark_Modified);
-    Prog__Answer answer = Prog__Question(S("LayoutAsk"), switching ? Icon_GitBranch : Icon_TriangleAlert, title, NULL, 0,
+    Prog__Answer answer = Prog__Question(S("LayoutAsk"), switching ? Icon_GitBranch : Icon_TriangleAlert, title, NULL, 0, (String){0},
                                            switching ? Tr("Switch") : deleting ? Tr("Delete") : Tr("Overwrite"), tint, m);
     if (answer.answered) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, answer.confirmed ? 1 : 0, 0, answer.order);
 }
@@ -10718,17 +10721,17 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
     return stacks[inSidebar ? sidebarStack : Min(Prog__CardPanel(state, 0, view), windowStack)];
 }
 
-// Asks before a permanent delete, naming the first few items it deletes.
+// Asks before a permanent delete, counting the items it deletes and naming the first few.
 function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->confirmingDelete) return;
     Arena *frame = &state->frameArena;
     String title = state->confirmEmptyTrash ? StrFormat(frame, TrF("Permanently delete everything in the %S?"), Prog_PathName(state, state->confirmPaths[0]))
-                 : state->confirmCount == 1 ? StrFormat(frame, TrF("Permanently delete \"%S\"?"), Prog__FolderName(state->confirmPaths[0]))
                                             : StrFormat(frame, TrN(state->confirmCount, "Permanently delete %u item?", "Permanently delete %u items?"), (u32)state->confirmCount);
-    String details[2] = {0};
+    String details[1] = {0};
     u32 detailCount = 0;
-    if (!state->confirmEmptyTrash && state->confirmCount > 1) {
+    // The names go under the count, one alone too, in the same place and color.
+    if (!state->confirmEmptyTrash) {
         u64 named = Min(state->confirmCount, (u64)3);
         StrBuilder names = {0};
         // Each name cut in its middle when long, so that the line stays short enough to show its end.
@@ -10736,8 +10739,7 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
         if (state->confirmCount > named) StrBuildF(frame, &names, " %S", StrFormat(frame, TrF("and %u more"), (u32)(state->confirmCount - named)));
         details[detailCount++] = names.buffer;
     }
-    details[detailCount++] = Tr("This cannot be undone.");
-    Prog__Answer answer = Prog__Question(S("DeletePanel"), Icon_TriangleAlert, title, details, detailCount, Tr("Delete"), Prog_CurrentTheme()->danger, m);
+    Prog__Answer answer = Prog__Question(S("DeletePanel"), Icon_TriangleAlert, title, details, detailCount, Tr("This cannot be undone."), Tr("Delete"), Prog_CurrentTheme()->danger, m);
     if (answer.answered) Prog_QueueCommand(state, answer.confirmed ? Prog_CommandKind_DeleteConfirm : Prog_CommandKind_DeleteCancel, 0, 0, answer.order);
 }
 

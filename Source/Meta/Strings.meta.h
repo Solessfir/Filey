@@ -416,7 +416,6 @@ global const char *const Prog_Strings[] = {
     "Don't download it after all.",
     "and %u more",
     "Permanently delete everything in the %S?",
-    "Permanently delete \"%S\"?",
     "This cannot be undone.",
     "Edit Menu",
     "Reset",

@@ -994,9 +994,6 @@ Paused at %u%%
 Permanently delete everything in the %S?
 = 永久删除%S中的所有内容？
 
-Permanently delete "%S"?
-= 永久删除“%S”？
-
 This cannot be undone.
 = 此操作无法撤消。
 

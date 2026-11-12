@@ -993,9 +993,6 @@ Paused at %u%%
 Permanently delete everything in the %S?
 = Безвозвратно удалить всё содержимое: %S?
 
-Permanently delete "%S"?
-= Безвозвратно удалить «%S»?
-
 This cannot be undone.
 = Это действие нельзя отменить.
 
