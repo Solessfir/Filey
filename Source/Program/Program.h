@@ -301,6 +301,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_WarmMenu,
     Prog_JobKind_Tidy,             // removes the run folders of the runs that are over, and brings the installed apps' entry up to date
     Prog_JobKind_LongPaths,        // sets the system's long path support, `confirm` saying on or off
+    Prog_JobKind_WarmPdf,          // draws a page of the PDF `path` and drops it, so that the system's PDF renderer is loaded before one is shown
     Prog_JobKind_PickCover,        // asks for a picture with the system's dialog, titled `name` for files it calls `path`, to be the cover of `paths`
     Prog_JobKind_ArchivePassword,  // whether the password `name` opens the archive `path`
     Prog_JobKind_Measure,
@@ -2018,6 +2019,7 @@ typedef struct Prog_State {
     Arena bulkArena;
     Prog_BulkTags bulk;
     R_TextureHandle bulkCover;
+    b8 warmPdf;    // the app's, not the tests': the system's PDF renderer is to be started ahead, as the first folder with a PDF in it shows
     b8 coverDropBulkShown, coverDropBulk;  // the drag over the cover is over the shared one, as coverDrop is over a file's
     u8 videoQuality;  // its constant quality, 0 (best) to 51
     b32 downloadAudio;  // downloads by URL take the sound alone, as MP3

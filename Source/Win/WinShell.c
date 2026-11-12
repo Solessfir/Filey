@@ -2127,6 +2127,9 @@ function b32 P__ExplorerPreloads(void)
 #define P__WinEHost L"Local\\Filey.WinEHost"
 #define P__WinEOwned L"Local\\Filey.WinEOwned"
 #define P__WinEQuit L"Local\\Filey.WinEQuit"
+// Where Filey notes that the E in DisabledHotkeys is its own, so that one the user put there is left when the default is taken back.
+#define P__OwnKey L"Software\\Filey"
+#define P__OwnDisabledE L"DisabledWinE"
 
 function b32 P__WinEEntryThere(void)
 {
@@ -2175,6 +2178,8 @@ function u32 P__SetWinEKey(const wchar *executable, b32 on)
         if (editable && !e && lstrlenW(disabled) + 1 < (i32)CArrayCount(disabled)) {
             lstrcatW(disabled, L"E");
             error = (u32)RegSetKeyValueW(HKEY_CURRENT_USER, P__AdvancedKey, L"DisabledHotkeys", REG_SZ, disabled, (DWORD)(((u64)lstrlenW(disabled) + 1) * sizeof(wchar)));
+            DWORD yes = 1;
+            if (!error) RegSetKeyValueW(HKEY_CURRENT_USER, P__OwnKey, P__OwnDisabledE, REG_DWORD, &yes, sizeof(yes));
         }
         swprintf(run, CArrayCount(run), L"\"%ls\" --hotkey", executable);
         if (!error) error = (u32)RegSetKeyValueW(HKEY_CURRENT_USER, P__RunKey, P__WinEEntry, REG_SZ, run, (DWORD)(((u64)lstrlenW(run) + 1) * sizeof(wchar)));
@@ -2193,7 +2198,11 @@ function u32 P__SetWinEKey(const wchar *executable, b32 on)
                 Sleep(20);
             }
         }
-        if (e) {
+        // Only the E Filey put there goes.
+        b32 ours = RegGetValueW(HKEY_CURRENT_USER, P__OwnKey, P__OwnDisabledE, RRF_RT_REG_DWORD, NULL, NULL, NULL) == ERROR_SUCCESS;
+        RegDeleteKeyValueW(HKEY_CURRENT_USER, P__OwnKey, P__OwnDisabledE);
+        RegDeleteKeyW(HKEY_CURRENT_USER, P__OwnKey);
+        if (e && ours) {
             MemMove(e, e + 1, ((u64)lstrlenW(e + 1) + 1) * sizeof(wchar));
             if (disabled[0]) RegSetKeyValueW(HKEY_CURRENT_USER, P__AdvancedKey, L"DisabledHotkeys", REG_SZ, disabled, (DWORD)(((u64)lstrlenW(disabled) + 1) * sizeof(wchar)));
             else RegDeleteKeyValueW(HKEY_CURRENT_USER, P__AdvancedKey, L"DisabledHotkeys");
@@ -2244,7 +2253,12 @@ function i32 P_WinEKeyServe(void (*warm)(void))
     MSG message;
     while (!done) {
         if (!owned && RegisterHotKey(NULL, 1, MOD_WIN | MOD_NOREPEAT, 'E')) owned = CreateMutexW(NULL, FALSE, P__WinEOwned);
-        if (MsgWaitForMultipleObjects(quit ? 1 : 0, &quit, FALSE, INFINITE, QS_ALLINPUT) == WAIT_OBJECT_0 && quit) break;
+        if (MsgWaitForMultipleObjects(quit ? 1 : 0, &quit, FALSE, INFINITE, QS_ALLINPUT) == WAIT_OBJECT_0 && quit) {
+            // Told to quit, but wanted again since: the default was taken back and set again before this got to go.
+            if (!P__WinEEntryThere()) break;
+            ResetEvent(quit);
+            continue;
+        }
         while (!done && PeekMessageW(&message, NULL, 0, 0, PM_REMOVE)) {
             if (message.message == WM_QUIT || (message.message == WM_TIMER && !P__WinEEntryThere())) done = true;
             else if (message.message == WM_TIMER && dated && GetFileAttributesExW(executable, GetFileExInfoStandard, &now) && CompareFileTime(&now.ftLastWriteTime, &started.ftLastWriteTime)) done = replaced = true;

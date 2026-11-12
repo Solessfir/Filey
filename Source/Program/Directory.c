@@ -1739,9 +1739,27 @@ function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, 
         return written;
     }
     if (input->transferOp == Prog_TransferOp_ExtractCover) {
-        String cover = {0};
-        result = Prog_ExtractCover(arena, input->paths[0], cancel, &cover);
-        if (!result.code) ArrayPush(arena, *placed, cover);
+        // One file's cover, or of several files a picture for each cover that differs: one the same as a cover already saved is removed again.
+        u64 *seen = ArenaPushArray(arena, Max(input->pathCount, (u64)1), u64), seenCount = 0;
+        for (u64 i = 0; i < input->pathCount && !P_IsCancelled(cancel); ++i) {
+            String cover = {0};
+            P_FileError one = Prog_ExtractCover(arena, input->paths[i], cancel, &cover);
+            if (one.code) {
+                if (input->pathCount == 1) result = one;
+                continue;
+            }
+            Scratch scratch = GetScratchEx(arena);
+            String bytes = {0};
+            u64 hash = P_ReadFile(scratch.arena, cover, &bytes) ? MapHashBytes(bytes.value, bytes.length) : i + 1;
+            b32 repeat = false;
+            for (u64 s = 0; s < seenCount && !repeat; ++s) repeat = seen[s] == hash;
+            if (repeat) P_DeleteItems(scratch.arena, &cover, 1, false, NULL);
+            ReleaseScratch(scratch);
+            if (repeat) continue;
+            seen[seenCount++] = hash;
+            ArrayPush(arena, *placed, cover);
+        }
+        if (input->pathCount > 1 && !seenCount) result = (P_FileError){ .code = 1, .message = TrMark("The files have no cover") };
         return result;
     }
     if (input->transferOp == Prog_TransferOp_TorrentFetch) return Prog_FetchTorrent(arena, input->paths[0], input->path, input->progress, cancel, placed);
@@ -3761,6 +3779,12 @@ function void Prog__DirectoryJob(P_Job *job)
     }
     if (input->kind == Prog_JobKind_LongPaths) {
         P_SetLongPaths(input->confirm);
+        return;
+    }
+    if (input->kind == Prog_JobKind_WarmPdf) {
+        P_Image page = {0};
+        i32 width = 0, height = 0;
+        P_LoadImageFile(&job->arena, input->path, 64, &page, &width, &height);
         return;
     }
     if (input->kind == Prog_JobKind_PickCover) {
@@ -8346,7 +8370,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                      (job = P_JobTakeCompleted(&state->toolJobs)) != NULL || (job = P_JobTakeCompleted(&state->tagJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_SidebarTree || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Tidy || input->kind == Prog_JobKind_LongPaths || input->kind == Prog_JobKind_IndexRefresh || input->kind == Prog_JobKind_ArchivePassword || input->kind == Prog_JobKind_Play ||
+        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_SidebarTree || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_WarmPdf || input->kind == Prog_JobKind_Tidy || input->kind == Prog_JobKind_LongPaths || input->kind == Prog_JobKind_IndexRefresh || input->kind == Prog_JobKind_ArchivePassword || input->kind == Prog_JobKind_Play ||
                          (input->kind == Prog_JobKind_FilesList && !input->miller) || input->kind == Prog_JobKind_Fonts;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         // What the window keeps of a job, a transfer card, the pull button or the fetch under way, lets go of it first.
@@ -9198,7 +9222,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : slot == 3 ? state->menuPins : slot == 4 ? state->quickCommands : slot == 5 ? state->mutedNotices
                                                  : slot == 6 ? state->menuHidden : slot == 7 ? state->menuOrder : slot == 8 ? state->torrents : state->bookmarks);
             }
-        } else if (input->kind == Prog_JobKind_WarmMenu) {
+        } else if (input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_WarmPdf) {
         } else if (input->kind == Prog_JobKind_Tidy) {
             const b32 *waits = job->result;
             if (waits && *waits) Prog_NotifyWinEKey(state);
@@ -9527,6 +9551,19 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     }
                     if (state->directory.tree || state->treeWatches.count) Prog__StartTreeWatches(state);
                     if (renamePicked) Prog_BeginRename(state, pickRow);
+                    // The first PDF listed in the run has a page of it drawn, off this thread, and dropped: the system's renderer takes seconds
+                    // to start, which the first PDF shown in the inspector would otherwise wait for.
+                    for (u64 i = 0; state->warmPdf && !state->directory.archive && i < state->directory.count; ++i) {
+                        String name = state->directory.entries[i].file.name;
+                        if (state->directory.entries[i].file.kind == P_FileKind_Directory || name.length < 4 || !Prog__EqualFolded(StrFrom(name, name.length - 4), S(".pdf"))) continue;
+                        state->warmPdf = false;
+                        P_Job *warm = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+                        Prog_JobInput *warmInput = ArenaPushStruct(&warm->arena, Prog_JobInput);
+                        warmInput->kind = Prog_JobKind_WarmPdf;
+                        warmInput->path = Prog_JoinPath(&warm->arena, state->directory.path, name);
+                        warm->input = warmInput;
+                        P_JobSubmit(warm);
+                    }
                     if (state->warmMenus && state->directory.count) {
                         state->warmMenus = false;
                         u64 file = 0;

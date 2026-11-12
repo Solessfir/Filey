@@ -3905,3 +3905,24 @@ Choose the album cover
 
 Pictures
 = Imagens
+
+Save Covers
+= Salvar capas
+
+Save the covers as pictures beside the files, one for each cover that differs.
+= Salvar as capas como imagens ao lado dos arquivos, uma para cada capa diferente.
+
+The files have no cover
+= Os arquivos não têm capa
+
+Seek Audio Back
+= Retroceder áudio
+
+Go five seconds back in the audio file playing in the inspector.
+= Voltar cinco segundos no arquivo de áudio que toca no inspetor.
+
+Seek Audio Forward
+= Avançar áudio
+
+Go five seconds on in the audio file playing in the inspector.
+= Avançar cinco segundos no arquivo de áudio que toca no inspetor.

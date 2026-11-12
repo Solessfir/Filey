@@ -3903,3 +3903,24 @@ Choose the album cover
 
 Pictures
 = Изображения
+
+Save Covers
+= Сохранить обложки
+
+Save the covers as pictures beside the files, one for each cover that differs.
+= Сохранить обложки как картинки рядом с файлами, по одной на каждую отличающуюся обложку.
+
+The files have no cover
+= У файлов нет обложки
+
+Seek Audio Back
+= Перемотать аудио назад
+
+Go five seconds back in the audio file playing in the inspector.
+= Перейти на пять секунд назад в аудиофайле, который играет в инспекторе.
+
+Seek Audio Forward
+= Перемотать аудио вперёд
+
+Go five seconds on in the audio file playing in the inspector.
+= Перейти на пять секунд вперёд в аудиофайле, который играет в инспекторе.

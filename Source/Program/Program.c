@@ -12186,6 +12186,13 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                         UI_SetNextFont(m->detail);
                         Prog__Label(state->bulk.coverable ? Tr("Click or drop a picture for all") : Tr("Their format takes no cover"), UI_Flex(), row, 0, theme->textDim, 0);
                     }
+                    // Their covers saved as pictures beside them, one for each that differs.
+                    if (state->bulk.covered) {
+                        line->props.childrenAlignment = (UI_Vec2){ 0, 0.5f };
+                        UI_Interaction save = Prog__ActionButton(S("InspectorSaveCovers"), Tr("Save Covers"), true, m);
+                        if (save.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorSaveCover, 1, 0, save.clickOrder);
+                        if (save.hot) Prog__PopupTooltip(state, Tr("Save the covers as pictures beside the files, one for each cover that differs."));
+                    }
                 }
             }
         }
@@ -12714,6 +12721,20 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextColors((UI_Colors){ .background = faint });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
+            // The time under the pointer, or where the playhead is dragged to, beside it and inside the waveform.
+            if (audio && state->previewSeconds > 0 && (state->scrubbing || (UI->hotKey == view->key && UI->mouse.x >= start && UI->mouse.x < start + shownWidth))) {
+                String at = Prog__Clock(&state->frameArena, (u64)((f64)pointed * state->previewSeconds * 1000));
+                f32 pad = floorf(4.8f * s + 0.5f), tagWidth = R_TextWidth(m->detail, at) + 2 * pad, tagHeight = floorf(m->line * 1.3f), lineX = x + floorf(pointed * shownWidth);
+                UI_SetNextFloatingOffset((UI_Vec2){ lineX + pad + tagWidth > x + shownWidth ? lineX - pad - tagWidth : lineX + pad, y + pad });
+                UI_SetNextPrefWidth(UI_Pixels(tagWidth));
+                UI_SetNextPrefHeight(UI_Pixels(tagHeight));
+                UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
+                UI_SetNextFont(m->detail);
+                UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                UI_SetNextColors((UI_Colors){ .background = theme->menu, .text = theme->text });
+                UI_SetNextText(at);
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawText);
+            }
             // Its edge, for pictures with clear parts.
             f32 line = MaxF32(1, floorf(0.8f * s + 0.5f));
             UI_SetNextFloatingOffset((UI_Vec2){ x - line, y - line });
@@ -12942,8 +12963,8 @@ function b32 Prog__HasFfmpeg(Prog_State *state)
 }
 
 // The inspector's tools for an audio file, a video or a torrent. Its toolbar has how an audio file plays, with how far it is. Its footer,
-// `room` wide, has what is done with the item: converting the audio file; the codec and quality of Compress Video, which Options sets too, and
-// the button that starts it; downloading the torrent, or pausing and stopping its download.
+// `room` wide, has what is done with a video or a torrent: the codec and quality of Compress Video, which Options sets too, and the button
+// that starts it; downloading the torrent, or pausing and stopping its download.
 function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f32 tight, b32 footer, f32 room, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -12952,11 +12973,8 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
     String path = Prog_JoinPath(frame, state->directory.path, entry->file.name);
     u64 hash = MapHashBytes(path.value, path.length);
     b32 audio = Prog_IsAudio(entry->file.name);
-    if (footer && audio) {
-        Prog__ConvertLine(state, room, bar, m);
-        return;
-    }
-    if (!footer && !audio) return;
+    // An audio file's are in the toolbar, a video's and a torrent's in the footer.
+    if (footer == audio) return;
     if (!footer) {
         Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
         Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
@@ -13618,6 +13636,13 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             }
             Prog__Spacer(UI_Pixels(after), UI_Pixels(bar));
         }
+        // Converting an audio file, or a folder's or a selection's audio files, on a line under the toolbar, the same place for each.
+        b32 several = folder && !archive && state->bulk.count && state->currentPanel == state->activePanel;
+        if (entry && !state->directory.archive && (several || (!folder && Prog_IsAudio(entry->file.name))) && Prog__HasFfmpeg(state)) {
+            UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
+            UI_Block *converting = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
+            UI_Parent(converting) Prog__ConvertLine(state, MaxF32(0, pane->rect.x1 - pane->rect.x0 - 2 * m->inset), m->pill, m);
+        }
         if (entry && state->torrent.fileCount && state->torrentSkip) {
             Prog__InspectorTorrent(state, entry, m);
         } else if (text && state->previewHex) {
@@ -13661,12 +13686,6 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             if (archive) {
                 String summary = state->previewArchiveCounted ? Prog_ArchiveSummary(&state->frameArena, state->previewArchiveTotals, entry->file.size) : Tr("Counting...");
                 Prog__Label(summary, UI_Flex(), m->row, m->inset, theme->textDim, 0);
-            }
-            // Converting the folder's audio files, or the selection's, over their list, under the toolbar.
-            if (!archive && state->bulk.count && state->currentPanel == state->activePanel && Prog__HasFfmpeg(state)) {
-                UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
-                UI_Block *converting = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
-                UI_Parent(converting) Prog__ConvertLine(state, MaxF32(0, pane->rect.x1 - pane->rect.x0 - 2 * m->inset), m->pill, m);
             }
             Prog__InspectorList(state, m);
         } else {
@@ -13733,9 +13752,9 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
         if (footer) UI_Parent(footer) {
             // In the hex view the box finds bytes, written as hex, or text.
             if (text) Prog__InspectorFilterBox(state, state->previewHex ? Tr("Find bytes or text...") : StrFormat(&state->frameArena, TrF("Filter %u lines..."), state->previewWindowed && state->textIndex.done ? (u32)Min(state->textIndex.lines, (u64)UINT32_MAX) : state->previewLineCount), m);
-            // What is done with an audio file, a video or a torrent, where a text's filter goes; a video's frame has its scale after them.
+            // What is done with a video or a torrent, where a text's filter goes; a video's frame has its scale after them.
             b32 video = entry && Prog_IsVideo(entry->file.name);
-            b32 tools = entry && ((Prog_IsAudio(entry->file.name) && Prog__HasFfmpeg(state) && !state->directory.archive) || video || Prog_IsTorrent(entry->file.name));
+            b32 tools = entry && (video || Prog_IsTorrent(entry->file.name));
             if (tools) {
                 f32 scaleRoom = image && video ? floorf(m->line * 2.4f) + 2 * radius + m->gap + floorf(9.6f * s + 0.5f) : 0;
                 Prog__Spacer(UI_Pixels(radius + m->inset), UI_Pixels(m->pill));

@@ -3904,3 +3904,24 @@ Choose the album cover
 
 Pictures
 = Bilder
+
+Save Covers
+= Cover speichern
+
+Save the covers as pictures beside the files, one for each cover that differs.
+= Die Cover als Bilder neben den Dateien speichern, eines für jedes unterschiedliche Cover.
+
+The files have no cover
+= Die Dateien haben kein Cover
+
+Seek Audio Back
+= Audio zurückspulen
+
+Go five seconds back in the audio file playing in the inspector.
+= Fünf Sekunden zurück in der Audiodatei, die im Inspektor abgespielt wird.
+
+Seek Audio Forward
+= Audio vorspulen
+
+Go five seconds on in the audio file playing in the inspector.
+= Fünf Sekunden weiter in der Audiodatei, die im Inspektor abgespielt wird.

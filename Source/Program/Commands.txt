@@ -891,6 +891,18 @@ command InspectorVolume {
 command InspectorSeek {
 }
 
+command InspectorSeekBack {
+    label   = "Seek Audio Back^rewind,skip,5 seconds"
+    tooltip = "Go five seconds back in the audio file playing in the inspector."
+    hotkey  = "Alt+Shift+Left"
+}
+
+command InspectorSeekForward {
+    label   = "Seek Audio Forward^skip,fast forward,5 seconds"
+    tooltip = "Go five seconds on in the audio file playing in the inspector."
+    hotkey  = "Alt+Shift+Right"
+}
+
 // The inspector's codec for Compress Video; carries the Prog_OptionVideoCodecs index.
 command InspectorVideoCodec {
 }

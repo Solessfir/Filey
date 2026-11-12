@@ -3904,3 +3904,24 @@ Choose the album cover
 
 Pictures
 = Imágenes
+
+Save Covers
+= Guardar carátulas
+
+Save the covers as pictures beside the files, one for each cover that differs.
+= Guardar las carátulas como imágenes junto a los archivos, una por cada carátula distinta.
+
+The files have no cover
+= Los archivos no tienen carátula
+
+Seek Audio Back
+= Retroceder audio
+
+Go five seconds back in the audio file playing in the inspector.
+= Retroceder cinco segundos en el archivo de audio que suena en el inspector.
+
+Seek Audio Forward
+= Avanzar audio
+
+Go five seconds on in the audio file playing in the inspector.
+= Avanzar cinco segundos en el archivo de audio que suena en el inspector.

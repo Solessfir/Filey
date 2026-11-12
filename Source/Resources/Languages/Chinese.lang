@@ -3904,3 +3904,24 @@ Choose the album cover
 
 Pictures
 = 图片
+
+Save Covers
+= 保存封面
+
+Save the covers as pictures beside the files, one for each cover that differs.
+= 将封面另存为文件旁的图片，每种不同的封面保存一张。
+
+The files have no cover
+= 这些文件没有封面
+
+Seek Audio Back
+= 音频后退
+
+Go five seconds back in the audio file playing in the inspector.
+= 在检查器中播放的音频文件里后退五秒。
+
+Seek Audio Forward
+= 音频前进
+
+Go five seconds on in the audio file playing in the inspector.
+= 在检查器中播放的音频文件里前进五秒。

@@ -3905,3 +3905,24 @@ Choose the album cover
 
 Pictures
 = Obrazy
+
+Save Covers
+= Zapisz okładki
+
+Save the covers as pictures beside the files, one for each cover that differs.
+= Zapisz okładki jako obrazy obok plików, po jednej dla każdej różnej okładki.
+
+The files have no cover
+= Pliki nie mają okładki
+
+Seek Audio Back
+= Przewiń audio wstecz
+
+Go five seconds back in the audio file playing in the inspector.
+= Cofnij o pięć sekund w pliku audio odtwarzanym w inspektorze.
+
+Seek Audio Forward
+= Przewiń audio naprzód
+
+Go five seconds on in the audio file playing in the inspector.
+= Przejdź o pięć sekund dalej w pliku audio odtwarzanym w inspektorze.

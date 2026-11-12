@@ -834,7 +834,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Inspector),
     Prog_CommandKind_TogglePreview, Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
     Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap, Prog_CommandKind_InspectorToggleLineNumbers,
-    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorToggleUsage, Prog_CommandKind_InspectorUsageRescan, Prog_CommandKind_InspectorUsageShowInFolder, Prog_CommandKind_InspectorPlay, Prog_CommandKind_InspectorMute, Prog_CommandKind_InspectorSaveCover, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorStartFind, Prog_CommandKind_InspectorToggleImageGrid,
+    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorToggleUsage, Prog_CommandKind_InspectorUsageRescan, Prog_CommandKind_InspectorUsageShowInFolder, Prog_CommandKind_InspectorPlay, Prog_CommandKind_InspectorMute, Prog_CommandKind_InspectorSeekBack, Prog_CommandKind_InspectorSeekForward, Prog_CommandKind_InspectorSaveCover, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorStartFind, Prog_CommandKind_InspectorToggleImageGrid,
     Prog_CommandKind_InspectorToggleImageMinimap, Prog_CommandKind_InspectorToggleImageScale, Prog_CommandKind_InspectorScaleImageUp,
     Prog_CommandKind_InspectorScaleImageDown,
     Prog__PaletteGroup(Panels),
@@ -5523,6 +5523,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 else Prog__StartPlayer(state, path, 0);
             } break;
             case Prog_CommandKind_InspectorSaveCover: {
+                // With 1, the covers of the folder's or the selection's audio files, a picture for each that differs.
+                if (command->row == 1) {
+                    if (state->bulk.count && !state->directory.archive) {
+                        Prog__FileJobOp(state, Prog_JobKind_Transfer, state->bulk.paths, state->bulk.count, Prog_ParentPath(state->bulk.paths[0]), false, (String){0}, Prog_TransferOp_ExtractCover);
+                    }
+                    break;
+                }
                 if (state->focusedRow >= state->directory.count || !state->previewTags.cover.length || state->directory.archive) break;
                 String path = Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name);
                 if (StrIsEqual(path, state->previewPath)) Prog__FileJobOp(state, Prog_JobKind_Transfer, &path, 1, state->directory.path, false, (String){0}, Prog_TransferOp_ExtractCover);
@@ -5589,6 +5596,17 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_InspectorSeek: {
                 if (state->focusedRow >= state->directory.count || !Prog_IsAudio(state->directory.entries[state->focusedRow].file.name)) break;
                 Prog__StartPlayer(state, Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name), command->target);
+            } break;
+            case Prog_CommandKind_InspectorSeekBack:
+            case Prog_CommandKind_InspectorSeekForward: {
+                // Five seconds either way in the file that plays, not past its ends.
+                if (state->focusedRow >= state->directory.count || !Prog_IsAudio(state->directory.entries[state->focusedRow].file.name)) break;
+                String path = Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name);
+                if (!state->playerJob || state->playerHash != MapHashBytes(path.value, path.length)) break;
+                u64 at = atomic_load(&state->playerProgress[state->playerSlot].doneBytes), length = (u64)(state->previewSeconds * 1000), step = 5000;
+                u64 to = command->kind == Prog_CommandKind_InspectorSeekBack ? (at > step ? at - step : 0) : at + step;
+                if (length && to + 500 > length) to = length > 500 ? length - 500 : 0;
+                Prog__StartPlayer(state, path, to);
             } break;
             case Prog_CommandKind_InspectorVideoCodec: Prog_SetOption(state, Prog_Option_VideoCodec, (i32)command->row); break;
             case Prog_CommandKind_InspectorVideoQuality: Prog_SetOption(state, Prog_Option_VideoQuality, (i32)state->videoQuality + (command->row ? 1 : -1)); break;

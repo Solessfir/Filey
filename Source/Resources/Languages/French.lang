@@ -3905,3 +3905,24 @@ Choose the album cover
 
 Pictures
 = Images
+
+Save Covers
+= Enregistrer les pochettes
+
+Save the covers as pictures beside the files, one for each cover that differs.
+= Enregistrer les pochettes comme images à côté des fichiers, une pour chaque pochette différente.
+
+The files have no cover
+= Les fichiers n'ont pas de pochette
+
+Seek Audio Back
+= Reculer dans l'audio
+
+Go five seconds back in the audio file playing in the inspector.
+= Reculer de cinq secondes dans le fichier audio lu dans l'inspecteur.
+
+Seek Audio Forward
+= Avancer dans l'audio
+
+Go five seconds on in the audio file playing in the inspector.
+= Avancer de cinq secondes dans le fichier audio lu dans l'inspecteur.
