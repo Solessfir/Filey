@@ -7192,7 +7192,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
             UI_SetNextChildrenPadding((UI_Padding){ iconLeft, 0, 0, 0 });
             UI_SetNextCornerRadius(m->radius * 2);
-            UI_SetNextColors((UI_Colors){ .background = moving ? theme->menu : theme->selection });
+            UI_SetNextColors((UI_Colors){ .background = moving ? Prog__ReadableFill() : theme->selection });
             UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_Floating | ((highlighted && !joined) || moving ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
             // A highlight the keyboard moved scrolls into sight; the rows' places are the last layout's, in the list's content.
             // A first frame has no layout yet to go by, so it waits for the next.
@@ -9494,7 +9494,7 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextCornerRadius(radius);
     UI_SetNextBorderThickness(line);
-    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+    UI_SetNextColors((UI_Colors){ .background = Prog__ReadableFill(), .border = theme->tabBorder });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ColorPicker")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(panel) {
         // The heading follows the box's rounded top: rounded at all four corners and a radius taller, its lower corners cut off.
@@ -9686,13 +9686,13 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextOpacity(opacity);
     UI_SetNextCornerRadius(radius);
-    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_SetNextColors((UI_Colors){ .background = theme->background.a < 1 ? Prog__ReadableFill() : theme->background });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("LayoutSave")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     String name = Prog__TrimSpaces(Prog_EditText(&state->layoutName));
     b32 taken = false;
     for (u64 i = 0; i < state->layoutNames.header.count && !taken; ++i) taken = Prog__EqualFolded(state->layoutNames.v[i], name);
     UI_Parent(panel) {
-        UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, theme->menu, 0);
+        UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, Prog__ReadableFill(), 0);
         UI_Parent(title) Prog__Label(Tr("Save layout"), UI_Flex(), head, 0, theme->text, 0.5f);
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         UI_SetNextChildrenPadding((UI_Padding){ floorf(8.8f * s + 0.5f), 0, floorf(8.8f * s + 0.5f), 0 });
@@ -9776,10 +9776,10 @@ function void Prog__PasswordBox(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextOpacity(opacity);
     UI_SetNextCornerRadius(radius);
-    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_SetNextColors((UI_Colors){ .background = theme->background.a < 1 ? Prog__ReadableFill() : theme->background });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Password")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(panel) {
-        UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, theme->menu, 0);
+        UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, Prog__ReadableFill(), 0);
         UI_Parent(title) Prog__Label(StrFormat(&state->frameArena, TrF("Password for %S"), state->passwordServer ? state->passwordArchive : Prog__FolderName(state->passwordArchive)), UI_Flex(), head, 0, theme->text, 0.5f);
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         UI_SetNextChildrenPadding((UI_Padding){ floorf(8.8f * s + 0.5f), 0, floorf(8.8f * s + 0.5f), 0 });
