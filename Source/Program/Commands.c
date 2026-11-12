@@ -6165,9 +6165,11 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             if (event->kind == PlatformEventKind_MouseWheel && state->paletteMode != Prog_PaletteMode_Tabs) {
                 UI_Block *hot = UI__Find(UI->hotKey);
                 if (hot && FlagExists(hot->flags, UI_Flag_TakesWheel) && !FlagExists(hot->flags, UI_Flag_Floating)) continue;
+                // A turn of less than a row waits for the rest of it, rather than moving a whole row each step.
                 f32 turn = state->reverseScroll ? -1.0f : 1.0f;
-                i64 rows = (i64)(event->wheelY * 3 * turn);
-                if (!rows && event->wheelY != 0) rows = event->wheelY * turn > 0 ? 1 : -1;
+                state->paletteWheelRows += event->wheelY * 3 * turn;
+                i64 rows = (i64)state->paletteWheelRows;
+                state->paletteWheelRows -= (f32)rows;
                 u32 *scroll = state->paletteMode == Prog_PaletteMode_GoTo ? &state->gotoScroll : &state->paletteScroll;
                 *scroll = (u32)Max((i64)*scroll - rows, (i64)0);
                 state->paletteWheeled = true;
