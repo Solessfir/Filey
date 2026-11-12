@@ -229,6 +229,11 @@ typedef struct GL_State {
     GLuint           framebuffer;
     GLuint           blurLevels[GL_BlurLevels + 1];  // the copy, then each level about half the one before
     i32              blurWidth, blurHeight;          // the window's size they were made for, as the layer texture is
+    // What the levels hold a blur of: a hash of everything drawn before that blur, 0 for nothing known. A blur of the same is laid back in
+    // from them as they are, as a popup's over a window that stays still under it, which saves a software renderer most of its frame.
+    u64              blurHeld;
+    u64              textureEpoch;                   // counts the changes to any texture's pixels, which a hash of what is drawn does not see
+    R_Color          clear;
     GLuint           layerTexture;
     b32              inLayer;
     u32              shape;
@@ -587,6 +592,7 @@ function R_TextureHandle R_TextureCreateAlpha(i32 width, i32 height, const u8 *p
     GL.GenTextures(1, &texture);
     GL.BindTexture(GL_TEXTURE_2D, texture);
     GL.TexImage2D(GL_TEXTURE_2D, 0, GL_R8, width, height, 0, GL_RED, GL_UNSIGNED_BYTE, pixels);
+    ++GL.textureEpoch;
     // Glyphs are drawn at their rasterized size, so no filtering is wanted.
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -599,12 +605,14 @@ function void R_TextureUpdateAlpha(R_TextureHandle texture, i32 x, i32 y, i32 wi
 {
     GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));
     GL.TexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_RED, GL_UNSIGNED_BYTE, pixels);
+    ++GL.textureEpoch;
 }
 
 function void R_TextureRelease(R_TextureHandle texture)
 {
     GLuint ref = GL__TextureRefFromHandle(texture);
     if (ref) GL.DeleteTextures(1, &ref);
+    ++GL.textureEpoch;
 }
 
 function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels)
@@ -613,6 +621,7 @@ function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *p
     GL.GenTextures(1, &texture);
     GL.BindTexture(GL_TEXTURE_2D, texture);
     GL.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    ++GL.textureEpoch;
     // Images are uploaded at the size they are drawn.
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -625,6 +634,7 @@ function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 wid
 {
     GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));
     GL.TexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    ++GL.textureEpoch;
 }
 
 function void R_TextureLinear(R_TextureHandle texture)
@@ -691,6 +701,7 @@ function void R_MeshDraw(R_MeshHandle handle, R_TextureHandle target, i32 width,
 {
     GL_Mesh mesh = GL__MeshFromHandle(handle);
     if (!mesh.vertexArray || !target.u64[0] || width <= 0 || height <= 0) return;
+    ++GL.textureEpoch;
     if (width > GL.meshWidth || height > GL.meshHeight) {
         GL.meshWidth = Max(GL.meshWidth, width), GL.meshHeight = Max(GL.meshHeight, height);
         if (GL.meshColor) GL.DeleteRenderbuffers(1, &GL.meshColor);
@@ -807,7 +818,9 @@ function void R_BeginFrame(i32 width, i32 height, R_Color clear)
     GL.ClearColor(clear.r * clear.a, clear.g * clear.a, clear.b * clear.a, clear.a);
     GL.Clear(GL_COLOR_BUFFER_BIT);
     // The blur levels follow the window's size.
+    GL.clear = clear;
     if (GL.blurWidth != width || GL.blurHeight != height) {
+        GL.blurHeld = 0;
         if (GL.blurLevels[0]) GL.DeleteTextures(GL_BlurLevels + 1, GL.blurLevels);
         if (GL.layerTexture) GL.DeleteTextures(1, &GL.layerTexture);
         if (GL.sourceTexture) GL.DeleteTextures(1, &GL.sourceTexture);
@@ -994,9 +1007,40 @@ function void GL__DrawInstance(u32 index, GLuint texture)
     GL.DrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, 1);
 }
 
+// Mixes `size` bytes of 32-bit words into `hash`.
+function u64 GL__HashWords(u64 hash, const void *data, u64 size)
+{
+    const u32 *words = data;
+    for (u64 i = 0; i < size / sizeof(u32); ++i) hash = (hash ^ words[i]) * UINT64_C(0x9E3779B97F4A7C15), hash ^= hash >> 29;
+    return hash;
+}
+
+// A hash of everything the frame holds under the blur that is batch `index`: the window, the textures' pixels, and the batches and their
+// instances before it, with the blur's own region and width. Never 0.
+function u64 GL__BlurKey(u64 index)
+{
+    const GL_Batch *blur = &GL.batches.v[index];
+    u64 hash = GL__HashWords(GL.textureEpoch + 1, &GL.clear, sizeof(GL.clear));
+    i32 window[2] = { GL.width, GL.height };
+    hash = GL__HashWords(hash, window, sizeof(window));
+    for (u64 i = 0; i <= index; ++i) {
+        const GL_Batch *batch = &GL.batches.v[i];
+        // Field by field, as the padding between them holds anything.
+        u32 fields[] = { batch->textureCount, batch->first, batch->count, (u32)batch->blur, (u32)batch->layer, (u32)batch->source, (u32)batch->fromSource };
+        hash = GL__HashWords(hash, batch->textures, batch->textureCount * sizeof(batch->textures[0]));
+        hash = GL__HashWords(hash, fields, sizeof(fields));
+        hash = GL__HashWords(hash, &batch->clip, sizeof(batch->clip));
+        hash = GL__HashWords(hash, batch->region, sizeof(batch->region));
+        hash = GL__HashWords(hash, &batch->radius, sizeof(batch->radius));
+    }
+    static_assert(sizeof(GL_Instance) % sizeof(u32) == 0 && alignof(GL_Instance) == alignof(f32));
+    hash = GL__HashWords(hash, GL.instances.v, blur->first * sizeof(GL_Instance));
+    return hash ? hash : 1;
+}
+
 // The blur of `batch`: the frame under its region copied, halved down more levels the wider the blur and grown back to the first level,
-// then laid back in through its two instances.
-function void GL__Blur(const GL_Batch *batch)
+// then laid back in through its two instances. `held` leaves the levels as they are, which hold this blur already.
+function void GL__Blur(const GL_Batch *batch, b32 held)
 {
     i32 sizes[GL_BlurLevels + 1][2], textures[GL_BlurLevels + 1][2];
     for (u32 level = 0; level <= GL_BlurLevels; ++level) {
@@ -1012,20 +1056,22 @@ function void GL__Blur(const GL_Batch *batch)
     while (spread >= 3 && levels < GL_BlurLevels) ++levels, spread *= 0.5f;
     spread = MaxF32(spread, 1);
     GL.Scissor(0, 0, GL.width, GL.height);
-    if (batch->fromSource) {
-        GL.BindFramebuffer(GL_READ_FRAMEBUFFER, GL.framebuffer);
-        GL.FramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, GL.sourceTexture, 0);
+    if (!held) {
+        if (batch->fromSource) {
+            GL.BindFramebuffer(GL_READ_FRAMEBUFFER, GL.framebuffer);
+            GL.FramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, GL.sourceTexture, 0);
+        }
+        GL.BindTexture(GL_TEXTURE_2D, GL.blurLevels[0]);
+        GL.CopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, batch->region[0], GL.height - batch->region[3], sizes[0][0], sizes[0][1]);
+        if (batch->fromSource) GL.BindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        GL.BlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
+        GL.UseProgram(GL.blurProgram);
+        GL.BindVertexArray(GL.blurVertexArray);
+        GL.Uniform1i(GL.blurSourceLocation, 0);
+        GL.BindFramebuffer(GL_FRAMEBUFFER, GL.framebuffer);
     }
-    GL.BindTexture(GL_TEXTURE_2D, GL.blurLevels[0]);
-    GL.CopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, batch->region[0], GL.height - batch->region[3], sizes[0][0], sizes[0][1]);
-    if (batch->fromSource) GL.BindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-    GL.BlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
-    GL.UseProgram(GL.blurProgram);
-    GL.BindVertexArray(GL.blurVertexArray);
-    GL.Uniform1i(GL.blurSourceLocation, 0);
-    GL.BindFramebuffer(GL_FRAMEBUFFER, GL.framebuffer);
     // Down to the smallest level, then back up to the first.
-    for (u32 pass = 0; pass < 2 * levels - 1; ++pass) {
+    for (u32 pass = 0; pass < 2 * levels - 1 && !held; ++pass) {
         b32 down = pass < levels;
         u32 from = down ? pass : 2 * levels - 1 - pass, to = down ? pass + 1 : from - 1;
         GL.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, GL.blurLevels[to], 0);
@@ -1364,7 +1410,9 @@ function void R_EndFrame(void)
     for (u64 i = 0; i < GL.batches.header.count; ++i) {
         GL_Batch *batch = &GL.batches.v[i];
         if (batch->blur) {
-            GL__Blur(batch);
+            u64 key = GL__BlurKey(i);
+            GL__Blur(batch, key == GL.blurHeld);
+            GL.blurHeld = key;
             continue;
         }
         if (batch->source) {
