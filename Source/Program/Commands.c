@@ -6181,7 +6181,8 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 state->paletteWheelRows -= (f32)rows;
                 u32 *scroll = state->paletteMode == Prog_PaletteMode_GoTo ? &state->gotoScroll : &state->paletteScroll;
                 *scroll = (u32)Max((i64)*scroll - rows, (i64)0);
-                state->paletteWheeled = true;
+                // Only a turn that moved the list keeps it from following the highlight.
+                if (rows) state->paletteWheeled = true;
                 continue;
             }
             if (event->kind == PlatformEventKind_Text || (event->kind == PlatformEventKind_KeyDown && !modifier)) state->paletteWheeled = false, state->paletteWheelRows = 0;

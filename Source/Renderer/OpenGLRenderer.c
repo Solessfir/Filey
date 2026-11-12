@@ -396,7 +396,7 @@ global const char GL_FragmentShader[] =
     "}\n"
     "void main() {\n"
     "    if ((vShape & 256) != 0) {\n"
-    "        fragColor = vec4(vColor.rgb + Dither(vColor.a), vColor.a);\n"
+    "        fragColor = vColor;\n"
     "        return;\n"
     "    }\n"
     // A gradient goes between its corners' colors by where the pixel is across the box.
@@ -839,8 +839,8 @@ function void R_BeginFrame(i32 width, i32 height, R_Color clear)
     GL.Scissor(0, 0, width, height);
     GL.ClearColor(clear.r * clear.a, clear.g * clear.a, clear.b * clear.a, clear.a);
     GL.Clear(GL_COLOR_BUFFER_BIT);
-    // The blur levels follow the window's size.
     GL.clear = clear;
+    // The blur levels follow the window's size.
     if (GL.blurWidth != width || GL.blurHeight != height) {
         GL.blurHeld = 0;
         if (GL.blurLevels[0]) GL.DeleteTextures(GL_BlurLevels + 1, GL.blurLevels);
@@ -937,7 +937,7 @@ function void GL__PushInstance(GL_Instance instance, GLuint texture)
     if (GL__ChangesNothing(&instance, shaded)) return;
     R_Rect r = instance.rect;
     b32 plain = floorf(r.x0) == r.x0 && floorf(r.y0) == r.y0 && floorf(r.x1) == r.x1 && floorf(r.y1) == r.y1 && instance.textured == 0 && instance.radius == 0 &&
-                instance.thickness == 0 && instance.softness == 0 && !((u32)instance.shape & (R_Shape_Inverted | GL_ShapeLine | GL_ShapeGradient));
+                instance.thickness == 0 && instance.softness == 0 && !((u32)instance.shape & (R_Shape_Inverted | GL_ShapeLine | GL_ShapeGradient | R_Shape_Dithered));
     if (plain) instance.shape = (f32)((u32)instance.shape | GL_ShapePlain);
     if (!GL.inLayer) {
         GL__Touch(shaded);
@@ -991,7 +991,7 @@ function b32 R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity
     }
     // What is drawn around the box blurs into its edge, so the copy reaches past it by the blur's width; a box clipped away blurs nothing.
     R_Rect clip = GL__CurrentClip();
-    if (rect.x1 <= clip.x0 || rect.x0 >= clip.x1 || rect.y1 <= clip.y0 || rect.y0 >= clip.y1) return false;
+    if (MinF32(rect.x1, clip.x1) <= MaxF32(rect.x0, clip.x0) || MinF32(rect.y1, clip.y1) <= MaxF32(rect.y0, clip.y0)) return false;
     f32 margin = ceilf(radius);
     i32 region[4] = {
         (i32)MaxF32(0, floorf(MaxF32(rect.x0, clip.x0) - margin)), (i32)MaxF32(0, floorf(MaxF32(rect.y0, clip.y0) - margin)),
