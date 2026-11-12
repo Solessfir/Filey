@@ -2374,6 +2374,29 @@ function UI_Interaction Prog__DialogButton(UI_Key key, String text, R_Color colo
     return UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_DrawText | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable));
 }
 
+// The button that does what a line of the inspector is for, as Convert: outlined and filled faintly in the accent, the fill stronger under the
+// pointer and when pressed, in the details' font; dim where it cannot be pressed.
+function f32 Prog__ActionButtonWidth(String text, const Prog_Metrics *m) { return R_TextWidth(m->detail, text) + 2 * floorf(9.6f * m->scale + 0.5f); }
+
+function UI_Interaction Prog__ActionButton(String identity, String text, b32 enabled, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    UI_Key key = UI_KeyFromStr(0, identity);
+    R_Color tint = enabled ? theme->accent : theme->textDim, fill = Prog__Fade(tint, 0.16f), border = Prog__Fade(tint, 0.4f);
+    fill.a = MinF32(1, fill.a + Prog__ButtonWash(key, enabled && UI->hotKey == key, enabled && UI->activeKey == key, fill).a);
+    UI_SetNextPrefWidth(UI_Pixels(Prog__ActionButtonWidth(text, m)));
+    UI_SetNextPrefHeight(UI_Pixels(floorf(23.2f * m->scale + 0.5f)));
+    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+    UI_SetNextCornerRadius(floorf(4.8f * m->scale + 0.5f));
+    UI_SetNextBorderThickness(m->stroke);
+    UI_SetNextColors((UI_Colors){ .background = fill, .border = border, .text = enabled ? theme->text : theme->textDim });
+    UI_SetNextText(text);
+    UI_SetNextFont(m->detail);
+    UI_Interaction result = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_DrawText | UI_Flag_DrawBackground | UI_Flag_DrawBorder | (enabled ? UI_Flag_LeftMouseClickable : 0)));
+    if (!enabled) result.clicked = false;
+    return result;
+}
+
 function f32 Prog__StripHeight(const Prog_Metrics *m) { return m->bar - floorf(0.8f * m->scale + 0.5f); }
 
 // A strip along the window's top: a little shorter while the window is maximized, so that the tabs reach the top edge.
@@ -12007,12 +12030,12 @@ function f32 Prog__ConvertFormatButton(Prog_State *state, u32 format, f32 row, c
 function void Prog__ConvertLine(Prog_State *state, f32 room, f32 height, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 s = m->scale, row = floorf(20.8f * s + 0.5f), apart = floorf(6.4f * s + 0.5f);
+    f32 s = m->scale, row = floorf(20.8f * s + 0.5f);
     b32 all = state->bulk.count && state->currentPanel == state->activePanel;
     String toLabel = Tr("Convert to"), nameLabel = Tr("Folder name"), convert = all ? Tr("Convert All") : Tr("Convert");
     // Never the format the file is in already.
     u32 format = Prog__InspectorConvertFormat(state);
-    f32 toWidth = R_TextWidth(m->detail, toLabel) + m->gap, nameWidth = R_TextWidth(m->detail, nameLabel) + m->gap, button = R_TextWidth(m->detail, convert) + 2 * apart;
+    f32 toWidth = R_TextWidth(m->detail, toLabel) + m->gap, nameWidth = R_TextWidth(m->detail, nameLabel) + m->gap, button = Prog__ActionButtonWidth(convert, m);
     f32 fixed = Prog__ConvertFormatButton(state, format, 0, m) + m->gap + floorf(64.0f * s + 0.5f) + m->gap + button;
     b32 names = room >= fixed + toWidth + nameWidth, says = room >= fixed + toWidth;
     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
@@ -12034,7 +12057,7 @@ function void Prog__ConvertLine(Prog_State *state, f32 room, f32 height, const P
             Prog__PopupTooltip(state, Tr("The folder beside the file that the converted audio goes into."));
         }
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
-        UI_Interaction go = Prog__TextButton(S("InspectorConvert"), convert, m->detail, UI_Pixels(button), row, apart, theme->accent, theme->text, theme->textDim, true, m);
+        UI_Interaction go = Prog__ActionButton(S("InspectorConvert"), convert, true, m);
         if (go.clicked) Prog_QueueCommand(state, Prog_CommandKind_ConvertAudio, 0, 0, go.clickOrder);
     }
 }
@@ -13014,7 +13037,7 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
         Prog__ToolbarRowButton(state, S("InspectorQualityUp"), Icon_Plus, Prog_CommandKind_InspectorVideoQuality, 1, tip, m);
         // The button that compresses it comes last, in words, as Convert does.
         Prog__Spacer(UI_Flex(), UI_Pixels(bar));
-        UI_Interaction go = Prog__TextButton(S("InspectorCompress"), Tr("Compress"), m->detail, UI_TextContent(), floorf(20.8f * s + 0.5f), apart, theme->accent, theme->text, theme->textDim, true, m);
+        UI_Interaction go = Prog__ActionButton(S("InspectorCompress"), Tr("Compress"), true, m);
         Prog__NoteTooltip(state, Prog_CommandKind_CompressVideo, (String){0});
         if (go.clicked) Prog_QueueCommand(state, Prog_CommandKind_CompressVideo, 0, 0, go.clickOrder);
     } else {
@@ -13032,7 +13055,7 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
                 b32 whole = state->torrentDone && state->torrentDone[i] >= state->torrent.files[i].size;
                 any |= !state->torrentSkip[i] && !state->torrent.files[i].pad && !whole;
             }
-            UI_Interaction go = Prog__TextButton(S("InspectorDownload"), Tr("Download"), m->detail, UI_TextContent(), floorf(20.8f * s + 0.5f), apart, theme->accent, theme->text, theme->textDim, any, m);
+            UI_Interaction go = Prog__ActionButton(S("InspectorDownload"), Tr("Download"), any, m);
             Prog__NoteTooltip(state, Prog_CommandKind_DownloadTorrent, (String){0});
             if (go.clicked) Prog_QueueCommand(state, Prog_CommandKind_DownloadTorrent, 0, 0, go.clickOrder);
         } else {
