@@ -2212,8 +2212,6 @@ function R_Color Prog__FloatingFill(void)
     return theme->background.a < 1 ? theme->menu : theme->background;
 }
 
-// How far a floating box blurs what is under it: only where its fill lets that show through, as in the transparent theme.
-// With no blur set there, -1, which tints what is under it unblurred the same way.
 // The menus' color, opaque enough to read over what is under it, for a box with no blur to set it apart, as a dragged tab.
 function R_Color Prog__ReadableFill(void)
 {
@@ -2222,6 +2220,8 @@ function R_Color Prog__ReadableFill(void)
     return result;
 }
 
+// How far a floating box blurs what is under it: only where its fill lets that show through, as in the transparent theme.
+// With no blur set there, -1, which tints what is under it unblurred the same way.
 function f32 Prog__FloatingBlur(const Prog_Metrics *m)
 {
     if (Prog_CurrentTheme()->menu.a >= 1) return 0;
@@ -10357,6 +10357,16 @@ typedef struct Prog__CardStack {
     f32 bottom;
 } Prog__CardStack;
 
+// A card's shadow, at `x`, `y` from `view`'s corner, kept within its stack's corner, so that a card in the sidebar casts none over the panel beside it.
+function void Prog__CardShadow(R_Rect corner, R_Rect view, f32 x, f32 y, f32 width, f32 height, f32 opacity, const Prog_Metrics *m)
+{
+    UI_SetNextFloatingOffset((UI_Vec2){ corner.x0 - view.x0, corner.y0 - view.y0 });
+    UI_SetNextPrefWidth(UI_Pixels(corner.x1 - corner.x0));
+    UI_SetNextPrefHeight(UI_Pixels(corner.y1 - corner.y0));
+    UI_Block *clip = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+    UI_Parent(clip) Prog__DropShadow(x - (corner.x0 - view.x0), y - (corner.y0 - view.y0), width, height, m->radius * 2, opacity, m);
+}
+
 // A card narrower than this puts on lines of their own what a wide one has side by side.
 function b32 Prog__NarrowCard(f32 width, const Prog_Metrics *m)
 {
@@ -10414,7 +10424,7 @@ function void Prog__Notices(Prog_State *state, Prog__CardStack stack, const Prog
         // It fades in its last moment, and comes in as the menus do.
         f32 opacity = MinF32(Prog__FadeIn(key), left < Prog_NoticeFadeMicroseconds ? (f32)left / (f32)Prog_NoticeFadeMicroseconds : 1);
         // Over a shadow, as the dialogs are, which sets it apart from the see-through window under it.
-        Prog__DropShadow(stack.corner.x1 - view.x0 - width - stack.margin, floorf(bottom), width, height, m->radius * 2, opacity, m);
+        Prog__CardShadow(stack.corner, view, stack.corner.x1 - view.x0 - width - stack.margin, floorf(bottom), width, height, opacity, m);
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextFloatingOffset((UI_Vec2){ stack.corner.x1 - view.x0 - width - stack.margin, floorf(bottom) });
@@ -10562,7 +10572,7 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
         f32 height = 2 * pad + m->row * 3 + (asking ? m->bar : 0) + (narrow ? m->gap + (details.length && !asking ? m->row : 0) : 0);
         at->bottom -= height + m->gap;
         // A card over a shadow and outlined as the dialogs are, which sets it apart from the see-through window under it.
-        Prog__DropShadow(at->corner.x1 - view.x0 - width - at->margin, floorf(at->bottom), width, height, m->radius * 2, 1, m);
+        Prog__CardShadow(at->corner, view, at->corner.x1 - view.x0 - width - at->margin, floorf(at->bottom), width, height, 1, m);
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextFloatingOffset((UI_Vec2){ at->corner.x1 - view.x0 - width - at->margin, floorf(at->bottom) });
@@ -10643,10 +10653,10 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
             // A video's progress is in milliseconds of it, shown as times.
             // What is done, and of how much: a video's time, or a size, keeping its tenths so that it holds its width, or a count of items.
             b32 clock = transfer->op == Prog_TransferOp_CompressVideo && bytes;
-            String doneText = clock ? Prog__Clock(&state->frameArena, Min(doneBytes, bytes)) : bytes ? Prog__FormatSize(&state->frameArena, Min(doneBytes, bytes), true) : (String){0};
+            String doneText = clock ? Prog__Clock(&state->frameArena, Min(doneBytes, bytes)) : bytes ? Prog__FormatSize(&state->frameArena, Min(doneBytes, bytes), true)
+                                                                                         : StrFormat(&state->frameArena, "%u", (u32)Min(doneItems, items));
             String amount = bytes ? StrFormat(&state->frameArena, TrF("%S of %S"), doneText, clock ? Prog__Clock(&state->frameArena, bytes) : Prog__FormatSize(&state->frameArena, bytes, true))
                                   : StrFormat(&state->frameArena, TrF("%u of %u"), (u32)Min(doneItems, items), (u32)items);
-            if (!bytes) doneText = StrFormat(&state->frameArena, "%u", (u32)Min(doneItems, items));
             // A narrow card's bar is as wide as it is, over the amount.
             f32 lineHeight = narrow ? m->gap : m->row;
             UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(lineHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
@@ -10701,7 +10711,7 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
         f32 width = floorf(MinF32(m->line * 26, at->corner.x1 - at->corner.x0 - 2 * at->margin));
         f32 height = 2 * pad + m->row * (f32)(1 + listed + (waiting > listed));
         at->bottom -= height + m->gap;
-        Prog__DropShadow(at->corner.x1 - view.x0 - width - at->margin, floorf(at->bottom), width, height, m->radius * 2, 1, m);
+        Prog__CardShadow(at->corner, view, at->corner.x1 - view.x0 - width - at->margin, floorf(at->bottom), width, height, 1, m);
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextFloatingOffset((UI_Vec2){ at->corner.x1 - view.x0 - width - at->margin, floorf(at->bottom) });
