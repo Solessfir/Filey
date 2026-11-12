@@ -3052,6 +3052,7 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option)
     state->fontOption = (u8)option;
     state->paletteHighlight = 0;
     state->paletteWheeled = false;
+    state->paletteWheelRows = 0;
     String current = Prog__FontChosen(state, option);
     for (u64 i = 0; i < state->fontCount; ++i) {
         if (Prog__EqualFolded(state->fontNames[i], current)) state->paletteHighlight = (u32)i;
@@ -4456,6 +4457,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->palette = (Prog_TextEdit){0};
                 state->paletteHighlight = 0;
                 state->paletteWheeled = false;
+                state->paletteWheelRows = 0;
             } break;
             case Prog_CommandKind_SetupOpen: Prog__OpenSetup(state); break;
             case Prog_CommandKind_SetupToggle: {
@@ -5070,6 +5072,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->paletteHighlight = 0;
                 state->paletteScroll = 0;
                 state->paletteWheeled = false;
+                state->paletteWheelRows = 0;
             } break;
             case Prog_CommandKind_GoTo:
             case Prog_CommandKind_ConnectToServer:
@@ -5308,6 +5311,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->paletteHighlight = 0;
                 state->paletteScroll = 0;
                 state->paletteWheeled = false;
+                state->paletteWheelRows = 0;
                 state->paletteKeyed = false;
             } break;
             case Prog_CommandKind_OptionSet: {
@@ -6167,7 +6171,10 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 if (hot && FlagExists(hot->flags, UI_Flag_TakesWheel) && !FlagExists(hot->flags, UI_Flag_Floating)) continue;
                 // A turn of less than a row waits for the rest of it, rather than moving a whole row each step.
                 f32 turn = state->reverseScroll ? -1.0f : 1.0f;
-                state->paletteWheelRows += event->wheelY * 3 * turn;
+                // A turn the other way starts afresh, rather than first taking back what was left of the last one.
+                f32 step = event->wheelY * 3 * turn;
+                if (step * state->paletteWheelRows < 0) state->paletteWheelRows = 0;
+                state->paletteWheelRows += step;
                 i64 rows = (i64)state->paletteWheelRows;
                 state->paletteWheelRows -= (f32)rows;
                 u32 *scroll = state->paletteMode == Prog_PaletteMode_GoTo ? &state->gotoScroll : &state->paletteScroll;

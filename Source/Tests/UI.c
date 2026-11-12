@@ -144,8 +144,9 @@ function void R_TextureRelease(R_TextureHandle texture)
 {
 }
 
-function void R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity)
+function b32 R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity)
 {
+    return false;
 }
 
 function void R_DrawGradientRect(R_Rect rect, const R_Color corners[4], f32 cornerRadius)

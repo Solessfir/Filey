@@ -166,6 +166,7 @@ typedef struct GL_Instance {
 #define GL_ShapeRegion   128
 // A square fill on whole pixels, which covers each of them wholly, so that its color needs no shape worked out: most of a frame's pixels.
 #define GL_ShapePlain    256
+static_assert(!(R_Shape_Dithered & (GL_ShapeLine | GL_ShapeGradient | GL_ShapeRegion | GL_ShapePlain)) && R_Shape_Dithered == 512);
 
 #define GL_BatchTextures 4
 
@@ -191,7 +192,7 @@ typedef struct GL_ArrayInstance { ArrayHeader header; GL_Instance *v; } GL_Array
 typedef struct GL_ArrayBatch    { ArrayHeader header; GL_Batch *v; } GL_ArrayBatch;
 
 #define GL_MaxClipDepth 64
-#define GL_BlurLevels 8
+#define GL_BlurLevels 10
 
 #define GL_MaxSolids 8
 
@@ -229,8 +230,10 @@ typedef struct GL_State {
     GLuint           framebuffer;
     GLuint           blurLevels[GL_BlurLevels + 1];  // the copy, then each level about half the one before
     i32              blurWidth, blurHeight;          // the window's size they were made for, as the layer texture is
-    // What the levels hold a blur of: a hash of everything drawn before that blur, 0 for nothing known. A blur of the same is laid back in
-    // from them as they are, as a popup's over a window that stays still under it, which saves a software renderer most of its frame.
+    // What the levels hold a blur of: a hash of what lies under that blur, 0 for nothing known. A blur of the same is laid back in from them
+    // as they are, as a popup's over a window that stays still under it, which saves a software renderer most of its frame.
+    // ponytail: one set of levels, so that two blurs at once, as a menu and its submenu, are both made again each frame; a set for each
+    // would keep them too.
     u64              blurHeld;
     u64              textureEpoch;                   // counts the changes to any texture's pixels, which a hash of what is drawn does not see
     R_Color          clear;
@@ -455,7 +458,7 @@ global const char GL_BlurFragmentShader[] =
     "vec4 Read(vec2 uv) { return texture(uSource, min(uv, uLimit)); }\n"
     "void main() {\n"
     // Each level is rounded to eight bits, which half a step of noise keeps from adding up into bands.
-    "    float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;\n"
+    "    vec4 noise = vec4(vec3(fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5), 0.0);\n"
     "    vec2 uv = gl_FragCoord.xy * uScale, h = uTexel;\n"
     "    if (uMode == 0) {\n"
     "        fragColor = (Read(uv) * 4.0 + Read(uv - h) + Read(uv + h) + Read(uv + vec2(h.x, -h.y)) + Read(uv - vec2(h.x, -h.y))) / 8.0 + noise / 255.0;\n"
@@ -656,6 +659,7 @@ function void R_TextureLinear(R_TextureHandle texture)
     GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    ++GL.textureEpoch;
 }
 
 function void R_TextureSmooth(R_TextureHandle texture)
@@ -665,6 +669,7 @@ function void R_TextureSmooth(R_TextureHandle texture)
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     // A level sharper than the size asks for: blending toward the next smaller level softens text, and a still picture shows no shimmer.
     GL.TexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, -1.0f);
+    ++GL.textureEpoch;
 }
 
 function R_MeshHandle R_MeshCreate(const f32 *positions, const f32 *uvs, const u32 *colors, u32 vertexCount, const u32 *indices, u64 indexCount)
@@ -972,10 +977,10 @@ function GLuint GL__BlurTexture(i32 width, i32 height)
     return texture;
 }
 
-function void R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity)
+function b32 R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity)
 {
     // A layer's texture is not the frame, which the blur reads.
-    if (opacity <= 0 || radius <= 0 || GL.inLayer) return;
+    if (opacity <= 0 || radius <= 0 || GL.inLayer) return false;
     if (GL.scale != 1) {
         rect = GL__Scaled(rect);
         cornerRadius *= GL.scale;
@@ -988,7 +993,7 @@ function void R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacit
         (i32)MaxF32(0, floorf(MaxF32(rect.x0, clip.x0) - margin)), (i32)MaxF32(0, floorf(MaxF32(rect.y0, clip.y0) - margin)),
         (i32)MinF32((f32)GL.width, ceilf(MinF32(rect.x1, clip.x1) + margin)), (i32)MinF32((f32)GL.height, ceilf(MinF32(rect.y1, clip.y1) + margin)),
     };
-    if (region[2] <= region[0] || region[3] <= region[1]) return;
+    if (region[2] <= region[0] || region[3] <= region[1]) return false;
     // The blur ends in the first level, which holds the region at about half its size from its bottom-left corner, bottom row first, as the frame is.
     f32 width = (f32)(region[2] - region[0]), height = (f32)(region[3] - region[1]);
     f32 halfWidth = (f32)((region[2] - region[0] + 1) / 2), halfHeight = (f32)((region[3] - region[1] + 1) / 2);
@@ -1004,6 +1009,7 @@ function void R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacit
     // First the frame under the box is taken away, then the blur is added in its place, both by the box's rounded coverage.
     ArrayPush(&GL.frameArena, GL.instances, ((GL_Instance){ .rect = rect, .color = { 0, 0, 0, opacity }, .radius = cornerRadius, .shape = (f32)GL.shape }));
     ArrayPush(&GL.frameArena, GL.instances, ((GL_Instance){ .rect = rect, .uv = uv, .color = { 1, 1, 1, opacity }, .radius = cornerRadius, .textured = 3.0f, .shape = (f32)GL.shape }));
+    return true;
 }
 
 // Draws one instance of the main program, `index` in the uploaded instances.
@@ -1029,26 +1035,41 @@ function u64 GL__HashWords(u64 hash, const void *data, u64 size)
     return hash;
 }
 
-// A hash of everything the frame holds under the blur that is batch `index`: the window, the textures' pixels, and the batches and their
-// instances before it, with the blur's own region and width. Never 0.
+// A hash of what the frame holds under the blur that is batch `index`: the window, the textures' pixels, the blur's own region and width,
+// and every instance drawn before it that reaches into its region, with its batch's textures and clip. An earlier blur reaching in widens
+// the region by its own, which it reads. Never 0.
 function u64 GL__BlurKey(u64 index)
 {
     const GL_Batch *blur = &GL.batches.v[index];
-    u64 hash = GL__HashWords(GL.textureEpoch + 1, &GL.clear, sizeof(GL.clear));
-    i32 window[2] = { GL.width, GL.height };
-    hash = GL__HashWords(hash, window, sizeof(window));
-    for (u64 i = 0; i <= index; ++i) {
-        const GL_Batch *batch = &GL.batches.v[i];
-        // Field by field, as the padding between them holds anything.
-        u32 fields[] = { batch->textureCount, batch->first, batch->count, (u32)batch->blur, (u32)batch->layer, (u32)batch->source, (u32)batch->fromSource };
-        hash = GL__HashWords(hash, batch->textures, batch->textureCount * sizeof(batch->textures[0]));
-        hash = GL__HashWords(hash, fields, sizeof(fields));
-        hash = GL__HashWords(hash, &batch->clip, sizeof(batch->clip));
-        hash = GL__HashWords(hash, batch->region, sizeof(batch->region));
-        hash = GL__HashWords(hash, &batch->radius, sizeof(batch->radius));
+    R_Rect region = { (f32)blur->region[0], (f32)blur->region[1], (f32)blur->region[2], (f32)blur->region[3] };
+    for (u64 b = index; b-- > 0;) {
+        const GL_Batch *earlier = &GL.batches.v[b];
+        R_Rect its = { (f32)earlier->region[0], (f32)earlier->region[1], (f32)earlier->region[2], (f32)earlier->region[3] };
+        if (earlier->blur && its.x1 > region.x0 && its.x0 < region.x1 && its.y1 > region.y0 && its.y0 < region.y1)
+            region = (R_Rect){ MinF32(region.x0, its.x0), MinF32(region.y0, its.y0), MaxF32(region.x1, its.x1), MaxF32(region.y1, its.y1) };
     }
+    u64 hash = GL__HashWords(GL.textureEpoch + 1, &GL.clear, sizeof(GL.clear));
+    i32 fields[] = { GL.width, GL.height, blur->region[0], blur->region[1], blur->region[2], blur->region[3], (i32)blur->fromSource };
+    hash = GL__HashWords(hash, fields, sizeof(fields));
+    hash = GL__HashWords(hash, &blur->radius, sizeof(blur->radius));
     static_assert(sizeof(GL_Instance) % sizeof(u32) == 0 && alignof(GL_Instance) == alignof(f32));
-    hash = GL__HashWords(hash, GL.instances.v, blur->first * sizeof(GL_Instance));
+    for (u64 b = 0; b < index; ++b) {
+        const GL_Batch *batch = &GL.batches.v[b];
+        b32 reaches = false;
+        for (u32 i = 0; i < batch->count; ++i) {
+            const GL_Instance *instance = &GL.instances.v[batch->first + i];
+            R_Rect covered = GL__Covered(((u32)instance->shape & GL_ShapeRegion) ? instance->uv : instance->rect, batch->clip);
+            if (covered.x1 <= region.x0 || covered.x0 >= region.x1 || covered.y1 <= region.y0 || covered.y0 >= region.y1) continue;
+            hash = GL__HashWords(hash, instance, sizeof(*instance));
+            reaches = true;
+        }
+        if (!reaches) continue;
+        // Field by field, as the padding between them holds anything.
+        u32 kind[] = { batch->textureCount, (u32)batch->blur, (u32)batch->layer, (u32)batch->source, (u32)batch->fromSource };
+        hash = GL__HashWords(hash, batch->textures, batch->textureCount * sizeof(batch->textures[0]));
+        hash = GL__HashWords(hash, kind, sizeof(kind));
+        hash = GL__HashWords(hash, &batch->clip, sizeof(batch->clip));
+    }
     return hash ? hash : 1;
 }
 

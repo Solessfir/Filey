@@ -545,8 +545,9 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
     b32 clipsChildren = FlagIntersects(block->flags, UI_Flag_Clip | UI_Flag_Scrollable);
     // A fading block that keeps what is inside it within its bounds fades as one layer, so that its parts do not show through one another.
     b32 layer = own < 1 && clipsChildren && block->first && visible && !UI->drawingLayer;
-    if (visible) R_SetShape(block->props.shape | (block->props.blur > 0 ? R_Shape_Dithered : 0));
-    if (visible && block->props.blur > 0) R_BlurBehind(block->rect, block->props.cornerRadius, block->props.blur, opacity);
+    if (visible) R_SetShape(block->props.shape);
+    // The fill over a blur is dithered, as its shallow slopes would band; its border is not.
+    if (visible && block->props.blur > 0 && R_BlurBehind(block->rect, block->props.cornerRadius, block->props.blur, opacity)) R_SetShape(block->props.shape | R_Shape_Dithered);
     if (layer) {
         R_PushLayer(block->clipRect);
         UI->drawingLayer = true;
@@ -558,6 +559,7 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
             if (block->props.softness > 0) R_DrawSoftRect(block->rect, background, block->props.cornerRadius, block->props.softness);
             else R_DrawRect(block->rect, background, block->props.cornerRadius);
         }
+        R_SetShape(block->props.shape);
         if (FlagExists(block->flags, UI_Flag_DrawBorder)) R_DrawRectOutline(block->rect, UI__Faded(block->props.colors.border, opacity), block->props.cornerRadius, MaxF32(1, block->props.borderThickness));
         R_SetShape(0);
         if (block->props.quadCount) {

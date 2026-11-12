@@ -116,7 +116,8 @@ function void R_DrawTexturedRect(R_Rect rect, R_Rect uv, R_TextureHandle texture
 function void R_DrawImage(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Color tint);
 // Blurs what has been drawn so far under `rect`, inside its rounded corners, about `radius` pixels across, faded in by `opacity`.
 // What is drawn after it lies over the blur.
-function void R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity);
+// Whether it blurs, which it does not inside a layer, nor where nothing of it shows.
+function b32 R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity);
 // Between these, blurs read the frame as it was at the first, so that boxes drawn side by side blur what is behind them all alike.
 function void R_BeginBlurSource(void);
 function void R_EndBlurSource(void);
