@@ -23,6 +23,7 @@ typedef i64       GLsizeiptr;
 #define GL_SRC_ALPHA             0x0302
 #define GL_ONE                   1
 #define GL_ONE_MINUS_SRC_ALPHA   0x0303
+#define GL_DST_ALPHA             0x0304
 #define GL_BLEND                 0x0BE2
 #define GL_SCISSOR_TEST          0x0C11
 #define GL_UNPACK_ALIGNMENT      0x0CF5
@@ -186,6 +187,8 @@ typedef struct GL_Batch {
     // Copies the frame as it is for the blurs that read it; a blur with fromSource reads that copy rather than the frame.
     b32    source;
     b32    fromSource;
+    // Its instances lie over a blur and keep the alpha under them, as a tint on the glass rather than a layer over it.
+    b32    overBlur;
 } GL_Batch;
 
 typedef struct GL_ArrayInstance { ArrayHeader header; GL_Instance *v; } GL_ArrayInstance;
@@ -434,7 +437,9 @@ global const char GL_FragmentShader[] =
     "    } else if (vStyle.z > 0.0) {\n"
     "        alpha *= Sample(vUV).r;\n"
     "    }\n"
-    "    fragColor = vec4(color.rgb + Dither(color.a * alpha), color.a * alpha);\n"
+    // Over a blur the color is premultiplied, for the blend that scales it by the alpha already there and leaves that alpha as it was.
+    "    float a = color.a * alpha;\n"
+    "    fragColor = (vShape & 512) != 0 ? vec4((color.rgb + Dither(a)) * a, a) : vec4(color.rgb, a);\n"
     "}\n";
 
 // One triangle over the whole target, which is a level of the dual Kawase blur: mode 0 halves the source, mode 1 doubles it.
@@ -952,10 +957,12 @@ function void GL__PushInstance(GL_Instance instance, GLuint texture)
     b32 sameClip = batch != NULL && (MemCompare(&batch->clip, &clip, sizeof(clip)) == 0 ||
                                      (GL__Inside(whole, GL__Scissor(clip)) && GL__Inside(whole, GL__Scissor(batch->clip))));
     b32 compatibleTexture = batch != NULL && (texture == 0 || GL__TextureSlot(batch, texture) < GL_BatchTextures);
-    if (!sameClip || !compatibleTexture || batch->blur || batch->layer || batch->source) {
+    b32 overBlur = ((u32)instance.shape & R_Shape_Dithered) != 0;
+    if (!sameClip || !compatibleTexture || batch->blur || batch->layer || batch->source || batch->overBlur != overBlur) {
         batch = ArrayAddClear(&GL.frameArena, GL.batches, 1);
         batch->clip = clip;
         batch->first = (u32)GL.instances.header.count;
+        batch->overBlur = overBlur;
     }
     if (texture != 0) {
         u32 slot = GL__TextureSlot(batch, texture);
@@ -1351,7 +1358,7 @@ function R_Rect GL__OpaqueBox(const GL_Instance *instance, R_Rect clip)
 {
     u32 shape = (u32)instance->shape;
     if (instance->color.a < 1 || instance->textured != 0 || instance->thickness != 0 || instance->softness != 0 ||
-        (shape & (R_Shape_Inverted | GL_ShapeLine | GL_ShapeGradient | GL_ShapeRegion))) return (R_Rect){0};
+        (shape & (R_Shape_Inverted | GL_ShapeLine | GL_ShapeGradient | GL_ShapeRegion | R_Shape_Dithered))) return (R_Rect){0};
     return GL__Intersect(GL__Inner(instance->rect, instance->radius > 0 ? ceilf(instance->radius) + 1 : 0), GL__Scissor(clip));
 }
 
@@ -1505,7 +1512,9 @@ function void R_EndFrame(void)
             GL.ActiveTexture(GL_TEXTURE0 + t);
             GL.BindTexture(GL_TEXTURE_2D, batch->textures[t]);
         }
+        if (batch->overBlur) GL.BlendFuncSeparate(GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
         GL.DrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)batch->count);
+        if (batch->overBlur) GL.BlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     }
     GL__EndTimer();
 }

@@ -90,8 +90,9 @@ typedef struct R_MeshPart {
 function void R_MeshDraw(R_MeshHandle mesh, R_TextureHandle target, i32 width, i32 height, const f32 view[16], const R_MeshPart *parts, u32 partCount);
 
 // How the rounded boxes drawn after it are shaped, until it is set again: corners left square, or the box's inside and outside swapped,
-// which with a radius of half its size leaves the box's corners outside its circle; or a fill dithered, for a tint over a blur, whose
-// shallow slopes would show as bands in the frame's eight bits.
+// which with a radius of half its size leaves the box's corners outside its circle; or a tint over a blur: dithered, as its shallow slopes
+// would show as bands in the frame's eight bits, and keeping the alpha under it, so that over a see-through window the box is as clear as
+// the window round it.
 typedef enum R_Shape {
     R_Shape_SquareTopLeft     = 1 << 0,
     R_Shape_SquareTopRight    = 1 << 1,
