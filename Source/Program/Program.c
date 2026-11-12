@@ -2212,10 +2212,13 @@ function R_Color Prog__FloatingFill(void)
     return theme->background.a < 1 ? theme->menu : theme->background;
 }
 
-// How far a floating box blurs what is under it: only where its fill lets that show through, as in the transparent theme.
+// How far a floating box blurs what is under it: only where its fill lets that show through, as in the transparent theme, and with no blur
+// set there, -1, which tints what is under it unblurred the same way.
 function f32 Prog__FloatingBlur(const Prog_Metrics *m)
 {
-    return Prog_CurrentTheme()->menu.a < 1 ? floorf(Prog_GlassBlur * m->scale + 0.5f) : 0;
+    if (Prog_CurrentTheme()->menu.a >= 1) return 0;
+    f32 blur = floorf(Prog_GlassBlur * m->scale + 0.5f);
+    return blur > 0 ? blur : -1;
 }
 
 function void Prog__Label(String text, UI_Size width, f32 height, f32 padding, R_Color color, f32 alignX)

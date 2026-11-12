@@ -546,8 +546,10 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
     // A fading block that keeps what is inside it within its bounds fades as one layer, so that its parts do not show through one another.
     b32 layer = own < 1 && clipsChildren && block->first && visible && !UI->drawingLayer;
     if (visible) R_SetShape(block->props.shape);
-    // The fill over a blur is dithered, as its shallow slopes would band; its border is not.
-    if (visible && block->props.blur > 0 && R_BlurBehind(block->rect, block->props.cornerRadius, block->props.blur, opacity)) R_SetShape(block->props.shape | R_Shape_Dithered);
+    // The fill over a blur is a tint on it, dithered, as its shallow slopes would band, and keeping the alpha under it; its border is not.
+    // A negative blur asks for that tint over what is under it unblurred, so that the box looks the same with no blur.
+    b32 tint = visible && ((block->props.blur > 0 && R_BlurBehind(block->rect, block->props.cornerRadius, block->props.blur, opacity)) || (block->props.blur < 0 && !UI->drawingLayer));
+    if (tint) R_SetShape(block->props.shape | R_Shape_Dithered);
     if (layer) {
         R_PushLayer(block->clipRect);
         UI->drawingLayer = true;
