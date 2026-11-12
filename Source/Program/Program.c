@@ -2347,9 +2347,8 @@ function UI_Interaction Prog__TextButton(String identity, String text, const R_F
 function R_Color Prog__Fade(R_Color color, f32 opacity) { color.a *= opacity; return color; }
 
 // A dialog's answer: filled with `fill` and outlined in it, the fill stronger under the pointer and when pressed, as wide as a short word at least.
-function UI_Interaction Prog__DialogButton(String identity, String text, R_Color color, R_Color fill, const Prog_Metrics *m)
+function UI_Interaction Prog__DialogButton(UI_Key key, String text, R_Color color, R_Color fill, const Prog_Metrics *m)
 {
-    UI_Key key = UI_KeyFromStr(0, identity);
     R_Color wash = Prog__ButtonWash(key, UI->hotKey == key, UI->activeKey == key, fill), background = fill, border = fill;
     background.a = MinF32(1, fill.a + wash.a);
     border.a = MinF32(1, fill.a * 2.5f);
@@ -9816,25 +9815,24 @@ typedef struct Prog__Answers { UI_Interaction outside, cancel, confirm; } Prog__
 
 // A question over a dimmed window that takes every click: `icon` in a tinted circle beside its title and lines of detail, then Cancel and
 // `answer`, both in `tint`, as the danger color for what cannot be undone. It grows and fades in as the menus do, over a shadow.
-function Prog__Answers Prog__Question(Prog_State *state, String identity, String icon, String title, const String *details, u32 detailCount, String answer, R_Color tint,
+function Prog__Answers Prog__Question(String identity, String icon, String title, const String *details, u32 detailCount, String answer, R_Color tint,
                                       const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    Arena *frame = &state->frameArena;
     R_Rect view = UI->root->rect;
-    UI_Key revealKey = UI_KeyFromStr(0, StrFormat(frame, "%S/Reveal", identity));
+    UI_Key panelKey = UI_KeyFromStr(0, identity), revealKey = UI_KeyFromStr(panelKey, S("Reveal"));
     f32 opacity = Prog__FadeIn(UI_KeyFromStr(revealKey, S("Fade"))), grow = Prog__PopupGrow(revealKey);
     Prog__Answers result = {0};
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
     // Over a see-through window the dimming would make it a dark, nearly opaque sheet, so there it only takes the clicks, as the palette does.
     UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, (theme->window.a < 1 ? 0 : 0.35f) * opacity } });
-    result.outside = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(frame, "%S/Catcher", identity)),
+    result.outside = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(panelKey, S("Catcher")),
                                                                 UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_MouseClickable | UI_Flag_TakesWheel));
     f32 badge = floorf(m->row * 1.5f), textWidth = R_TextWidth(m->font, title);
     for (u32 i = 0; i < detailCount; ++i) textWidth = MaxF32(textWidth, R_TextWidth(m->font, details[i]));
     f32 width = floorf(MinF32(MaxF32(badge + textWidth + 3 * m->inset, m->line * 22), view.x1 - view.x0 - 2 * m->inset));
-    f32 height = floorf(m->row * (f32)(1 + detailCount) + m->bar + m->inset * 3);
+    f32 header = MaxF32(badge, m->row * (f32)(1 + detailCount)), height = floorf(header + m->bar + m->inset * 3);
     f32 shownWidth = floorf(width * grow), shownHeight = floorf(height * grow);
     UI_Vec2 at = { floorf((view.x1 - view.x0 - shownWidth) * 0.5f), floorf((view.y1 - view.y0 - shownHeight) * 0.4f) };
     f32 radius = m->radius * 2;
@@ -9850,10 +9848,14 @@ function Prog__Answers Prog__Question(Prog_State *state, String identity, String
     UI_SetNextBorderThickness(m->separator);
     UI_SetNextBlur(Prog__FloatingBlur(m));
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->hover });
-    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, identity), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Block *panel = UI_AddBlockFromKey(panelKey, UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(panel) {
-        UI_Block *top = Prog__Box(UI_Flex(), UI_Pixels(MaxF32(badge, m->row * (f32)(1 + detailCount))), UI_Layout_Horizontal, (R_Color){0}, 0);
+        // The icon at the top, beside the title.
+        UI_SetNextPrefWidth(UI_Flex());
+        UI_SetNextPrefHeight(UI_Pixels(header));
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0 });
+        UI_Block *top = UI_AddBlock(0);
         UI_Parent(top) {
             UI_SetNextPrefWidth(UI_Pixels(badge));
             UI_SetNextPrefHeight(UI_Pixels(badge));
@@ -9874,9 +9876,9 @@ function Prog__Answers Prog__Question(Prog_State *state, String identity, String
         UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, (R_Color){0}, 0);
         UI_Parent(buttons) {
             Prog__Spacer(UI_Flex(), UI_Pixels(m->bar));
-            result.cancel = Prog__DialogButton(StrFormat(frame, "%S/Cancel", identity), Tr("Cancel"), theme->text, Prog__Fade(theme->text, 0.08f), m);
+            result.cancel = Prog__DialogButton(UI_KeyFromStr(panelKey, S("Cancel")), Tr("Cancel"), theme->text, Prog__Fade(theme->text, 0.08f), m);
             Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
-            result.confirm = Prog__DialogButton(StrFormat(frame, "%S/Confirm", identity), answer, tint, Prog__Fade(tint, 0.16f), m);
+            result.confirm = Prog__DialogButton(UI_KeyFromStr(panelKey, S("Confirm")), answer, tint, Prog__Fade(tint, 0.16f), m);
         }
     }
     return result;
@@ -9893,7 +9895,7 @@ function void Prog__LayoutQuestion(Prog_State *state, const Prog_Metrics *m)
                  : deleting ? StrFormat(&state->frameArena, TrF("Delete the layout \"%S\"?"), name) : StrFormat(&state->frameArena, TrF("Overwrite the existing layout \"%S\"?"), name);
     // Deleting cannot be undone; overwriting and switching only warn.
     R_Color tint = deleting ? Prog_CurrentTheme()->danger : Prog__GitInk(Prog_GitMark_Modified);
-    Prog__Answers answers = Prog__Question(state, S("LayoutAsk"), switching ? Icon_GitBranch : Icon_TriangleAlert, title, NULL, 0,
+    Prog__Answers answers = Prog__Question(S("LayoutAsk"), switching ? Icon_GitBranch : Icon_TriangleAlert, title, NULL, 0,
                                            switching ? Tr("Switch") : deleting ? Tr("Delete") : Tr("Overwrite"), tint, m);
     if (answers.outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 0, 0, answers.outside.pressOrder);
     if (answers.cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 0, 0, answers.cancel.clickOrder);
@@ -10733,7 +10735,7 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
         details[detailCount++] = names.buffer;
     }
     details[detailCount++] = Tr("This cannot be undone.");
-    Prog__Answers answers = Prog__Question(state, S("DeletePanel"), Icon_TriangleAlert, title, details, detailCount, Tr("Delete"), Prog_CurrentTheme()->danger, m);
+    Prog__Answers answers = Prog__Question(S("DeletePanel"), Icon_TriangleAlert, title, details, detailCount, Tr("Delete"), Prog_CurrentTheme()->danger, m);
     if (answers.outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_DeleteCancel, 0, 0, answers.outside.pressOrder);
     if (answers.cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_DeleteCancel, 0, 0, answers.cancel.clickOrder);
     if (answers.confirm.clicked) Prog_QueueCommand(state, Prog_CommandKind_DeleteConfirm, 0, 0, answers.confirm.clickOrder);
