@@ -3824,12 +3824,6 @@ Drop a picture on it for all
 Their format takes no cover
 = 它们的格式不支持封面
 
-The format Convert Audio converts to; a click goes on to the next.
-= 转换音频的格式；点击切换到下一个。
-
-into
-= 到
-
 Convert
 = 转换
 
@@ -3871,3 +3865,15 @@ Connect to Server
 
 Connect to a server by its address, as sftp://host or smb://server/share, and open it.
 = 按地址连接到服务器（如 sftp://host 或 smb://server/share）并打开它。
+
+Folder name
+= 文件夹名称
+
+The format Convert Audio converts to.
+= 转换音频所转换成的格式。
+
+Convert to
+= 转换为
+
+Convert All
+= 全部转换

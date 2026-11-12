@@ -1808,6 +1808,16 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_FolderViewScope, .row = Prog_ViewScope_Tree, .label = Tr("This folder and subfolders"), .icon = Icon_FolderTree, .toggle = true, .radio = true,
                        .checked = scope == Prog_ViewScope_Tree || scope == Prog_ViewScope_Inherited);
         } break;
+        // Convert Audio's formats, the one chosen checked; the one the files are all in already cannot be chosen.
+        case Prog_CommandKind_InspectorAudioFormatMenu: {
+            const String *paths = state->bulk.count ? state->bulk.paths : &state->previewPath;
+            u64 files = state->bulk.count ? state->bulk.count : 1;
+            u32 chosen = Prog_ConvertFormat(state->audioFormat, paths, files);
+            for (u32 i = 0; i < CArrayCount(Prog_AudioFormats); ++i) {
+                Prog__Item(.kind = Prog_CommandKind_InspectorAudioFormat, .row = i, .label = Prog_AudioFormatLabels[i], .toggle = true, .radio = true, .checked = i == chosen,
+                           .disabled = (b8)(Prog_ConvertFormat(i, paths, files) != i));
+            }
+        } break;
         // The disk usage's, for the item chosen.
         case Prog_CommandKind_InspectorUsageMenu: {
             b32 none = !Prog__UsageHasChoice(state);
@@ -5257,6 +5267,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ColumnFit: state->fitColumn = (u32)command->row + 1; break;
             case Prog_CommandKind_SizeAllColumnsToFit: state->fitColumn = UINT32_MAX; break;
             case Prog_CommandKind_InspectorUsageMenu:
+            case Prog_CommandKind_InspectorAudioFormatMenu:
             case Prog_CommandKind_FolderViewMenu:
             case Prog_CommandKind_ColumnMenu:
             case Prog_CommandKind_ViewMenu:

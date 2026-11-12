@@ -857,6 +857,10 @@ command ConvertAudio {
 command InspectorAudioFormat {
 }
 
+// The inspector's dropdown of the formats Convert Audio converts to, at `at`.
+command InspectorAudioFormatMenu {
+}
+
 command InspectorSaveCover {
     label   = "Save Album Cover^extract,picture,artwork,image"
     tooltip = "Save the album cover of the audio file shown in the inspector beside it as a picture."

@@ -11945,19 +11945,25 @@ function void Prog__TagField(Prog_State *state, u32 field, String value, b32 dim
     f32 s = m->scale;
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "InspectorTag/%u", field));
     b32 typing = state->tagField == field, hot = UI->hotKey == key && !locked;
+    // The folder's name has no label beside it saying what it is, as a tag has, so it is always in a box, which shows it can be typed in.
+    b32 boxed = field == Prog_TagFieldFolder;
+    f32 inset = floorf(4.0f * s + 0.5f);
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Pixels(row));
     UI_SetNextFont(m->detail);
     UI_SetNextTextAlignment((UI_Vec2){ alignX, 0.5f });
+    if (boxed && !typing) UI_SetNextChildrenPadding((UI_Padding){ inset, 0, inset, 0 });
     UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
     UI_SetNextBorderThickness(m->stroke);
-    UI_SetNextColors((UI_Colors){ .background = typing ? theme->inner : hot ? theme->hover : (R_Color){0}, .border = theme->outlineSelection, .text = dim ? theme->textDim : theme->text });
-    if (!typing) UI_SetNextText(Prog__Ellipsize(&state->frameArena, m->detail, value, room));
-    UI_Block *box = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | (locked ? 0 : UI_Flag_LeftMouseClickable) | UI_Flag_Clip | (typing ? UI_Flag_DrawBorder : UI_Flag_DrawText));
+    UI_SetNextColors((UI_Colors){ .background = typing ? theme->inner : hot ? theme->hover : (R_Color){0}, .border = typing ? theme->outlineSelection : theme->tabBorder,
+                                  .text = dim ? theme->textDim : theme->text });
+    if (!typing) UI_SetNextText(Prog__Ellipsize(&state->frameArena, m->detail, value, room - (boxed ? 2 * inset : 0)));
+    UI_Block *box = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | (locked ? 0 : UI_Flag_LeftMouseClickable) | UI_Flag_Clip | (typing || boxed ? UI_Flag_DrawBorder : 0) |
+                                                (typing ? 0 : UI_Flag_DrawText));
     if (typing) state->tagFieldRect = box->rect;
     UI_Interaction press = UI_InteractionFromBlock(box);
     if (press.pressed && !typing && !locked) Prog_QueueCommand(state, Prog_CommandKind_InspectorTagEdit, field - 1u, 0, press.pressOrder);
-    if (typing) UI_Parent(box) Prog__EditContents(&state->tagEdit, floorf(4.0f * s + 0.5f), floorf((row - m->line) * 0.5f), true, m);
+    if (typing) UI_Parent(box) Prog__EditContents(&state->tagEdit, inset, floorf((row - m->line) * 0.5f), true, m);
 }
 
 function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry, f32 paneWidth, f32 room, const Prog_Metrics *m)
@@ -12011,7 +12017,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     }
     // Under them, their shared cover, and the row that converts them, or the one file, to another format.
     b32 converts = tools && (bulk || (!folder && Prog_IsAudio(entry->file.name)));
-    f32 coverSide = 3 * row, extra = (bulk ? coverSide + top : 0) + (converts ? row + 2 * top : 0);
+    f32 coverSide = 3 * row, extra = (bulk ? coverSide + top : 0) + (converts ? 2 * row + 3 * top : 0);
     // Folding eases it shut to its title and open again, as the sidebar's groups do; the card clips what does not fit.
     f32 body = m->separator + (f32)count * row + extra + top + bottom, folded = state->inspectorDetailsFolded ? 0.0f : 1.0f;
     f32 open = UI_Animate(UI_KeyFromStr(0, S("InspectorDetailsOpen")), folded, folded);
@@ -12077,30 +12083,60 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                     }
                 }
             }
-            // The format, the folder beside the files it goes into, typed in as a tag is, and the button that converts them.
+            // The format, chosen from a dropdown; under it the folder beside the files they go into, typed in as a tag is, and the button that converts them.
+            // Both labels take the wider one's width, so that what they name starts in line.
             if (converts) {
+                f32 apart = floorf(6.4f * s + 0.5f);
+                String toLabel = Tr("Convert to"), nameLabel = Tr("Folder name");
+                f32 labelWidth = MaxF32(R_TextWidth(m->detail, toLabel), R_TextWidth(m->detail, nameLabel)) + m->gap;
+                // Never the format the files are all in already.
+                u32 format = Prog__InspectorConvertFormat(state);
                 Prog__Spacer(UI_Flex(), UI_Pixels(top));
                 UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-                UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row + top), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
                 UI_Parent(line) {
-                    f32 apart = floorf(6.4f * s + 0.5f);
-                    // Never the format the files are all in already.
-                    u32 format = Prog__InspectorConvertFormat(state), formats = (u32)CArrayCount(Prog_AudioFormats);
-                    u32 next = state->bulk.count ? Prog_ConvertFormat((format + 1) % formats, state->bulk.paths, state->bulk.count)
-                                                 : Prog_ConvertFormat((format + 1) % formats, &state->previewPath, 1);
-                    UI_Interaction pick = Prog__TextButton(S("InspectorAudioFormat"), Prog_AudioFormatLabels[format], m->detail, UI_TextContent(), row, apart, theme->text,
-                                                           theme->text, theme->textDim, true, m);
-                    if (pick.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorAudioFormat, next, 0, pick.clickOrder);
-                    if (pick.hot) Prog__PopupTooltip(state, Tr("The format Convert Audio converts to; a click goes on to the next."));
-                    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
                     UI_SetNextFont(m->detail);
-                    Prog__Label(Tr("into"), UI_TextContent(), row, 0, theme->textDim, 0);
+                    Prog__Label(toLabel, UI_Pixels(labelWidth), row, 0, theme->textDim, 0);
+                    String label = Prog_AudioFormatLabels[format];
+                    f32 chevron = floorf(m->line * 1.2f);
+                    UI_Key formatKey = UI_KeyFromStr(0, S("InspectorAudioFormat"));
+                    // Lit while its menu is open, as the other dropdowns' buttons are.
+                    b32 listed = state->menuOpen && state->menuOpener == Prog_CommandKind_InspectorAudioFormatMenu;
+                    R_Color wash = listed ? theme->selection : Prog__ButtonWash(formatKey, UI->hotKey == formatKey, UI->activeKey == formatKey, theme->selection);
+                    UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->detail, label) + 2 * apart + chevron));
+                    UI_SetNextPrefHeight(UI_Pixels(row));
+                    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                    UI_SetNextChildrenPadding((UI_Padding){ apart, 0, apart, 0 });
+                    UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+                    UI_SetNextColors((UI_Colors){ .background = wash });
+                    UI_Block *button = UI_AddBlockFromKey(formatKey, UI_Flag_LeftMouseClickable | (wash.a > 0 ? UI_Flag_DrawBackground : 0));
+                    UI_Interaction pick = UI_InteractionFromBlock(button);
+                    UI_Parent(button) {
+                        UI_SetNextFont(m->detail);
+                        Prog__Label(label, UI_TextContent(), row, 0, theme->text, 0);
+                        Prog__SmallIcon(Icon_ChevronDown, chevron, row, theme->textDim, 0.5f, m);
+                    }
+                    if (pick.clicked) {
+                        Prog_QueueCommand(state, Prog_CommandKind_InspectorAudioFormatMenu, 0, 0, pick.clickOrder)->at =
+                            (UI_Vec2){ button->rect.x0, button->rect.y1 + floorf(2.4f * s + 0.5f) };
+                    }
+                    if (pick.hot) Prog__PopupTooltip(state, Tr("The format Convert Audio converts to."));
+                }
+                Prog__Spacer(UI_Flex(), UI_Pixels(top));
+                UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_Block *named = Prog__Box(UI_Flex(), UI_Pixels(row + top), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(named) {
+                    UI_SetNextFont(m->detail);
+                    Prog__Label(nameLabel, UI_Pixels(labelWidth), row, 0, theme->textDim, 0);
+                    // The button that converts them comes last, after everything it takes; for a folder's or a selection's files it says it takes all of them.
+                    String into = Prog_AudioFolder(format, StrMake((const char *)state->audioFolder, state->audioFolderLength)), convert = bulk ? Tr("Convert All") : Tr("Convert");
+                    f32 button = R_TextWidth(m->detail, convert) + 2 * apart;
+                    Prog__TagField(state, Prog_TagFieldFolder, into, false, false, width - left - right - labelWidth - m->gap - button, row, 0, m);
                     Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
-                    String into = Prog_AudioFolder(format, StrMake((const char *)state->audioFolder, state->audioFolderLength));
-                    Prog__TagField(state, Prog_TagFieldFolder, into, false, false, width, row, 0, m);
-                    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
-                    UI_Interaction go = Prog__TextButton(S("InspectorConvert"), Tr("Convert"), m->detail, UI_TextContent(), row, apart, theme->accent, theme->text, theme->textDim, true, m);
+                    UI_Interaction go = Prog__TextButton(S("InspectorConvert"), convert, m->detail, UI_Pixels(button), row, apart, theme->accent, theme->text, theme->textDim, true, m);
                     if (go.clicked) Prog_QueueCommand(state, Prog_CommandKind_ConvertAudio, 0, 0, go.clickOrder);
                 }
             }
