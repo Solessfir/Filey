@@ -9826,13 +9826,12 @@ function Prog__Answer Prog__Question(String identity, String icon, String title,
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
     // Over a see-through window the dimming would make it a dark, nearly opaque sheet, so there it only takes the clicks, as the palette does.
-    UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, (theme->menu.a < 1 ? 0 : 0.35f) * opacity } });
+    UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, (theme->background.a < 1 ? 0 : 0.35f) * opacity } });
     UI_Interaction outside = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(panelKey, S("Catcher")),
                                                                         UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_MouseClickable | UI_Flag_TakesWheel));
     if (outside.pressed) result = (Prog__Answer){ .answered = true, .order = outside.pressOrder };
-    // Sized to its title; long names in a line of detail are cut rather than widening it past a third more.
     f32 badge = floorf(m->row * 1.5f), textWidth = R_TextWidth(m->font, title);
-    for (u32 i = 0; i < detailCount; ++i) textWidth = MaxF32(textWidth, MinF32(R_TextWidth(m->font, details[i]), MaxF32(textWidth, m->line * 16) * 1.3f));
+    for (u32 i = 0; i < detailCount; ++i) textWidth = MaxF32(textWidth, R_TextWidth(m->font, details[i]));
     f32 width = floorf(MinF32(MaxF32(badge + textWidth + 3 * m->inset, m->line * 22), view.x1 - view.x0 - 2 * m->inset));
     f32 header = MaxF32(badge, m->row * (f32)(1 + detailCount)), height = floorf(header + m->bar + m->inset * 3);
     f32 shownWidth = floorf(width * grow), shownHeight = floorf(height * grow);
@@ -9880,8 +9879,9 @@ function Prog__Answer Prog__Question(String identity, String icon, String title,
             UI_Interaction cancel = Prog__DialogButton(UI_KeyFromStr(panelKey, S("Cancel")), Tr("Cancel"), theme->text, Prog__Fade(theme->text, 0.08f), m);
             Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
             UI_Interaction confirm = Prog__DialogButton(UI_KeyFromStr(panelKey, S("Confirm")), answer, tint, Prog__Fade(tint, 0.16f), m);
-            if (cancel.clicked) result = (Prog__Answer){ .answered = true, .order = cancel.clickOrder };
-            if (confirm.clicked) result = (Prog__Answer){ .answered = true, .confirmed = true, .order = confirm.clickOrder };
+            // The first of a frame's answers counts, as a later one finds the question gone.
+            if (cancel.clicked && (!result.answered || cancel.clickOrder < result.order)) result = (Prog__Answer){ .answered = true, .order = cancel.clickOrder };
+            if (confirm.clicked && (!result.answered || confirm.clickOrder < result.order)) result = (Prog__Answer){ .answered = true, .confirmed = true, .order = confirm.clickOrder };
         }
     }
     return result;
@@ -10731,7 +10731,8 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
     if (!state->confirmEmptyTrash && state->confirmCount > 1) {
         u64 named = Min(state->confirmCount, (u64)3);
         StrBuilder names = {0};
-        for (u64 i = 0; i < named; ++i) StrBuildF(frame, &names, "%s%S", i ? ", " : "", Prog__FolderName(state->confirmPaths[i]));
+        // Each name cut in its middle when long, so that the line stays short enough to show its end.
+        for (u64 i = 0; i < named; ++i) StrBuildF(frame, &names, "%s%S", i ? ", " : "", Prog__EllipsizeMiddle(frame, m->font, Prog__FolderName(state->confirmPaths[i]), m->line * 9));
         if (state->confirmCount > named) StrBuildF(frame, &names, " %S", StrFormat(frame, TrF("and %u more"), (u32)(state->confirmCount - named)));
         details[detailCount++] = names.buffer;
     }
