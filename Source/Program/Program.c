@@ -9851,7 +9851,8 @@ function Prog__Answer Prog__Question(String identity, String icon, String title,
     UI_SetNextBorderThickness(m->stroke);
     UI_SetNextBlur(Prog__FloatingBlur(m));
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->hover });
-    UI_Block *panel = UI_AddBlockFromKey(panelKey, UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    // Every button's press on it stays in it, rather than reaching the catcher under it and leaving the question.
+    UI_Block *panel = UI_AddBlockFromKey(panelKey, UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_MouseClickable);
     UI_Parent(panel) {
         UI_SetNextPrefWidth(UI_Flex());
         UI_SetNextPrefHeight(UI_Pixels(header));
@@ -9868,8 +9869,8 @@ function Prog__Answer Prog__Question(String identity, String icon, String title,
             UI_SetNextColors((UI_Colors){ .background = Prog__Fade(tint, 0.15f), .text = tint });
             UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawText);
             Prog__Spacer(UI_Pixels(m->inset), UI_Pixels(badge));
-            UI_Block *lines = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, (R_Color){0}, 0);
-            UI_Parent(lines) {
+            UI_Block *text = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, (R_Color){0}, 0);
+            UI_Parent(text) {
                 Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0);
                 for (u32 i = 0; i < detailCount; ++i) Prog__Label(details[i], UI_Flex(), m->row, 0, theme->textDim, 0);
                 if (note.length) Prog__Label(note, UI_Flex(), m->row, 0, tint, 0);
@@ -9894,7 +9895,8 @@ function Prog__Answer Prog__Question(String identity, String icon, String title,
 function void Prog__LayoutQuestion(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->layoutAsk) return;
-    String name = StrMake((const char *)state->layoutAskName, state->layoutAskLength);
+    // A long name is cut in its middle, so that the question keeps its end.
+    String name = Prog__EllipsizeMiddle(&state->frameArena, m->font, StrMake((const char *)state->layoutAskName, state->layoutAskLength), m->line * 14);
     b32 deleting = state->layoutAsk == Prog_LayoutAsk_Delete || state->layoutAsk == Prog_LayoutAsk_DeleteScheme, switching = state->layoutAsk == Prog_LayoutAsk_SwitchBranch;
     String title = switching ? StrFormat(&state->frameArena, TrN(state->git.changes, "%u change not committed. Switch to \"%S\" and take it along?", "%u changes not committed. Switch to \"%S\" and take them along?"), state->git.changes, name)
                  : state->layoutAsk == Prog_LayoutAsk_DeleteScheme ? StrFormat(&state->frameArena, TrF("Delete the custom color scheme \"%S\"?"), name)
@@ -10733,7 +10735,8 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
     // The names go under the count, one alone too, in the same place and color: as many of the first three as fit whole in the line's room
     // beside what it says of the rest, and the first at least, cut in its middle when even it does not.
     if (!state->confirmEmptyTrash) {
-        f32 room = m->line * 26;
+        R_Rect view = UI->root->rect;
+        f32 room = MinF32(m->line * 26, view.x1 - view.x0 - 5 * m->inset - floorf(m->row * 1.5f));
         u64 count = state->confirmCount, named = 0;
         String line = {0};
         for (u64 n = 1; n <= Min(count, (u64)3); ++n) {
@@ -10746,7 +10749,7 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
         }
         if (named == 1 && R_TextWidth(m->font, line) > room) {
             String tail = count > 1 ? StrFormat(frame, TrF("and %u more"), (u32)(count - 1)) : (String){0};
-            String first = Prog__EllipsizeMiddle(frame, m->font, Prog__FolderName(state->confirmPaths[0]), room - (tail.length ? R_TextWidth(m->font, tail) + m->gap : 0));
+            String first = Prog__EllipsizeMiddle(frame, m->font, Prog__FolderName(state->confirmPaths[0]), room - (tail.length ? R_TextWidth(m->font, StrFormat(frame, " %S", tail)) : 0));
             line = tail.length ? StrFormat(frame, "%S %S", first, tail) : first;
         }
         details[detailCount++] = line;
