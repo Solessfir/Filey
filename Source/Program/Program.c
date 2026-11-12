@@ -11950,7 +11950,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                     // A value too long for the card ends in an ellipsis, and the path is cut in its middle, keeping its last folders.
                     f32 room = width - left - right - m->gap - R_TextWidth(m->detail, labels[i]);
                     if (tags[i]) {
-                        u32 tag = tags[i] >= Prog_TagFieldBulk ? tags[i] - Prog_TagFieldBulk : tags[i] - 1u;
+                        u32 tag = tags[i] >= Prog_TagFieldBulk ? tags[i] - (u32)Prog_TagFieldBulk : tags[i] - 1u;
                         u32 cut = tags[i] >= Prog_TagFieldBulk ? state->bulk.cut & ~state->bulk.mixed : state->previewTags.cut;
                         Prog__TagField(state, tags[i], values[i], values[i].value == none.value || values[i].value == mixed.value, (cut >> tag) & 1, room, row, 1, m);
                     } else {
