@@ -90,13 +90,15 @@ typedef struct R_MeshPart {
 function void R_MeshDraw(R_MeshHandle mesh, R_TextureHandle target, i32 width, i32 height, const f32 view[16], const R_MeshPart *parts, u32 partCount);
 
 // How the rounded boxes drawn after it are shaped, until it is set again: corners left square, or the box's inside and outside swapped,
-// which with a radius of half its size leaves the box's corners outside its circle.
+// which with a radius of half its size leaves the box's corners outside its circle; or a fill dithered, for a tint over a blur, whose
+// shallow slopes would show as bands in the frame's eight bits.
 typedef enum R_Shape {
     R_Shape_SquareTopLeft     = 1 << 0,
     R_Shape_SquareTopRight    = 1 << 1,
     R_Shape_SquareBottomRight = 1 << 2,
     R_Shape_SquareBottomLeft  = 1 << 3,
     R_Shape_Inverted          = 1 << 4,
+    R_Shape_Dithered          = 1 << 9,
 } R_Shape;
 function void R_SetShape(u32 shape);
 

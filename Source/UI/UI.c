@@ -545,7 +545,7 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
     b32 clipsChildren = FlagIntersects(block->flags, UI_Flag_Clip | UI_Flag_Scrollable);
     // A fading block that keeps what is inside it within its bounds fades as one layer, so that its parts do not show through one another.
     b32 layer = own < 1 && clipsChildren && block->first && visible && !UI->drawingLayer;
-    if (visible) R_SetShape(block->props.shape);
+    if (visible) R_SetShape(block->props.shape | (block->props.blur > 0 ? R_Shape_Dithered : 0));
     if (visible && block->props.blur > 0) R_BlurBehind(block->rect, block->props.cornerRadius, block->props.blur, opacity);
     if (layer) {
         R_PushLayer(block->clipRect);

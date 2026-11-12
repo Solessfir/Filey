@@ -376,12 +376,24 @@ global const char GL_FragmentShader[] =
     "in vec2 vPosition;\n"
     "out vec4 fragColor;\n"
     // A batch draws from up to four textures, each instance from its own, which is the same over all of its pixels.
+    // Up to a step of the frame's eight bits either way, by where the pixel is, as it shows once blended in at `alpha`: two random
+    // numbers added, which fall mostly near none, so that a slope's steps dissolve evenly and no pattern shows in the noise.
+    "float Random(vec2 p) {\n"
+    "    vec3 q = fract(vec3(p.xyx) * 0.1031);\n"
+    "    q += dot(q, q.yzx + 33.33);\n"
+    "    return fract((q.x + q.y) * q.z);\n"
+    "}\n"
+    "vec3 Dither(float alpha) {\n"
+    "    if ((vShape & 512) == 0) return vec3(0.0);\n"
+    "    float noise = Random(gl_FragCoord.xy) + Random(gl_FragCoord.xy + 59.7) - 1.0;\n"
+    "    return vec3(noise / (255.0 * max(alpha, 0.1)));\n"
+    "}\n"
     "vec4 Sample(vec2 uv) {\n"
     "    return vSlot == 1 ? texture(uTexture1, uv) : vSlot == 2 ? texture(uTexture2, uv) : vSlot == 3 ? texture(uTexture3, uv) : texture(uTexture, uv);\n"
     "}\n"
     "void main() {\n"
     "    if ((vShape & 256) != 0) {\n"
-    "        fragColor = vColor;\n"
+    "        fragColor = vec4(vColor.rgb + Dither(vColor.a), vColor.a);\n"
     "        return;\n"
     "    }\n"
     // A gradient goes between its corners' colors by where the pixel is across the box.
@@ -419,7 +431,7 @@ global const char GL_FragmentShader[] =
     "    } else if (vStyle.z > 0.0) {\n"
     "        alpha *= Sample(vUV).r;\n"
     "    }\n"
-    "    fragColor = vec4(color.rgb, color.a * alpha);\n"
+    "    fragColor = vec4(color.rgb + Dither(color.a * alpha), color.a * alpha);\n"
     "}\n";
 
 // One triangle over the whole target, which is a level of the dual Kawase blur: mode 0 halves the source, mode 1 doubles it.
@@ -442,12 +454,14 @@ global const char GL_BlurFragmentShader[] =
     "out vec4 fragColor;\n"
     "vec4 Read(vec2 uv) { return texture(uSource, min(uv, uLimit)); }\n"
     "void main() {\n"
+    // Each level is rounded to eight bits, which half a step of noise keeps from adding up into bands.
+    "    float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;\n"
     "    vec2 uv = gl_FragCoord.xy * uScale, h = uTexel;\n"
     "    if (uMode == 0) {\n"
-    "        fragColor = (Read(uv) * 4.0 + Read(uv - h) + Read(uv + h) + Read(uv + vec2(h.x, -h.y)) + Read(uv - vec2(h.x, -h.y))) / 8.0;\n"
+    "        fragColor = (Read(uv) * 4.0 + Read(uv - h) + Read(uv + h) + Read(uv + vec2(h.x, -h.y)) + Read(uv - vec2(h.x, -h.y))) / 8.0 + noise / 255.0;\n"
     "    } else {\n"
     "        fragColor = (Read(uv + vec2(-2.0 * h.x, 0.0)) + Read(uv + vec2(-h.x, h.y)) * 2.0 + Read(uv + vec2(0.0, 2.0 * h.y)) + Read(uv + vec2(h.x, h.y)) * 2.0 +\n"
-    "                     Read(uv + vec2(2.0 * h.x, 0.0)) + Read(uv + vec2(h.x, -h.y)) * 2.0 + Read(uv + vec2(0.0, -2.0 * h.y)) + Read(uv + vec2(-h.x, -h.y)) * 2.0) / 12.0;\n"
+    "                     Read(uv + vec2(2.0 * h.x, 0.0)) + Read(uv + vec2(h.x, -h.y)) * 2.0 + Read(uv + vec2(0.0, -2.0 * h.y)) + Read(uv + vec2(-h.x, -h.y)) * 2.0) / 12.0 + noise / 255.0;\n"
     "    }\n"
     "}\n";
 
