@@ -1072,15 +1072,6 @@ Others may run
 Loading...
 = 正在加载...
 
-Auto positions the inspector to the right or below based on available space.
-= 根据可用空间自动将检查器放在右侧或下方。
-
-Forces the inspector to the right.
-= 始终将检查器放在右侧。
-
-Forces the inspector below.
-= 始终将检查器放在下方。
-
 Display image scaled to fit within the viewport.
 = 缩放图像以适应视口。
 
@@ -3746,12 +3737,6 @@ Saving the tags
 Saving the album cover
 = 正在保存专辑封面
 
-Drop a picture here to replace the album cover.
-= 将图片拖放到此处以替换专辑封面。
-
-Drop a picture here to add an album cover.
-= 将图片拖放到此处以添加专辑封面。
-
 Saving the tags failed
 = 保存标签失败
 
@@ -3817,9 +3802,6 @@ Audio files
 
 Covers: %u of %u
 = 封面：%u / %u
-
-Drop a picture on it for all
-= 拖放图片到此处应用于全部
 
 Their format takes no cover
 = 它们的格式不支持封面
@@ -3889,3 +3871,36 @@ The folder beside the file that the converted audio goes into.
 
 Save the album cover as a picture beside the file.
 = 将专辑封面另存为文件旁的图片。
+
+Dimensions
+= 尺寸
+
+Click to copy.
+= 点击复制。
+
+Click or drop a picture for all
+= 点击或拖入图片，应用于全部
+
+Click, or drop a picture here, to replace the album cover.
+= 点击或将图片拖到此处以替换专辑封面。
+
+Click, or drop a picture here, to add an album cover.
+= 点击或将图片拖到此处以添加专辑封面。
+
+Automatic, by the room there is
+= 自动，按可用空间
+
+On the right
+= 右侧
+
+Below
+= 下方
+
+Copied
+= 已复制
+
+Choose the album cover
+= 选择专辑封面
+
+Pictures
+= 图片

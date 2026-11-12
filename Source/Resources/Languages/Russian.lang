@@ -1071,15 +1071,6 @@ Others may run
 Loading...
 = Загрузка...
 
-Auto positions the inspector to the right or below based on available space.
-= Инспектор справа или снизу, в зависимости от свободного места.
-
-Forces the inspector to the right.
-= Инспектор всегда справа.
-
-Forces the inspector below.
-= Инспектор всегда снизу.
-
 Display image scaled to fit within the viewport.
 = Показать изображение, вписанное в область просмотра.
 
@@ -3745,12 +3736,6 @@ Saving the tags
 Saving the album cover
 = Сохранение обложки альбома
 
-Drop a picture here to replace the album cover.
-= Перетащите сюда картинку, чтобы заменить обложку альбома.
-
-Drop a picture here to add an album cover.
-= Перетащите сюда картинку, чтобы добавить обложку альбома.
-
 Saving the tags failed
 = Не удалось сохранить теги
 
@@ -3816,9 +3801,6 @@ Audio files
 
 Covers: %u of %u
 = Обложки: %u из %u
-
-Drop a picture on it for all
-= Перетащите картинку на неё для всех
 
 Their format takes no cover
 = Их формат не хранит обложку
@@ -3888,3 +3870,36 @@ The folder beside the file that the converted audio goes into.
 
 Save the album cover as a picture beside the file.
 = Сохранить обложку альбома как картинку рядом с файлом.
+
+Dimensions
+= Размеры
+
+Click to copy.
+= Нажмите, чтобы скопировать.
+
+Click or drop a picture for all
+= Нажмите или перетащите картинку, для всех
+
+Click, or drop a picture here, to replace the album cover.
+= Нажмите или перетащите сюда картинку, чтобы заменить обложку альбома.
+
+Click, or drop a picture here, to add an album cover.
+= Нажмите или перетащите сюда картинку, чтобы добавить обложку альбома.
+
+Automatic, by the room there is
+= Автоматически, по месту
+
+On the right
+= Справа
+
+Below
+= Снизу
+
+Copied
+= Скопировано
+
+Choose the album cover
+= Выберите обложку альбома
+
+Pictures
+= Изображения

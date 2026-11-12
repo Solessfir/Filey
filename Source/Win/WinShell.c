@@ -1909,6 +1909,42 @@ function b32 P__WriteShortcut(const wchar *link, const wchar *target, const wcha
     return result;
 }
 
+global const CLSID P__CLSID_FileOpenDialog = { 0xDC1C5A9C, 0xE88A, 0x4DDE, { 0xA5, 0xA1, 0x60, 0xF8, 0x2A, 0x20, 0xAE, 0xF7 } };
+global const IID P__IID_IFileOpenDialog = { 0xD57C7288, 0xD4AD, 0x4768, { 0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60 } };
+
+function String P_PickFile(Arena *arena, String title, String kind, String patterns)
+{
+    // The thread asking is a worker's, with no COM of its own yet.
+    HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    String result = {0};
+    IFileOpenDialog *dialog = NULL;
+    if (SUCCEEDED(CoCreateInstance(&P__CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, &P__IID_IFileOpenDialog, (void **)&dialog))) {
+        Scratch scratch = GetScratchEx(arena);
+        // The dialog parts its patterns with semicolons.
+        wchar *wideTitle = P__FilePathWide(scratch.arena, title), *wideKind = P__FilePathWide(scratch.arena, kind), *widePatterns = P__FilePathWide(scratch.arena, patterns);
+        for (wchar *at = widePatterns; at && *at; ++at) if (*at == L' ') *at = L';';
+        COMDLG_FILTERSPEC types[1] = { { wideKind, widePatterns } };
+        if (wideKind && widePatterns) dialog->lpVtbl->SetFileTypes(dialog, 1, types);
+        if (wideTitle) dialog->lpVtbl->SetTitle(dialog, wideTitle);
+        // Over the window the user asked from, which waits for it.
+        if (SUCCEEDED(dialog->lpVtbl->Show(dialog, GetForegroundWindow()))) {
+            IShellItem *item = NULL;
+            if (SUCCEEDED(dialog->lpVtbl->GetResult(dialog, &item))) {
+                wchar *path = NULL;
+                if (SUCCEEDED(item->lpVtbl->GetDisplayName(item, SIGDN_FILESYSPATH, &path)) && path) {
+                    result = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, path, lstrlenW(path)));
+                    CoTaskMemFree(path);
+                }
+                item->lpVtbl->Release(item);
+            }
+        }
+        ReleaseScratch(scratch);
+        dialog->lpVtbl->Release(dialog);
+    }
+    if (SUCCEEDED(com)) CoUninitialize();
+    return result;
+}
+
 // Named as Explorer names them, "Name - Shortcut.lnk", then "Name - Shortcut (2).lnk".
 function P_FileError P_CreateLink(Arena *arena, String directory, String target, String *created)
 {

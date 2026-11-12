@@ -96,6 +96,9 @@ function void P_RemoveStaleRunFolders(void);
 // Filey Setup wrote as it was; any other copy, or one with no entry, changes nothing. Nothing on Linux.
 // A default set before Windows started Explorer ahead of time takes Win+E over too; the result is P_WinEKeyWaits'.
 function b32 P_RefreshInstallEntry(void);
+// Asks the user for a file with the system's dialog, titled `title`, among those matching `patterns`, as "*.jpg *.png", which it calls `kind`.
+// It waits for the answer, so it is called off the main thread; empty when none is chosen, or where there is no dialog to ask with.
+function String P_PickFile(Arena *arena, String title, String kind, String patterns);
 // Whether Filey is set to take Win+E over from the Explorer that newer Windows starts ahead of time, but does not have it yet, as Explorer
 // lets it go only once it starts again, at the next sign-in. Always false on Linux.
 function b32 P_WinEKeyWaits(void);

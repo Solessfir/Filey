@@ -857,6 +857,18 @@ command ConvertAudio {
 command InspectorAudioFormat {
 }
 
+// The inspector toolbar's menu of where the inspector goes, at `at`.
+command InspectorLayoutMenu {
+}
+
+// A click on a value in the inspector's details, which copies it.
+command InspectorCopyDetail {
+}
+
+// A click on the inspector's cover, which asks for a picture to be it; carries 1 for the cover the files of a folder or a selection share.
+command InspectorPickCover {
+}
+
 // The inspector's dropdown of the formats Convert Audio converts to, at `at`.
 command InspectorAudioFormatMenu {
 }

@@ -2564,7 +2564,7 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
     }
     // These open menus rather than run commands, so they name themselves; the tab list runs Search Tabs.
     String tip = kind == Prog_CommandKind_PanelMenu ? Tr("Panel Menu") : kind == Prog_CommandKind_MainMenu ? Tr("Main Menu")
-               : kind == Prog_CommandKind_HistoryMenu ? Tr("History") : tabs ? (String){0} : Tr("View");
+               : kind == Prog_CommandKind_HistoryMenu ? Tr("History") : kind == Prog_CommandKind_InspectorLayoutMenu ? Tr("Inspector Layout") : tabs ? (String){0} : Tr("View");
     if (enabled && !lit) Prog__NoteTooltip(state, kind, tip);
     UI_Interaction interaction = UI_InteractionFromBlock(block);
     R_Rect rect = block->rect;
@@ -11960,6 +11960,8 @@ function void Prog__TagField(Prog_State *state, u32 field, String value, b32 dim
     if (!typing) UI_SetNextText(Prog__Ellipsize(&state->frameArena, m->detail, value, room - (boxed ? 2 * inset : 0)));
     UI_Block *box = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | (locked ? 0 : UI_Flag_LeftMouseClickable) | UI_Flag_Clip | (typing || boxed ? UI_Flag_DrawBorder : 0) |
                                                 (typing ? 0 : UI_Flag_DrawText));
+    // The text cursor over it says it can be typed in, as the fill under the pointer does.
+    if (hot || (typing && UI__Contains(box->rect, UI->mouse))) state->cursor = PlatformCursor_Text;
     if (typing) state->tagFieldRect = box->rect;
     UI_Interaction press = UI_InteractionFromBlock(box);
     if (press.pressed && !typing && !locked) Prog_QueueCommand(state, Prog_CommandKind_InspectorTagEdit, field - 1u, 0, press.pressOrder);
@@ -11999,13 +12001,15 @@ function f32 Prog__ConvertFormatButton(Prog_State *state, u32 format, f32 row, c
     return width;
 }
 
-// Convert Audio on one line, `room` wide, for the inspector's footer: the format, the folder beside the file it goes into, typed in as a tag is,
-// and the button that converts it, last, after everything it takes. In less room the labels go, the folder's first.
+// Convert Audio on one line, `room` wide, for the inspector's footer or under its list: the format, the folder beside the files it goes into,
+// typed in as a tag is, and the button that converts them, last, after everything it takes, which for a folder's or a selection's files says it
+// takes all of them. In less room the labels go, the folder's first.
 function void Prog__ConvertLine(Prog_State *state, f32 room, f32 height, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 s = m->scale, row = floorf(20.8f * s + 0.5f), apart = floorf(6.4f * s + 0.5f);
-    String toLabel = Tr("Convert to"), nameLabel = Tr("Folder name"), convert = Tr("Convert");
+    b32 all = state->bulk.count && state->currentPanel == state->activePanel;
+    String toLabel = Tr("Convert to"), nameLabel = Tr("Folder name"), convert = all ? Tr("Convert All") : Tr("Convert");
     // Never the format the file is in already.
     u32 format = Prog__InspectorConvertFormat(state);
     f32 toWidth = R_TextWidth(m->detail, toLabel) + m->gap, nameWidth = R_TextWidth(m->detail, nameLabel) + m->gap, button = R_TextWidth(m->detail, convert) + 2 * apart;
@@ -12035,7 +12039,7 @@ function void Prog__ConvertLine(Prog_State *state, f32 room, f32 height, const P
     }
 }
 
-function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry, f32 paneWidth, f32 under, const Prog_Metrics *m)
+function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry, f32 paneWidth, f32 paneHeight, f32 under, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     // It opens under the toolbar, whose name and button stay in sight over it, as a menu does: fading in while its rows spread from a little closer together.
@@ -12063,6 +12067,9 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     }
     labels[count] = Tr("Created"), values[count++] = created;
     labels[count] = Tr("Modified"), values[count++] = Prog_EntryModified(frame, entry);
+    // A picture's size in pixels, once it is read; a video's is among its details.
+    b32 pictured = state->previewImage && !state->previewWaveform && !Prog_IsVideo(entry->file.name) && state->previewImageWidth > 0;
+    if (pictured) labels[count] = Tr("Dimensions"), values[count++] = StrFormat(frame, "%d \u00D7 %d", state->previewImageWidth, state->previewImageHeight);
     // An audio or video file's details, once its preview has read them.
     for (u64 at = 0; state->previewMedia.length && at < state->previewMedia.length && count < CArrayCount(labels);) {
         Index end = StrIndexChar(StrFrom(state->previewMedia, at), '\n', SSF_CountOnFail);
@@ -12088,11 +12095,11 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
         labels[count] = Prog_Tr(Prog_AudioTagLabels[t]);
         values[count++] = (state->bulk.mixed & (1u << t)) ? mixed : state->bulk.values[t].length ? state->bulk.values[t] : none;
     }
-    // Under them, their shared cover, and the row that converts them, or the one file, to another format.
-    // One file's is in the inspector's footer.
-    b32 converts = bulk;
-    f32 coverSide = 3 * row, extra = (bulk ? coverSide + top : 0) + (converts ? 2 * row + 3 * top : 0);
-    f32 height = (f32)count * row + extra + top + bottom;
+    // Under them, their shared cover; converting them is under the inspector's list, or in its footer.
+    f32 coverSide = 3 * row, extra = bulk ? coverSide + top : 0;
+    // In a pane too short for all of it, it stops short of the pane's bottom and scrolls.
+    f32 whole = (f32)count * row + extra + top + bottom, height = MinF32(whole, MaxF32(row, paneHeight - under - margin));
+    b32 scrolls = height < whole;
     UI_SetNextOpacity(opacity);
     UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - margin, under });
     UI_SetNextPrefWidth(UI_Pixels(width));
@@ -12101,7 +12108,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     UI_SetNextCornerRadius(radius);
     UI_SetNextBlur(Prog__FloatingBlur(m));
     UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill() });
-    UI_Block *card = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorDetails")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Block *card = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorDetails")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable | (scrolls ? UI_Flag_Scrollable : 0));
     UI_Parent(card) {
         {
             Prog__Spacer(UI_Flex(), UI_Pixels(top));
@@ -12119,9 +12126,24 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                         u32 cut = tags[i] >= Prog_TagFieldBulk ? state->bulk.cut & ~state->bulk.mixed : state->previewTags.cut;
                         Prog__TagField(state, tags[i], values[i], values[i].value == none.value || values[i].value == mixed.value, (cut >> tag) & 1, room, row, 1, m);
                     } else {
-                        UI_SetNextFont(m->detail);
+                        // A click copies the whole value, the path's too, though it shows cut; it lights under the pointer to say so.
                         String shown = i == 0 ? Prog__EllipsizeMiddle(frame, m->detail, values[i], room) : Prog__Ellipsize(frame, m->detail, values[i], room);
-                        Prog__Label(shown, UI_Flex(), row, 0, theme->textDim, 1);
+                        UI_Key valueKey = UI_KeyFromStr(0, StrFormat(frame, "InspectorDetail/%u", i));
+                        b32 copies = values[i].value != none.value, lit = copies && UI->hotKey == valueKey;
+                        UI_SetNextPrefWidth(UI_Flex());
+                        UI_SetNextPrefHeight(UI_Pixels(row));
+                        UI_SetNextFont(m->detail);
+                        UI_SetNextTextAlignment((UI_Vec2){ 1, 0.5f });
+                        UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
+                        UI_SetNextColors((UI_Colors){ .background = lit ? theme->hover : (R_Color){0}, .text = lit ? theme->text : theme->textDim });
+                        UI_SetNextText(shown);
+                        UI_Interaction copy = UI_InteractionFromBlock(UI_AddBlockFromKey(valueKey, UI_Flag_DrawText | UI_Flag_DrawBackground | (copies ? UI_Flag_LeftMouseClickable : 0)));
+                        if (copy.clicked && copies) {
+                            state->detailCopyLength = (u32)Min(values[i].length, sizeof(state->detailCopy));
+                            MemCopy(state->detailCopy, values[i].value, state->detailCopyLength);
+                            Prog_QueueCommand(state, Prog_CommandKind_InspectorCopyDetail, 0, 0, copy.clickOrder);
+                        }
+                        if (lit) Prog__PopupTooltip(state, Tr("Click to copy."));
                     }
                 }
             }
@@ -12139,41 +12161,8 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                         UI_SetNextFont(m->detail);
                         Prog__Label(StrFormat(frame, TrF("Covers: %u of %u"), (u32)state->bulk.covered, (u32)state->bulk.count), UI_Flex(), row, 0, theme->text, 0);
                         UI_SetNextFont(m->detail);
-                        Prog__Label(state->bulk.coverable ? Tr("Drop a picture on it for all") : Tr("Their format takes no cover"), UI_Flex(), row, 0, theme->textDim, 0);
+                        Prog__Label(state->bulk.coverable ? Tr("Click or drop a picture for all") : Tr("Their format takes no cover"), UI_Flex(), row, 0, theme->textDim, 0);
                     }
-                }
-            }
-            // The format, chosen from a dropdown; under it the folder beside the files they go into, typed in as a tag is, and the button that converts them.
-            // Both labels take the wider one's width, so that what they name starts in line.
-            if (converts) {
-                f32 apart = floorf(6.4f * s + 0.5f);
-                String toLabel = Tr("Convert to"), nameLabel = Tr("Folder name");
-                f32 labelWidth = MaxF32(R_TextWidth(m->detail, toLabel), R_TextWidth(m->detail, nameLabel)) + m->gap;
-                // Never the format the files are all in already.
-                u32 format = Prog__InspectorConvertFormat(state);
-                Prog__Spacer(UI_Flex(), UI_Pixels(top));
-                UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
-                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-                UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
-                UI_Parent(line) {
-                    UI_SetNextFont(m->detail);
-                    Prog__Label(toLabel, UI_Pixels(labelWidth), row, 0, theme->textDim, 0);
-                    Prog__ConvertFormatButton(state, format, row, m);
-                }
-                Prog__Spacer(UI_Flex(), UI_Pixels(top));
-                UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
-                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-                UI_Block *named = Prog__Box(UI_Flex(), UI_Pixels(row + top), UI_Layout_Horizontal, (R_Color){0}, 0);
-                UI_Parent(named) {
-                    UI_SetNextFont(m->detail);
-                    Prog__Label(nameLabel, UI_Pixels(labelWidth), row, 0, theme->textDim, 0);
-                    // The button that converts them comes last, after everything it takes; for a folder's or a selection's files it says it takes all of them.
-                    String into = Prog_AudioFolder(format, StrMake((const char *)state->audioFolder, state->audioFolderLength)), convert = bulk ? Tr("Convert All") : Tr("Convert");
-                    f32 button = R_TextWidth(m->detail, convert) + 2 * apart;
-                    Prog__TagField(state, Prog_TagFieldFolder, into, false, false, width - left - right - labelWidth - m->gap - button, row, 0, m);
-                    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
-                    UI_Interaction go = Prog__TextButton(S("InspectorConvert"), convert, m->detail, UI_Pixels(button), row, apart, theme->accent, theme->text, theme->textDim, true, m);
-                    if (go.clicked) Prog_QueueCommand(state, Prog_CommandKind_ConvertAudio, 0, 0, go.clickOrder);
                 }
             }
         }
@@ -13116,9 +13105,12 @@ function void Prog__InspectorCover(Prog_State *state, R_TextureHandle texture, b
         }
     }
     // It takes the pointer, which a tooltip needs, though a press does nothing.
+    // A click asks for the picture, where the files take one.
+    b32 takes = !state->directory.archive && (shared ? state->bulk.coverable != 0 : Prog_AudioHoldsCover(state->previewPath));
     cover->flags |= UI_Flag_LeftMouseClickable;
-    UI_InteractionFromBlock(cover);
-    if (!P_DropPending() && UI->hotKey == cover->key && !UI->activeKey && !shared) Prog__PopupTooltip(state, has ? Tr("Drop a picture here to replace the album cover.") : Tr("Drop a picture here to add an album cover."));
+    UI_Interaction press = UI_InteractionFromBlock(cover);
+    if (press.clicked && takes) Prog_QueueCommand(state, Prog_CommandKind_InspectorPickCover, shared ? 1 : 0, 0, press.clickOrder);
+    if (!P_DropPending() && UI->hotKey == cover->key && !UI->activeKey && takes) Prog__PopupTooltip(state, has ? Tr("Click, or drop a picture here, to replace the album cover.") : Tr("Click, or drop a picture here, to add an album cover."));
     UI_SetNextPrefWidth(UI_Pixels(m->inset));
     UI_SetNextPrefHeight(UI_Pixels(side));
     UI_AddBlock(0);
@@ -13521,15 +13513,10 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             Prog__ToolbarButton(state, S("InspectorClose"), Icon_X, Prog_CommandKind_TogglePreview, true, m);
             Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
             Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
-            // The layouts, in a dashed outline, the one chosen lit.
-            local_persist const String layoutKeys[Prog_InspectorLayout_Count] = { SInit("InspectorLayoutAuto"), SInit("InspectorLayoutRight"), SInit("InspectorLayoutBelow") };
+            // Where the inspector goes, chosen once and seldom changed: one button with the layout's icon, whose menu has the three.
             const String layoutIcons[Prog_InspectorLayout_Count] = { Icon_PanelsTopLeft, Icon_PanelLeft, Icon_PanelTop };
             Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
-            local_persist const String layoutTips[Prog_InspectorLayout_Count] = {
-                TrInit("Auto positions the inspector to the right or below based on available space."), TrInit("Forces the inspector to the right."), TrInit("Forces the inspector below."),
-            };
-            Prog__ChoiceGroup(state, layoutKeys, layoutIcons, NULL, layoutTips, Prog_InspectorLayout_Count, state->inspectorLayout, Prog_CommandKind_InspectorSetLayout,
-                              Prog_CommandKind_InspectorChangeLayout, m);
+            Prog__MenuButton(state, S("InspectorLayout"), layoutIcons[state->inspectorLayout], Prog_CommandKind_InspectorLayoutMenu, true, 0, m);
             // An audio file's waveform and a video's frame leave the zoom to the pictures, for their own tools.
             b32 media = entry && (Prog_IsAudio(entry->file.name) || Prog_IsVideo(entry->file.name));
             if (image && !media) {
@@ -13629,7 +13616,18 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(3 * m->row));
                 UI_SetNextChildrenLayout(UI_Layout_Vertical);
-                UI_Parent(UI_AddBlock(UI_Flag_Clip)) Prog__InspectorFacts(state, entry, m);
+                // Its title, and who it is by and from, as its tags have them, the file's name being in the toolbar; one without them shows as any file does.
+                UI_Parent(UI_AddBlock(UI_Flag_Clip)) {
+                    String title = state->previewTags.values[0], artist = state->previewTags.values[1], album = state->previewTags.values[2];
+                    String by = artist.length && album.length ? StrFormat(&state->frameArena, "%S · %S", artist, album) : artist.length ? artist : album;
+                    if (title.length || by.length) {
+                        Prog__Label(title.length ? title : entry->file.name, UI_Flex(), m->row, 0, theme->textHeading, 0);
+                        Prog__Label(by.length ? by : Prog__FactsLine(state, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
+                        Prog__Label(by.length ? Prog__FactsLine(state, entry) : Prog_EntryModified(&state->frameArena, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
+                    } else {
+                        Prog__InspectorFacts(state, entry, m);
+                    }
+                }
             }
             Prog__InspectorImage(state, m);
         } else if (image) {
@@ -13640,6 +13638,12 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             if (archive) {
                 String summary = state->previewArchiveCounted ? Prog_ArchiveSummary(&state->frameArena, state->previewArchiveTotals, entry->file.size) : Tr("Counting...");
                 Prog__Label(summary, UI_Flex(), m->row, m->inset, theme->textDim, 0);
+            }
+            // Converting the folder's audio files, or the selection's, over their list, under the toolbar.
+            if (!archive && state->bulk.count && state->currentPanel == state->activePanel && Prog__HasFfmpeg(state)) {
+                UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
+                UI_Block *converting = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
+                UI_Parent(converting) Prog__ConvertLine(state, MaxF32(0, pane->rect.x1 - pane->rect.x0 - 2 * m->inset), m->pill, m);
             }
             Prog__InspectorList(state, m);
         } else {
@@ -13717,6 +13721,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             // An image's type, size and date there, the name being in the toolbar, cut short of the scale beside it.
             } else if (image && !Prog_IsAudio(entry->file.name)) {
                 String facts = StrFormat(&state->frameArena, "%S, %S", Prog__FactsLine(state, entry), Prog_EntryModified(&state->frameArena, entry));
+                if (state->previewImageWidth > 0) facts = StrFormat(&state->frameArena, "%d \u00D7 %d, %S", state->previewImageWidth, state->previewImageHeight, facts);
                 f32 fits = MaxF32(0, pane->rect.x1 - pane->rect.x0 - radius - m->inset - floorf(m->line * 2.4f) - 2 * radius - m->gap - floorf(9.6f * s + 0.5f));
                 Prog__LabelPadded(Prog__Ellipsize(&state->frameArena, m->font, facts, fits), UI_Flex(), m->pill, radius + m->inset, 0, theme->textDim, 0);
             } else {
@@ -13773,7 +13778,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 }
             }
         }
-        if (entry) Prog__InspectorDetails(state, entry, pane->rect.x1 - pane->rect.x0, bar, m);
+        if (entry) Prog__InspectorDetails(state, entry, pane->rect.x1 - pane->rect.x0, pane->rect.y1 - pane->rect.y0, bar, m);
     }
 }
 

@@ -1073,15 +1073,6 @@ Others may run
 Loading...
 = Chargement...
 
-Auto positions the inspector to the right or below based on available space.
-= Auto place l'inspecteur à droite ou en dessous selon l'espace disponible.
-
-Forces the inspector to the right.
-= Place toujours l'inspecteur à droite.
-
-Forces the inspector below.
-= Place toujours l'inspecteur en dessous.
-
 Display image scaled to fit within the viewport.
 = Affiche l'image ajustée à la zone d'affichage.
 
@@ -3747,12 +3738,6 @@ Saving the tags
 Saving the album cover
 = Enregistrement de la pochette
 
-Drop a picture here to replace the album cover.
-= Déposez une image ici pour remplacer la pochette de l'album.
-
-Drop a picture here to add an album cover.
-= Déposez une image ici pour ajouter une pochette d'album.
-
 Saving the tags failed
 = Échec de l'enregistrement des tags
 
@@ -3818,9 +3803,6 @@ Audio files
 
 Covers: %u of %u
 = Pochettes : %u sur %u
-
-Drop a picture on it for all
-= Déposez une image dessus pour tous
 
 Their format takes no cover
 = Leur format ne prend pas de pochette
@@ -3890,3 +3872,36 @@ The folder beside the file that the converted audio goes into.
 
 Save the album cover as a picture beside the file.
 = Enregistrer la pochette de lalbum comme image à côté du fichier.
+
+Dimensions
+= Dimensions
+
+Click to copy.
+= Cliquez pour copier.
+
+Click or drop a picture for all
+= Cliquez ou déposez une image, pour tous
+
+Click, or drop a picture here, to replace the album cover.
+= Cliquez ou déposez une image ici pour remplacer la pochette de l'album.
+
+Click, or drop a picture here, to add an album cover.
+= Cliquez ou déposez une image ici pour ajouter une pochette d'album.
+
+Automatic, by the room there is
+= Automatique, selon la place
+
+On the right
+= À droite
+
+Below
+= En dessous
+
+Copied
+= Copié
+
+Choose the album cover
+= Choisir la pochette de l'album
+
+Pictures
+= Images

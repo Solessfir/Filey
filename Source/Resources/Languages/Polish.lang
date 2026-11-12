@@ -1073,15 +1073,6 @@ Others may run
 Loading...
 = Wczytywanie...
 
-Auto positions the inspector to the right or below based on available space.
-= Umieszcza inspektor po prawej lub na dole, zależnie od dostępnego miejsca.
-
-Forces the inspector to the right.
-= Inspektor zawsze po prawej.
-
-Forces the inspector below.
-= Inspektor zawsze na dole.
-
 Display image scaled to fit within the viewport.
 = Wyświetla obraz dopasowany do obszaru widoku.
 
@@ -3747,12 +3738,6 @@ Saving the tags
 Saving the album cover
 = Zapisywanie okładki albumu
 
-Drop a picture here to replace the album cover.
-= Upuść tu obraz, aby zastąpić okładkę albumu.
-
-Drop a picture here to add an album cover.
-= Upuść tu obraz, aby dodać okładkę albumu.
-
 Saving the tags failed
 = Nie udało się zapisać tagów
 
@@ -3818,9 +3803,6 @@ Audio files
 
 Covers: %u of %u
 = Okładki: %u z %u
-
-Drop a picture on it for all
-= Upuść na nią obraz dla wszystkich
 
 Their format takes no cover
 = Ich format nie przyjmuje okładki
@@ -3890,3 +3872,36 @@ The folder beside the file that the converted audio goes into.
 
 Save the album cover as a picture beside the file.
 = Zapisz okładkę albumu jako obraz obok pliku.
+
+Dimensions
+= Wymiary
+
+Click to copy.
+= Kliknij, aby skopiować.
+
+Click or drop a picture for all
+= Kliknij lub upuść obraz, dla wszystkich
+
+Click, or drop a picture here, to replace the album cover.
+= Kliknij lub upuść tutaj obraz, aby zastąpić okładkę albumu.
+
+Click, or drop a picture here, to add an album cover.
+= Kliknij lub upuść tutaj obraz, aby dodać okładkę albumu.
+
+Automatic, by the room there is
+= Automatycznie, według miejsca
+
+On the right
+= Po prawej
+
+Below
+= Poniżej
+
+Copied
+= Skopiowano
+
+Choose the album cover
+= Wybierz okładkę albumu
+
+Pictures
+= Obrazy

@@ -1072,15 +1072,6 @@ Others may run
 Loading...
 = Wird geladen...
 
-Auto positions the inspector to the right or below based on available space.
-= „Automatisch“ platziert den Inspektor je nach verfügbarem Platz rechts oder unten.
-
-Forces the inspector to the right.
-= Den Inspektor immer rechts anzeigen.
-
-Forces the inspector below.
-= Den Inspektor immer unten anzeigen.
-
 Display image scaled to fit within the viewport.
 = Bild auf die Ansichtsfläche eingepasst anzeigen.
 
@@ -3746,12 +3737,6 @@ Saving the tags
 Saving the album cover
 = Albumcover wird gespeichert
 
-Drop a picture here to replace the album cover.
-= Ziehen Sie ein Bild hierher, um das Albumcover zu ersetzen.
-
-Drop a picture here to add an album cover.
-= Ziehen Sie ein Bild hierher, um ein Albumcover hinzuzufügen.
-
 Saving the tags failed
 = Speichern der Tags fehlgeschlagen
 
@@ -3817,9 +3802,6 @@ Audio files
 
 Covers: %u of %u
 = Cover: %u von %u
-
-Drop a picture on it for all
-= Bild darauf ziehen für alle
 
 Their format takes no cover
 = Ihr Format nimmt kein Cover
@@ -3889,3 +3871,36 @@ The folder beside the file that the converted audio goes into.
 
 Save the album cover as a picture beside the file.
 = Das Albumcover als Bild neben der Datei speichern.
+
+Dimensions
+= Abmessungen
+
+Click to copy.
+= Zum Kopieren klicken.
+
+Click or drop a picture for all
+= Klicken oder ein Bild ablegen, für alle
+
+Click, or drop a picture here, to replace the album cover.
+= Klicken oder ein Bild hier ablegen, um das Albumcover zu ersetzen.
+
+Click, or drop a picture here, to add an album cover.
+= Klicken oder ein Bild hier ablegen, um ein Albumcover hinzuzufügen.
+
+Automatic, by the room there is
+= Automatisch, je nach Platz
+
+On the right
+= Rechts
+
+Below
+= Unten
+
+Copied
+= Kopiert
+
+Choose the album cover
+= Albumcover auswählen
+
+Pictures
+= Bilder

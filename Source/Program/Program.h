@@ -301,6 +301,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_WarmMenu,
     Prog_JobKind_Tidy,             // removes the run folders of the runs that are over, and brings the installed apps' entry up to date
     Prog_JobKind_LongPaths,        // sets the system's long path support, `confirm` saying on or off
+    Prog_JobKind_PickCover,        // asks for a picture with the system's dialog, titled `name` for files it calls `path`, to be the cover of `paths`
     Prog_JobKind_ArchivePassword,  // whether the password `name` opens the archive `path`
     Prog_JobKind_Measure,
     Prog_JobKind_Inspect,
@@ -1933,6 +1934,8 @@ typedef struct Prog_State {
     Prog_TextEdit tagEdit, tagBefore;
     // The audio file whose cover a drag is over in the last build, which a drop there replaces, and the one the drop goes to as this frame
     // takes it.
+    u8 detailCopy[1024];    // the value clicked in the inspector's details, for InspectorCopyDetail to put on the clipboard
+    u32 detailCopyLength;
     u8 coverDropShown[1024], coverDrop[1024];
     u32 coverDropShownLength, coverDropLength;
     Prog_TextEdit hexEdit;
@@ -2524,6 +2527,7 @@ function P_FileError Prog_WriteAudioTags(Arena *arena, String path, String chang
 function P_FileError Prog_ExtractCover(Arena *arena, String path, const P_CancelToken *cancel, String *placed);
 function void Prog_EndTagEdit(Prog_State *state, b32 keep);
 function void Prog_SetCover(Prog_State *state, const String *paths, u64 count, String picture);
+function void Prog_PickCover(Prog_State *state, const String *paths, u64 count);
 function void Prog_ReadBulkTags(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel, i32 side, Prog_BulkTags *bulk);
 function u64 Prog_FolderAudio(Arena *arena, String path, const P_CancelToken *cancel, String **paths);
 function String Prog_AudioFolder(u32 format, String folder);

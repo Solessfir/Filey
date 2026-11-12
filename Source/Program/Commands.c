@@ -1808,6 +1808,14 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_FolderViewScope, .row = Prog_ViewScope_Tree, .label = Tr("This folder and subfolders"), .icon = Icon_FolderTree, .toggle = true, .radio = true,
                        .checked = scope == Prog_ViewScope_Tree || scope == Prog_ViewScope_Inherited);
         } break;
+        // Where the inspector goes: by the room there is, or always to the right or below.
+        case Prog_CommandKind_InspectorLayoutMenu: {
+            const String labels[Prog_InspectorLayout_Count] = { Tr("Automatic, by the room there is"), Tr("On the right"), Tr("Below") };
+            const String icons[Prog_InspectorLayout_Count] = { Icon_PanelsTopLeft, Icon_PanelLeft, Icon_PanelTop };
+            for (u32 i = 0; i < Prog_InspectorLayout_Count; ++i) {
+                Prog__Item(.kind = Prog_CommandKind_InspectorSetLayout, .row = i, .label = labels[i], .icon = icons[i], .toggle = true, .radio = true, .checked = i == (u32)state->inspectorLayout);
+            }
+        } break;
         // Convert Audio's formats, the one chosen checked; the one the files are all in already cannot be chosen.
         case Prog_CommandKind_InspectorAudioFormatMenu: {
             const String *paths = state->bulk.count ? state->bulk.paths : &state->previewPath;
@@ -5267,6 +5275,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_SizeAllColumnsToFit: state->fitColumn = UINT32_MAX; break;
             case Prog_CommandKind_InspectorUsageMenu:
             case Prog_CommandKind_InspectorAudioFormatMenu:
+            case Prog_CommandKind_InspectorLayoutMenu:
             case Prog_CommandKind_FolderViewMenu:
             case Prog_CommandKind_ColumnMenu:
             case Prog_CommandKind_ViewMenu:
@@ -5538,6 +5547,17 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->tagBefore = state->tagEdit;
             } break;
             case Prog_CommandKind_InspectorAudioFormat: Prog_SetOption(state, Prog_Option_AudioFormat, (i32)command->row); break;
+            case Prog_CommandKind_InspectorCopyDetail: {
+                String value = StrMake((const char *)state->detailCopy, state->detailCopyLength);
+                if (!value.length) break;
+                PlatformClipboardSetText(value);
+                Prog_Notify(state, Prog_NoticeKind_Info, S("detail.copied"), Tr("Copied"), StrFormat(&state->frameArena, TrF("%S is on the clipboard."), value));
+            } break;
+            case Prog_CommandKind_InspectorPickCover: {
+                if (state->directory.archive) break;
+                if (command->row) Prog_PickCover(state, state->bulk.paths, state->bulk.count);
+                else if (state->previewPath.length && Prog_AudioHoldsCover(state->previewPath)) Prog_PickCover(state, &state->previewPath, 1);
+            } break;
             case Prog_CommandKind_InspectorMute:
             case Prog_CommandKind_InspectorVolume: {
                 if (command->kind == Prog_CommandKind_InspectorMute) state->audioMuted = !state->audioMuted;

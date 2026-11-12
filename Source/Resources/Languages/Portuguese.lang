@@ -1073,15 +1073,6 @@ Others may run
 Loading...
 = Carregando...
 
-Auto positions the inspector to the right or below based on available space.
-= Automático posiciona o inspetor à direita ou abaixo conforme o espaço disponível.
-
-Forces the inspector to the right.
-= Força o inspetor à direita.
-
-Forces the inspector below.
-= Força o inspetor abaixo.
-
 Display image scaled to fit within the viewport.
 = Exibe a imagem redimensionada para caber na área de visualização.
 
@@ -3747,12 +3738,6 @@ Saving the tags
 Saving the album cover
 = Salvando a capa do álbum
 
-Drop a picture here to replace the album cover.
-= Solte uma imagem aqui para substituir a capa do álbum.
-
-Drop a picture here to add an album cover.
-= Solte uma imagem aqui para adicionar uma capa ao álbum.
-
 Saving the tags failed
 = Falha ao salvar as tags
 
@@ -3818,9 +3803,6 @@ Audio files
 
 Covers: %u of %u
 = Capas: %u de %u
-
-Drop a picture on it for all
-= Solte uma imagem nela para todos
 
 Their format takes no cover
 = O formato deles não aceita capa
@@ -3890,3 +3872,36 @@ The folder beside the file that the converted audio goes into.
 
 Save the album cover as a picture beside the file.
 = Salvar a capa do álbum como imagem ao lado do arquivo.
+
+Dimensions
+= Dimensões
+
+Click to copy.
+= Clique para copiar.
+
+Click or drop a picture for all
+= Clique ou solte uma imagem, para todos
+
+Click, or drop a picture here, to replace the album cover.
+= Clique ou solte uma imagem aqui para substituir a capa do álbum.
+
+Click, or drop a picture here, to add an album cover.
+= Clique ou solte uma imagem aqui para adicionar uma capa de álbum.
+
+Automatic, by the room there is
+= Automático, conforme o espaço
+
+On the right
+= À direita
+
+Below
+= Abaixo
+
+Copied
+= Copiado
+
+Choose the album cover
+= Escolha a capa do álbum
+
+Pictures
+= Imagens

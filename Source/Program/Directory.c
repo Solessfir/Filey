@@ -3763,6 +3763,12 @@ function void Prog__DirectoryJob(P_Job *job)
         P_SetLongPaths(input->confirm);
         return;
     }
+    if (input->kind == Prog_JobKind_PickCover) {
+        String *picked = ArenaPushStruct(&job->arena, String);
+        *picked = P_PickFile(&job->arena, input->name, input->path, S("*.jpg *.jpeg *.png *.webp *.bmp *.gif *.tif *.tiff"));
+        job->result = picked;
+        return;
+    }
     if (input->kind == Prog_JobKind_ArchivePassword) {
         b32 *opens = ArenaPushStruct(&job->arena, b32);
         *opens = P_ArchiveCheckPassword(input->path, input->name, &job->cancelToken);
@@ -4116,6 +4122,22 @@ function void Prog_IndexRefresh(Prog_State *state, String path)
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_IndexRefresh;
     input->path = StrCopy(&job->arena, path);
+    job->input = input;
+    P_JobSubmit(job);
+}
+
+// Asks for a picture with the system's dialog, in a job as it waits for the answer, to be the cover of the audio files `paths`.
+function void Prog_PickCover(Prog_State *state, const String *paths, u64 count)
+{
+    if (!count) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_PickCover;
+    input->paths = ArenaPushArray(&job->arena, count, String);
+    input->pathCount = count;
+    for (u64 i = 0; i < count; ++i) input->paths[i] = StrCopy(&job->arena, paths[i]);
+    input->name = StrCopy(&job->arena, Tr("Choose the album cover"));
+    input->path = StrCopy(&job->arena, Tr("Pictures"));
     job->input = input;
     P_JobSubmit(job);
 }
@@ -9180,6 +9202,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         } else if (input->kind == Prog_JobKind_Tidy) {
             const b32 *waits = job->result;
             if (waits && *waits) Prog_NotifyWinEKey(state);
+        } else if (input->kind == Prog_JobKind_PickCover) {
+            const String *picked = job->result;
+            if (picked && picked->length) Prog_SetCover(state, input->paths, input->pathCount, *picked);
         } else if (input->kind == Prog_JobKind_LongPaths) {
             state->longPaths = P_LongPathsEnabled();
             state->longPathsSetting = false;
