@@ -470,6 +470,7 @@ global const char *const Prog_Strings[] = {
     "Pause the download.",
     "Stop the download; downloading it again goes on from here.",
     "Starting...",
+    "Save the album cover as a picture beside the file.",
     "Drop a picture here to replace the album cover.",
     "Drop a picture here to add an album cover.",
     "Scanning... %S, %S, %S",

@@ -13008,8 +13008,6 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
         // Its percent, in room for 100% so that nothing after it moves.
         UI_SetNextFont(m->detail);
         Prog__LabelPadded(StrFormat(frame, "%u%%", volume), UI_Pixels(R_TextWidth(m->detail, S("100%")) + 2 * apart), bar, apart, apart, theme->textDim, 0);
-        // Its cover saved as a picture beside it, where it has one.
-        if (state->previewTags.cover.length && !state->directory.archive) Prog__ToolbarButton(state, S("InspectorSaveCover"), Icon_Download, Prog_CommandKind_InspectorSaveCover, true, m);
     } else if (Prog_IsVideo(entry->file.name)) {
         local_persist const String codecKeys[3] = { SInit("InspectorCodecHevc"), SInit("InspectorCodecH264"), SInit("InspectorCodecAv1") };
         const String codecLabels[3] = { NoTr("HEVC"), NoTr("H.264"), NoTr("AV1") };
@@ -13087,7 +13085,8 @@ function void Prog__InspectorCover(Prog_State *state, R_TextureHandle texture, b
         MemCopy(state->coverDropShown, state->previewPath.value, state->coverDropShownLength);
     }
     b32 has = texture.u64[0] != 0;
-    cover->props.colors = (UI_Colors){ .background = has ? (R_Color){0} : theme->track, .border = over ? theme->accent : theme->tabBorder };
+    UI_Key saveKey = 0;
+    cover->props.colors =(UI_Colors){ .background = has ? (R_Color){0} : theme->track, .border = over ? theme->accent : theme->tabBorder };
     cover->flags |= UI_Flag_DrawBorder | UI_Flag_Clip | (has ? 0 : UI_Flag_DrawBackground);
     UI_Parent(cover) {
         if (has) {
@@ -13095,11 +13094,31 @@ function void Prog__InspectorCover(Prog_State *state, R_TextureHandle texture, b
             UI_SetNextPrefHeight(UI_Pixels(side));
             UI_SetNextImage(texture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ side, side }, (R_Color){ 1, 1, 1, 1 });
             UI_AddBlock(UI_Flag_DrawImage);
+            // A file's own cover is saved as a picture beside it from the button in its corner, dark under a light arrow whatever the cover's colors.
+            if (!shared && state->previewTags.cover.length && !state->directory.archive) {
+                f32 size = floorf(20.8f * s + 0.5f), edge = floorf(3.2f * s + 0.5f);
+                saveKey = UI_KeyFromStr(0, S("InspectorSaveCover"));
+                b32 hot = UI->hotKey == saveKey;
+                UI_SetNextFloatingOffset((UI_Vec2){ side - size - edge, side - size - edge });
+                UI_SetNextPrefWidth(UI_Pixels(size));
+                UI_SetNextPrefHeight(UI_Pixels(size));
+                UI_SetNextCornerRadius(size * 0.5f);
+                UI_SetNextFont(m->iconsSmall);
+                UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                UI_SetNextText(Icon_Download);
+                UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, hot ? 0.85f : 0.6f }, .text = { 1, 1, 1, hot ? 1.0f : 0.85f } });
+                UI_Interaction save = UI_InteractionFromBlock(UI_AddBlockFromKey(saveKey, UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawText | UI_Flag_LeftMouseClickable));
+                if (save.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorSaveCover, 0, 0, save.clickOrder);
+                if (hot) Prog__PopupTooltip(state, Tr("Save the album cover as a picture beside the file."));
+            }
         } else {
             Prog__Icon(Icon_Image, side, side, over ? theme->accent : theme->iconDisabled, 0.5f, m);
         }
     }
-    if (!P_DropPending() && UI__Contains(cover->rect, UI->mouse) && !UI->activeKey && !shared) Prog__PopupTooltip(state, has ? Tr("Drop a picture here to replace the album cover.") : Tr("Drop a picture here to add an album cover."));
+    // It takes the pointer, which a tooltip needs, though a press does nothing.
+    cover->flags |= UI_Flag_LeftMouseClickable;
+    UI_InteractionFromBlock(cover);
+    if (!P_DropPending() && UI->hotKey == cover->key && !UI->activeKey && !shared) Prog__PopupTooltip(state, has ? Tr("Drop a picture here to replace the album cover.") : Tr("Drop a picture here to add an album cover."));
     UI_SetNextPrefWidth(UI_Pixels(m->inset));
     UI_SetNextPrefHeight(UI_Pixels(side));
     UI_AddBlock(0);
