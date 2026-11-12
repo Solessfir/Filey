@@ -1506,6 +1506,12 @@ function void TestFileIcons(TestFileFixture *fixture)
             // Never into the format the files are all in already: MP3s go on past both MP3s to AAC, and FLAC round to MP3.
             Check(Prog_ConvertFormat(0, (String[]){ S("a.mp3"), S("b.MP3") }, 2) == 2 && Prog_ConvertFormat(0, (String[]){ S("a.mp3"), S("b.flac") }, 2) == 0);
             Check(Prog_ConvertFormat(4, (String[]){ S("a.flac") }, 1) == 0);
+            // A seek goes five seconds either way, not before the start nor into the last half second; a length not known has no end.
+            Check(Prog_SeekTarget(12000, 60000, true) == 7000 && Prog_SeekTarget(3000, 60000, true) == 0 && Prog_SeekTarget(12000, 60000, false) == 17000);
+            Check(Prog_SeekTarget(58000, 60000, false) == 59500 && Prog_SeekTarget(100, 300, false) == 0 && Prog_SeekTarget(58000, 0, false) == 63000);
+            // Covers the same as one saved already are told apart from new ones, which are kept.
+            u64 seen[3] = {0}, seenCount = 0;
+            Check(!Prog_NoteHash(seen, &seenCount, 7) && Prog_NoteHash(seen, &seenCount, 7) && !Prog_NoteHash(seen, &seenCount, 9) && seenCount == 2 && Prog_NoteHash(seen, &seenCount, 9));
             // Converted into a folder beside it, made as it is missing, with its tags, and its cover where the format takes one.
             String converted = {0};
             Check(!Prog_ConvertAudio(&arena, song, 0, S("MP3"), 0, NULL, NULL, &converted).code && TestEndsWith(converted, S("/MP3/song.mp3")));

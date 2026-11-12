@@ -653,6 +653,23 @@ function String Prog_AudioFolder(u32 format, String folder)
     return folder.length ? folder : StrFromCStr(Prog_AudioFormatFolders[Min(format, (u32)CArrayCount(Prog_AudioFormats) - 1)]);
 }
 
+// Where a seek of five seconds from `at` goes in audio `length` long, both in milliseconds: back to the start at most, and on to half a second
+// short of the end, so that what is left still plays; a length not known, 0, has no end to stop at.
+function u64 Prog_SeekTarget(u64 at, u64 length, b32 back)
+{
+    u64 step = 5000, to = back ? (at > step ? at - step : 0) : at + step;
+    if (length && to + 500 > length) to = length > 500 ? length - 500 : 0;
+    return to;
+}
+
+// Whether `hash` is among the `count` in `seen` already; one that is not is added to them, which have room for it.
+function b32 Prog_NoteHash(u64 *seen, u64 *count, u64 hash)
+{
+    for (u64 i = 0; i < *count; ++i) if (seen[i] == hash) return true;
+    seen[(*count)++] = hash;
+    return false;
+}
+
 // The format the audio files `paths` are converted to: `format`, or the next one after it when all of them are in it already, as converting a
 // file into its own format only loses quality.
 function u32 Prog_ConvertFormat(u32 format, const String *paths, u64 count)

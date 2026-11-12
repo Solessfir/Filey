@@ -1751,13 +1751,10 @@ function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, 
             Scratch scratch = GetScratchEx(arena);
             String bytes = {0};
             u64 hash = P_ReadFile(scratch.arena, cover, &bytes) ? MapHashBytes(bytes.value, bytes.length) : i + 1;
-            b32 repeat = false;
-            for (u64 s = 0; s < seenCount && !repeat; ++s) repeat = seen[s] == hash;
+            b32 repeat = Prog_NoteHash(seen, &seenCount, hash);
             if (repeat) P_DeleteItems(scratch.arena, &cover, 1, false, NULL);
             ReleaseScratch(scratch);
-            if (repeat) continue;
-            seen[seenCount++] = hash;
-            ArrayPush(arena, *placed, cover);
+            if (!repeat) ArrayPush(arena, *placed, cover);
         }
         if (input->pathCount > 1 && !seenCount) result = (P_FileError){ .code = 1, .message = TrMark("The files have no cover") };
         return result;

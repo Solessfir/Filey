@@ -12153,8 +12153,12 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                         String shown = i == 0 ? Prog__EllipsizeMiddle(frame, m->detail, values[i], room) : Prog__Ellipsize(frame, m->detail, values[i], room);
                         UI_Key valueKey = UI_KeyFromStr(0, StrFormat(frame, "InspectorDetail/%u", i));
                         b32 copies = values[i].value != none.value, lit = copies && UI->hotKey == valueKey;
-                        UI_SetNextPrefWidth(UI_Flex());
+                        // As wide as its text, so that what lights under the pointer is the value, not the row.
+                        f32 pad = floorf(4.0f * s + 0.5f);
+                        Prog__Spacer(UI_Flex(), UI_Pixels(row));
+                        UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->detail, shown) + pad));
                         UI_SetNextPrefHeight(UI_Pixels(row));
+                        UI_SetNextChildrenPadding((UI_Padding){ pad, 0, 0, 0 });
                         UI_SetNextFont(m->detail);
                         UI_SetNextTextAlignment((UI_Vec2){ 1, 0.5f });
                         UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
@@ -13638,7 +13642,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
         }
         // Converting an audio file, or a folder's or a selection's audio files, on a line under the toolbar, the same place for each.
         b32 several = folder && !archive && state->bulk.count && state->currentPanel == state->activePanel;
-        if (entry && !state->directory.archive && (several || (!folder && Prog_IsAudio(entry->file.name))) && Prog__HasFfmpeg(state)) {
+        b32 convertLine = entry && !state->directory.archive && (several || (!folder && Prog_IsAudio(entry->file.name))) && Prog__HasFfmpeg(state);
+        if (convertLine) {
             UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
             UI_Block *converting = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
             UI_Parent(converting) Prog__ConvertLine(state, MaxF32(0, pane->rect.x1 - pane->rect.x0 - 2 * m->inset), m->pill, m);
@@ -13820,7 +13825,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 }
             }
         }
-        if (entry) Prog__InspectorDetails(state, entry, pane->rect.x1 - pane->rect.x0, pane->rect.y1 - pane->rect.y0, bar, m);
+        // Under the line that converts, where there is one, which it leaves in sight.
+        if (entry) Prog__InspectorDetails(state, entry, pane->rect.x1 - pane->rect.x0, pane->rect.y1 - pane->rect.y0, bar + (convertLine ? m->pill : 0), m);
     }
 }
 

@@ -5603,10 +5603,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (state->focusedRow >= state->directory.count || !Prog_IsAudio(state->directory.entries[state->focusedRow].file.name)) break;
                 String path = Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name);
                 if (!state->playerJob || state->playerHash != MapHashBytes(path.value, path.length)) break;
-                u64 at = atomic_load(&state->playerProgress[state->playerSlot].doneBytes), length = (u64)(state->previewSeconds * 1000), step = 5000;
-                u64 to = command->kind == Prog_CommandKind_InspectorSeekBack ? (at > step ? at - step : 0) : at + step;
-                if (length && to + 500 > length) to = length > 500 ? length - 500 : 0;
-                Prog__StartPlayer(state, path, to);
+                u64 at = atomic_load(&state->playerProgress[state->playerSlot].doneBytes), length = (u64)(state->previewSeconds * 1000);
+                Prog__StartPlayer(state, path, Prog_SeekTarget(at, length, command->kind == Prog_CommandKind_InspectorSeekBack));
             } break;
             case Prog_CommandKind_InspectorVideoCodec: Prog_SetOption(state, Prog_Option_VideoCodec, (i32)command->row); break;
             case Prog_CommandKind_InspectorVideoQuality: Prog_SetOption(state, Prog_Option_VideoQuality, (i32)state->videoQuality + (command->row ? 1 : -1)); break;
