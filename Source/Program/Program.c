@@ -5202,6 +5202,8 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Files")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable |
                                         (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     UI_Interaction listInteraction = UI_InteractionFromBlock(list);
+    u32 listPanel = Prog_PanelIndex(state, Prog__PanelId(state));
+    if (listPanel != UINT32_MAX) state->panels[listPanel].listRect = list->rect;
     if (UI->hotKey == list->key && !state->loading) state->hoverSpacePanel = Prog__PanelId(state);
     // A box drawn from the empty space leaves it the marquee's block, which only that drag's release is kept from clicking.
     if (listInteraction.pressed && state->marqueeKey == list->key) state->marqueeKey = 0;
@@ -11137,27 +11139,27 @@ function void Prog__DropZones(Prog_State *state, R_Rect panel, f32 top, const Pr
         R_Rect box = zones[i].box;
         if ((own && zones[i].drop == Prog_TabDrop_Into) || !UI__Contains((R_Rect){ panel.x0 + box.x0, panel.y0 + box.y0, panel.x0 + box.x1, panel.y0 + box.y1 }, UI->mouse)) continue;
         Prog_TabDrop drop = zones[i].drop;
-        f32 halfWidth = floorf(width * 0.5f), halfHeight = floorf(height * 0.5f);
-        f32 x0 = drop == Prog_TabDrop_Right ? halfWidth : 0, x1 = drop == Prog_TabDrop_Left ? halfWidth : width;
-        UI_Block *dragged = UI__Find(state->tabDragKey);
-        f32 tab = dragged ? dragged->rect.y1 - dragged->rect.y0 : m->bar;
+        // Over the panel's list only, its half or all of it, a little in from its sides and above the footer; the whole panel where it shows no list.
+        u32 index = Prog_PanelIndex(state, Prog__PanelId(state));
+        R_Rect list = index != UINT32_MAX ? state->panels[index].listRect : (R_Rect){0};
+        if (list.x1 <= list.x0 || list.y1 <= list.y0) list = panel;
+        f32 inset = floorf(6.4f * s + 0.5f);
+        f32 x0 = list.x0 - panel.x0 + inset, x1 = list.x1 - panel.x0 - inset, y0 = list.y0 - panel.y0, y1 = list.y1 - panel.y0 - inset;
+        f32 midX = floorf((x0 + x1) * 0.5f), midY = floorf((y0 + y1) * 0.5f);
+        if (drop == Prog_TabDrop_Left) x1 = midX;
+        if (drop == Prog_TabDrop_Right) x0 = midX;
+        if (drop == Prog_TabDrop_Top) y1 = midY;
+        if (drop == Prog_TabDrop_Bottom) y0 = midY;
         const Prog_Theme *theme = Prog_CurrentTheme();
         R_Color fill = theme->selection;
         fill.a *= theme->hoverAmount.r * (2.0f / 3.0f);
-        struct { R_Rect rect; u32 shape; } parts[2] = {
-            { { x0, -tab, x1, 0 }, R_Shape_SquareBottomLeft | R_Shape_SquareBottomRight },
-            { { x0, drop == Prog_TabDrop_Bottom ? halfHeight : 0, x1, drop == Prog_TabDrop_Top ? halfHeight : height }, R_Shape_SquareTopLeft | R_Shape_SquareTopRight },
-        };
-        for (u32 p = drop == Prog_TabDrop_Bottom ? 1 : 0; p < 2; ++p) {
-            UI_SetNextFloatingOffset((UI_Vec2){ parts[p].rect.x0, parts[p].rect.y0 });
-            UI_SetNextPrefWidth(UI_Pixels(parts[p].rect.x1 - parts[p].rect.x0));
-            UI_SetNextPrefHeight(UI_Pixels(parts[p].rect.y1 - parts[p].rect.y0));
-            UI_SetNextCornerRadius(m->radius);
-            UI_SetNextShape(drop == Prog_TabDrop_Bottom ? 0 : parts[p].shape);
-            UI_SetNextBorderThickness(m->stroke);
-            UI_SetNextColors((UI_Colors){ .background = fill, .border = theme->tabBorder });
-            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
-        }
+        UI_SetNextFloatingOffset((UI_Vec2){ x0, y0 });
+        UI_SetNextPrefWidth(UI_Pixels(MaxF32(0, x1 - x0)));
+        UI_SetNextPrefHeight(UI_Pixels(MaxF32(0, y1 - y0)));
+        UI_SetNextCornerRadius(m->radius);
+        UI_SetNextBorderThickness(m->stroke);
+        UI_SetNextColors((UI_Colors){ .background = fill, .border = theme->tabBorder });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
         break;
     }
     for (u32 i = 0; i < CArrayCount(zones); ++i) {
@@ -14551,7 +14553,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     state->tooltipAbove = false;
     state->tooltipPath = (String){0};
     state->cursor = PlatformCursor_Arrow;
-    for (u32 i = 0; i < state->panelCount; ++i) state->panels[i].inspectorRect = (R_Rect){0};
+    for (u32 i = 0; i < state->panelCount; ++i) state->panels[i].inspectorRect = state->panels[i].listRect = (R_Rect){0};
     state->inspectorTextRect = (R_Rect){0};
     state->bookmarkDropShown = 0;
     state->coverDropShownLength = 0;
