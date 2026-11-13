@@ -98,3 +98,5 @@ eye-off
 layout-dashboard
 folder-filled
 folders
+scissors
+trash-2

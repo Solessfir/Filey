@@ -994,6 +994,7 @@ typedef enum Prog_Option {
     Prog_Option_Animations,
     Prog_Option_RoundCorners,
     Prog_Option_InlineSubmenus,
+    Prog_Option_QuickActions,
     Prog_Option_Tooltips,
     Prog_Option_SystemScheme,
     Prog_Option_ColorScheme,
@@ -1785,6 +1786,8 @@ typedef struct Prog_State {
     b32 menuApart[9];         // each submenu that could not sit against its opener's panel in the last build, whose opener is then lit
     u32 menuSquare[9];        // each level's corners that the submenu joined to it squared off in the last build, as R_Shape flags
     b32 menuInline;           // submenus open inside their menu, under their item, rather than beside it
+    b32 menuQuickActions;     // the menu of selected items starts with a row of buttons for cutting, copying, renaming and deleting them
+    b32 menuQuick;            // the open menu shows that row
     b32 noTooltips;           // no tips under the pointer's resting place
     u32 menuExpanded[32];     // with menuInline, the items whose submenus are open, in the order they were opened
     u32 menuExpandedCount;

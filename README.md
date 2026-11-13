@@ -24,6 +24,7 @@
 - A command palette that runs any command by name
 - The sidebar works from the keyboard too (Alt+Q)
 - Every hotkey can be changed
+- Optional quick actions in the right-click menu: cut, copy, rename and delete by the pointer
 
 **Inspector**
 - Previews of text with syntax highlighting, images, SVG, PDF, Word, Excel, archives and hex

@@ -400,6 +400,15 @@ function String Prog__RowsFolder(Prog_State *state, Arena *arena, u64 *rows, u64
     return parent.length ? Prog_JoinPath(arena, state->directory.path, parent) : state->directory.path;
 }
 
+// Whether a system menu item does what one of the quick actions' buttons does: cut, copy, rename or delete.
+function b32 Prog__QuickActionItem(const P_MenuItem *item)
+{
+    return StrIsEqual(item->verb, S("cut")) || StrIsEqual(item->verb, S("copy")) || StrIsEqual(item->verb, S("rename")) || StrIsEqual(item->verb, S("delete")) ||
+           item->action == P_MenuAction_Cut || item->action == P_MenuAction_Copy || item->action == P_MenuAction_Trash || item->action == P_MenuAction_Delete ||
+           (item->action == P_MenuAction_Command && (item->id == Prog_CommandKind_Rename || item->id == Prog_CommandKind_Trash || item->id == Prog_CommandKind_CutSelection ||
+                                                     item->id == Prog_CommandKind_CopySelection));
+}
+
 // Opens Filey's own menu of `items` with its corner at `at`.
 function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *items, u32 count, UI_Vec2 at)
 {
@@ -419,6 +428,7 @@ function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *it
     state->menuOpen = true;
     state->menuAt = at;
     state->menuFlips = false;
+    state->menuQuick = false;
     // The keyboard starts on the first item.
     state->menuHighlight = UINT32_MAX;
     for (u32 i = 0; i < count && state->menuHighlight == UINT32_MAX; ++i) if (!state->menu.items[i].separator && !state->menu.items[i].disabled) state->menuHighlight = i;
@@ -2206,6 +2216,12 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
     if (!state->menu.count) {
         Prog_CloseMenu(state);
         return;
+    }
+    // With the quick actions on, the selection's menu leaves their items to the row of buttons at its edge.
+    state->menuQuick = state->menuQuickActions && state->menuRowCount && !state->directory.archive;
+    for (u32 i = 0; state->menuQuick && i < state->menu.rootCount; ++i) {
+        P_MenuItem *item = &state->menu.items[i];
+        if (Prog__QuickActionItem(item)) item->label = (String){0};
     }
     Prog__ApplyMenuPins(state);
     b32 atRow = !mouse && state->menuRowCount;
@@ -4240,6 +4256,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->menuAt = command->at.x != 0 || command->at.y != 0 ? command->at : state->ui.mouse;
                 state->menuFlips = true;
                 state->menuAbove = state->menuAt.y;
+                state->menuQuick = false;
                 state->menuHighlight = UINT32_MAX;
                 Prog__MenuMove(state, 1);
             } break;

@@ -25,6 +25,8 @@ global const char *const Prog_Strings[] = {
     "Applies rounding to the corners of UI elements such as popups, buttons, and selections.",
     "Inline Submenus",
     "Opens a menu's submenus inside it, under their item, rather than beside it.",
+    "Quick Actions",
+    "Shows buttons for cut, copy, rename and delete at the edge of the selection's menu nearest the pointer.",
     "Tooltips",
     "Shows tips when the pointer rests on files, folders and buttons.",
     "System Light / Dark Scheme",

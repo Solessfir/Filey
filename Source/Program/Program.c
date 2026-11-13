@@ -810,7 +810,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->hideExtensions = state->showSystem = false;
     state->fullPaths = state->noTrail = state->sidebarTree = false;
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
-    state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->noTooltips = state->separateInstances = state->gitFetch = state->mcp = false;
+    state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->menuQuickActions = state->noTooltips = state->separateInstances = state->gitFetch = state->mcp = false;
     state->startup = Prog_Startup_LastSession;
     state->newTab = Prog_NewTab_Root;
     state->newTabView = Prog_NewTabView_Details;
@@ -900,6 +900,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->sidebarTree = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("menus.inline"))) {
             state->menuInline = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("menus.quick"))) {
+            state->menuQuickActions = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("tooltips"))) {
             state->noTooltips = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("startup"))) {
@@ -1098,6 +1100,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# The sidebar's drives unfolding into the folders in them, as a tree.\n# sidebar.tree = false\n\n"
                                 "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = false\n\n"
                                 "# Submenus that open inside their menu, under their item, rather than beside it.\n# menus.inline = false\n\n"
+                                "# A row of buttons for cutting, copying, renaming and deleting at the edge of the menu of selected items nearest the pointer.\n# menus.quick = false\n\n"
                                 "# Tips under the pointer when it rests on files, folders and buttons.\n# tooltips = true\n\n"
                                 "# Whether emptying the Recycle Bin (the Trash) asks first.\n# trash.confirm = true\n\n"
                                 "# How hard the archives Filey writes are compressed, from 0 (stored) to 9 (smallest, slowest).\n# archive.level = 9\n\n"));
@@ -1185,6 +1188,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                    0, 1, Prog_OptionCorners, 2, SInit("corners") },
     [Prog_Option_InlineSubmenus] = { TrInit("Inline Submenus"), TrInit("Opens a menu's submenus inside it, under their item, rather than beside it."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, SInit("menus.inline") },
+    [Prog_Option_QuickActions] = { TrInit("Quick Actions"), TrInit("Shows buttons for cut, copy, rename and delete at the edge of the selection's menu nearest the pointer."),
+                                   Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("menus.quick") },
     [Prog_Option_Tooltips] = { TrInit("Tooltips"), TrInit("Shows tips when the pointer rests on files, folders and buttons."), Prog_OptionControl_Switch, 0, 1,
                                Prog_OptionSwitch, 2, SInit("tooltips") },
     [Prog_Option_SystemScheme] = { TrInit("System Light / Dark Scheme"), TrInit("Automatically adapt between light and dark color schemes based on system settings."),
@@ -1437,6 +1442,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_Borders: return (i32)state->borderSize;
         case Prog_Option_RoundCorners: return !state->squareCorners;
         case Prog_Option_InlineSubmenus: return state->menuInline;
+        case Prog_Option_QuickActions: return state->menuQuickActions;
         case Prog_Option_Tooltips: return !state->noTooltips;
         case Prog_Option_SystemScheme: return state->systemScheme;
         case Prog_Option_AlternatingRows: return state->alternatingRows;
@@ -6934,6 +6940,39 @@ function void Prog__DropShadow(f32 x, f32 y, f32 width, f32 height, f32 radius, 
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
 }
 
+// The quick actions' row of the selection's menu, `y` down inside its padding and `width` across: buttons for cut, copy, rename and delete,
+// each running the command for the selection and closing the menu, with a line between it and the items, above it when it is `below` them.
+function void Prog__QuickActions(Prog_State *state, f32 y, f32 width, f32 height, b32 below, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    local_persist const struct { Prog_CommandKind kind; } actions[] = { { Prog_CommandKind_CutSelection }, { Prog_CommandKind_CopySelection }, { Prog_CommandKind_Rename },
+                                                                        { Prog_CommandKind_Trash } };
+    const String icons[] = { Icon_Scissors, Icon_Copy, Icon_TextCursorInput, Icon_Trash2 };
+    f32 line = m->separator, gap = floorf(4.0f * m->scale + 0.5f), buttonWidth = floorf(MinF32(width / (f32)CArrayCount(actions), Prog__ToolbarButtonWidth(m) * 1.6f));
+    UI_SetNextFloatingOffset((UI_Vec2){ 0, below ? y + line + gap : y });
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
+    UI_Block *row = UI_AddBlock(UI_Flag_Floating);
+    UI_Parent(row) {
+        for (u32 i = 0; i < CArrayCount(actions); ++i) {
+            UI_Interaction press = Prog__TextButton(StrFormat(&state->frameArena, "QuickAction/%u", i), icons[i], m->icons, UI_Pixels(buttonWidth), height, 0, theme->icon, theme->text,
+                                                    theme->iconDisabled, true, m);
+            Prog__DescribeTooltip(state, actions[i].kind, (String){0});
+            if (press.clicked) {
+                Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, press.clickOrder);
+                Prog_QueueCommand(state, actions[i].kind, 0, 0, press.clickOrder);
+            }
+        }
+    }
+    UI_SetNextFloatingOffset((UI_Vec2){ 0, below ? y : y + height + gap });
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(line));
+    UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+}
+
 // A system menu item that runs a Filey command, as one, so that it shows the command's hotkeys and a choice its ring; NULL for the rest.
 function const Prog_MenuCommand *Prog__OwnMenuCommand(const P_MenuItem *item, Prog_MenuCommand *own)
 {
@@ -6987,8 +7026,11 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // The search field is a band across the top in the inner color, over a line and a little room before the items.
     f32 fieldInset = floorf(2.4f * m->scale + 0.5f), fieldHeight = floorf(30.4f * m->scale + 0.5f);
     f32 searchHeight = search ? fieldInset + fieldHeight + line + floorf(4.0f * m->scale + 0.5f) - pad : 0;
+    // The selection's menu can have a row of buttons for its commonest commands, at its edge by the pointer, over a line.
+    b32 quick = search && state->menuQuick;
+    f32 quickButton = Prog__ToolbarButtonHeight(m) + floorf(4.0f * m->scale + 0.5f), quickHeight = quick ? quickButton + line + floorf(4.0f * m->scale + 0.5f) : 0;
     // The widest row's label and its chips together, rather than the longest label and the most chips of any rows.
-    f32 rowWidth = 0, height = 2 * pad + searchHeight;
+    f32 rowWidth = 0, height = 2 * pad + searchHeight + quickHeight;
     b32 anySubmenu = false;
     for (u32 i = 0; i < shown; ++i) {
         const P_MenuItem *item = Prog_MenuItemAt(state, visible[i]);
@@ -7018,7 +7060,17 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // A menu taller than the window fits it and scrolls, with a bar in a gutter on the right; one with inline submenus keeps where it opened, below which
     // it has the room.
     b32 placedBefore = flat && state->menuTopSerial == state->menuSerial + 1;
-    b32 scrolls = height > (placedBefore ? view.y1 - state->menuTop : view.y1 - view.y0);
+    f32 limit = placedBefore ? view.y1 - state->menuTop : view.y1 - view.y0;
+    // The top level of a menu at the pointer opens to its left where it has no room to the right, and up from it where it has none below,
+    // so that its first items stay by the pointer; where neither side has the room, it takes the side with more, which it fills and scrolls.
+    b32 flips = level == 0 && state->menuFlips && state->menuRight <= 0 && !flat, upward = false;
+    if (flips) {
+        f32 roomBelow = view.y1 - place.y, roomAbove = state->menuAbove - view.y0;
+        upward = height > roomBelow && roomAbove > roomBelow;
+        limit = MinF32(limit, upward ? roomAbove : roomBelow);
+    }
+    b32 scrolls = height > limit;
+    if (flips) height = MinF32(height, limit);
     f32 gutter = scrolls ? Prog__ScrollGutter(m) : 0;
     // Wide enough for the search field's hint beside its two buttons, a little apart from them.
     f32 fieldWidth = search ? iconLeft + iconColumn + R_TextWidth(m->font, Tr("Select a system command...")) + floorf(8.0f * m->scale + 0.5f) + 2 * Prog__ToolbarButtonWidth(m) + 2 * pad : 0;
@@ -7028,13 +7080,10 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // Submenus open to the right of their item, or to the left when there is no room; a menu pushed in from the right edge keeps a margin.
     // A submenu sits against its opener's panel, on the side the menus have been opening to while there is room, so that it does not cover the
     // panel before.
-    // The top level of a menu at the pointer opens to its left where it has no room to the right, and up from it where it has none below,
-    // so that its first items stay by the pointer; where neither side has the room, it takes the side with more.
-    b32 flips = level == 0 && state->menuFlips && state->menuRight <= 0;
     if (flips && x + width > view.x1 && x - width >= view.x0) x -= width;
     else if (place.leftward && x - place.openerWidth - width >= view.x0) x -= place.openerWidth + width;
     else if (x + width > view.x1) x = place.openerWidth > 0 ? x - place.openerWidth - width : view.x1 - width - floorf(4.0f * m->scale + 0.5f);
-    if (flips && y + height > view.y1 && state->menuAbove - view.y0 > view.y1 - y) y = MaxF32(view.y0, state->menuAbove - height);
+    if (upward) y = state->menuAbove - MinF32(height, limit);
     // An end of a submenu near the same end of its opener's panel goes level with it, rather than leave a step too short to curve into.
     R_Rect parent = place.openerPanel;
     b32 opened = level > 0 && place.opener.y1 > place.opener.y0;
@@ -7049,10 +7098,13 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     UI_Key revealKey = UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuReveal/%u/%u", level, place.first));
     f32 reveal = Prog__PopupReveal(revealKey);
     itemHeight *= 0.9f + 0.1f * reveal;
-    height = 2 * pad + searchHeight;
+    height = 2 * pad + searchHeight + quickHeight;
     for (u32 i = 0; i < shown; ++i) height += Prog_MenuItemAt(state, visible[i])->separator ? separatorHeight : itemHeight;
+    // At the bottom when the menu opened up from the pointer, else under the search field.
+    b32 quickBelow = quick && upward;
     // On whole pixels, for a joined submenu's lines to meet its edges exactly.
-    height = floorf(MinF32(height, view.y1 - view.y0) + 0.5f);
+    height = floorf(MinF32(height, flips ? limit : view.y1 - view.y0) + 0.5f);
+    if (upward) y = state->menuAbove - height;
     // Inline, the menu grows and shrinks with the submenus opening in it, as its rows slide.
     if (flat) {
         // It stays where it opened, and once it reaches the window's bottom its rows scroll.
@@ -7174,10 +7226,18 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             Prog__Spacer(UI_Flex(), UI_Pixels(searchHeight));
             itemY += searchHeight;
         }
+        if (quick) {
+            f32 rowY = quickBelow ? height - 2 * pad - quickHeight : searchHeight;
+            Prog__QuickActions(state, rowY, width - 2 * pad, quickButton, quickBelow, m);
+            if (!quickBelow) {
+                Prog__Spacer(UI_Flex(), UI_Pixels(quickHeight));
+                itemY += quickHeight;
+            }
+        }
         // The rows, in a list of their own under the search field, which scrolls when they do not fit.
         String listName = StrFormat(&state->frameArena, "MenuList/%u/%u/%u", state->menuSerial, level, place.first);
         UI_SetNextPrefWidth(UI_Flex());
-        UI_SetNextPrefHeight(UI_Pixels(MaxF32(0, height - 2 * pad - searchHeight)));
+        UI_SetNextPrefHeight(UI_Pixels(MaxF32(0, height - 2 * pad - searchHeight - quickHeight)));
         UI_SetNextChildrenLayout(UI_Layout_Vertical);
         UI_SetNextChildrenPadding((UI_Padding){ 0, 0, gutter, 0 });
         UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, listName), UI_Flag_Clip | (scrolls ? UI_Flag_Scrollable : 0));
