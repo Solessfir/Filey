@@ -13643,10 +13643,20 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
         // Converting an audio file, or a folder's or a selection's audio files, on a line under the toolbar, the same place for each.
         b32 several = folder && !archive && state->bulk.count && state->currentPanel == state->activePanel;
         b32 convertLine = entry && !state->directory.archive && (several || (!folder && Prog_IsAudio(entry->file.name))) && Prog__HasFfmpeg(state);
-        if (convertLine) {
+        // It slides open as it comes, as a folder's audio files are counted, and shut as it goes, at an even speed over 120 ms, from wherever it was,
+        // moving what is under it along rather than at once.
+        Prog_Panel *owner = &state->panels[state->currentPanel];
+        if (convertLine != owner->convertOpen) owner->convertOpen = (b8)convertLine, owner->convertFrom = owner->convertShown;
+        UI_Key slideKey = UI_KeyFromStr(0, StrFormat(&state->frameArena, "InspectorConvertLine/%" PRIu64 "/%u", owner->id, (u32)convertLine));
+        f32 slid = UI->animate ? MinF32(1, (f32)UI_TimeSince(slideKey) / 120000.0f) : 1;
+        if (slid < 1) UI_KeepAnimating();
+        f32 target = convertLine ? m->pill : 0, lineHeight = floorf(owner->convertFrom + (target - owner->convertFrom) * slid + 0.5f);
+        owner->convertShown = lineHeight;
+        if (lineHeight > 0) {
             UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
-            UI_Block *converting = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
-            UI_Parent(converting) Prog__ConvertLine(state, MaxF32(0, pane->rect.x1 - pane->rect.x0 - 2 * m->inset), m->pill, m);
+            UI_SetNextOpacity(lineHeight / m->pill);
+            UI_Block *converting = Prog__Box(UI_Flex(), UI_Pixels(lineHeight), UI_Layout_Horizontal, theme->background, UI_Flag_Clip);
+            if (convertLine) UI_Parent(converting) Prog__ConvertLine(state, MaxF32(0, pane->rect.x1 - pane->rect.x0 - 2 * m->inset), m->pill, m);
         }
         if (entry && state->torrent.fileCount && state->torrentSkip) {
             Prog__InspectorTorrent(state, entry, m);
@@ -13826,7 +13836,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             }
         }
         // Under the line that converts, where there is one, which it leaves in sight.
-        if (entry) Prog__InspectorDetails(state, entry, pane->rect.x1 - pane->rect.x0, pane->rect.y1 - pane->rect.y0, bar + (convertLine ? m->pill : 0), m);
+        if (entry) Prog__InspectorDetails(state, entry, pane->rect.x1 - pane->rect.x0, pane->rect.y1 - pane->rect.y0, bar + lineHeight, m);
     }
 }
 

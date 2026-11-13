@@ -1613,6 +1613,8 @@ typedef struct Prog_Panel {
     // The panel whose inspector lists a folder in this one, which no split holds; 0 for the layout's panels.
     u64 inspectorOf;
     R_Rect inspectorRect;  // its inspector's in the last layout; empty while it is hidden
+    f32 convertShown, convertFrom;  // its inspector's convert line's height in the last frame, and where it was as it last began to open or shut
+    b8 convertOpen;                 // whether that line is opening, rather than shutting
     b8 wasActive, drawn;
     Prog_TabFields(Prog__PanelField)
     Prog_PanelFields(Prog__PanelField)
