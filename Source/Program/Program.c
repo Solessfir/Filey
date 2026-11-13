@@ -11141,12 +11141,12 @@ function void Prog__DropZones(Prog_State *state, R_Rect panel, f32 top, const Pr
         R_Rect box = zones[i].box;
         if ((own && zones[i].drop == Prog_TabDrop_Into) || !UI__Contains((R_Rect){ panel.x0 + box.x0, panel.y0 + box.y0, panel.x0 + box.x1, panel.y0 + box.y1 }, UI->mouse)) continue;
         Prog_TabDrop drop = zones[i].drop;
-        // Over the panel's list only, its half or all of it, a little in from its sides and above the footer; the whole panel where it shows no list.
+        // Over the panel's list only, its half or all of it, a little in from its edges, the footer's included; the whole panel where it shows no list.
         u32 index = Prog_PanelIndex(state, Prog__PanelId(state));
         R_Rect list = index != UINT32_MAX ? state->panels[index].listRect : (R_Rect){0};
         if (list.x1 <= list.x0 || list.y1 <= list.y0) list = panel;
         f32 inset = floorf(6.4f * s + 0.5f);
-        f32 x0 = list.x0 - panel.x0 + inset, x1 = list.x1 - panel.x0 - inset, y0 = list.y0 - panel.y0, y1 = list.y1 - panel.y0 - inset;
+        f32 x0 = list.x0 - panel.x0 + inset, x1 = list.x1 - panel.x0 - inset, y0 = list.y0 - panel.y0 + inset, y1 = list.y1 - panel.y0 - inset;
         f32 midX = floorf((x0 + x1) * 0.5f), midY = floorf((y0 + y1) * 0.5f);
         if (drop == Prog_TabDrop_Left) x1 = midX;
         if (drop == Prog_TabDrop_Right) x0 = midX;
