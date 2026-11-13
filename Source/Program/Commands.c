@@ -2900,7 +2900,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     if (state->playerJob && state->playerHash != MapHashBytes(want.value, want.length)) Prog__StopPlayer(state);
     state->previewAnchor = state->previewCaret = 0;
     state->previewTextFocus = false;
-    if (!hold || !state->previewImage) state->previewPicture = state->previewImage = state->previewWaveform = false;
+    if (!hold || !state->previewImage) state->previewPicture = state->previewImage = state->previewWaveform = state->previewVector = false;
     state->previewPixels = NULL;
     state->previewFolder = folder || archive;
     state->previewHex = state->previewArchive = state->previewArchiveCounted = state->previewDocument = false;
@@ -2941,12 +2941,18 @@ function void Prog__UpdatePreview(Prog_State *state)
     Prog__SubmitPreview(state, want, folder, archive, size);
 }
 
+// The scale the inspector's image fits the view at: no larger than its own size, but for a drawing, which has no pixels of its own to keep 1:1.
+function f32 Prog__FittedScale(const Prog_State *state, f32 fit)
+{
+    return state->previewVector ? fit : MinF32(fit, 1);
+}
+
 // Zooms the inspector's image by the ratio a wheel notch does, in or out from the scale it shows, down to no smaller than fitting the view.
 // The pan keeps the same middle in sight.
 function void Prog__ScaleImage(Prog_State *state, b32 up)
 {
     f32 fit = state->imageFit > 0 ? state->imageFit : 1, least = MinF32(fit, 1);
-    f32 shown = state->imageScaleMode == Prog_ImageScale_Custom ? state->imageScale : state->imageScaleMode == Prog_ImageScale_Original ? 1 : least;
+    f32 shown = state->imageScaleMode == Prog_ImageScale_Custom ? state->imageScale : state->imageScaleMode == Prog_ImageScale_Original ? 1 : Prog__FittedScale(state, fit);
     f32 scale = MinF32(MaxF32(up ? shown * 1.2f : shown / 1.2f, least), 32.0f);
     state->imagePan.x *= scale / shown, state->imagePan.y *= scale / shown;
     state->imageScale = scale;

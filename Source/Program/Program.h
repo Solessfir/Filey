@@ -688,6 +688,8 @@ typedef struct Prog_FoundLines {
 // A picture is the file's own at up to Prog_PreviewImageSide on its longer side when it is an image,
 // else the system's thumbnail of Prog_PreviewSize squared.
 #define Prog_PreviewImageSide 4096
+// An SVG is drawn this large on its longer side, which fitting the view may enlarge it to, whatever its own size.
+#define Prog_PreviewSvgSide 2048
 // An audio file's cover is drawn at up to this on its longer side, for the inspector's square beside its name.
 #define Prog_CoverSide 512
 
@@ -1518,7 +1520,7 @@ typedef struct Prog_PdfView {
     X(b32, inspectorDetails) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(String, previewMedia) X(f64, previewSeconds) X(R_TextureHandle, previewTexture) \
     X(Prog_AudioTags, previewTags) X(R_TextureHandle, previewCover) \
     X(Prog_ModelView, model) X(Prog_PdfView, pdf) \
-    X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(b32, previewWaveform) X(i32, previewImageWidth) X(i32, previewImageHeight) \
+    X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(b32, previewWaveform) X(b32, previewVector) X(i32, previewImageWidth) X(i32, previewImageHeight) \
     X(u32 *, previewPixels) \
     X(b32, previewFolder) X(b32, previewHex) X(u64, hexSize) X(u8 **, hexPages) X(u64, hexPageCount) X(P_Job *, hexPageJob) \
     X(u8 **, hexSlots) X(u64 *, hexSlotPage) X(u64, hexBase) X(u64, hexPress) X(P_Job *, hexFindJob) X(b32, hexFindAgain) X(u64, hexJumpTo) \
@@ -2483,6 +2485,7 @@ function u32 *Prog_ModelThumbnail(Arena *arena, String path, i32 size, const P_C
 // Whether `path` names a 3D model the readers know, by its extension.
 function b32 Prog_IsModel(String path);
 function b32 Prog_IsBlp(String path);
+function b32 Prog_IsSvg(String path);
 function b32 Prog_ScanUsage(Arena *arena, String path, Prog_UsageProgress *progress, const P_CancelToken *cancel, Prog_Usage *usage);
 function u32 Prog_UsageLayout(Arena *arena, const Prog_Usage *usage, u32 root, R_Rect rect, Prog_UsageCell **cells);
 function u32 Prog_UsageRemove(Prog_Usage *usage, String path);

@@ -11,7 +11,7 @@
 #pragma pop_macro("function")
 
 // stb_image for the pictures the system has no decoder for, Targa and Photoshop's, and for its zlib decoder, which FBX's arrays and zip
-// files are read with.
+// files are read with; nanosvg for SVG, which WIC has no codec for either.
 #pragma push_macro("function")
 #pragma push_macro("global")
 #undef function
@@ -25,6 +25,10 @@
 #define STBI_ONLY_PSD
 #define STBI_NO_STDIO
 #include "Lib/stb/stb_image.h"
+#define NANOSVG_IMPLEMENTATION
+#include "Lib/nanosvg/nanosvg.h"
+#define NANOSVGRAST_IMPLEMENTATION
+#include "Lib/nanosvg/nanosvgrast.h"
 #pragma clang diagnostic pop
 #pragma pop_macro("global")
 #pragma pop_macro("function")
@@ -390,10 +394,19 @@ function b32 P__IsPdf(const wchar *path)
 
 function b32 P__LoadImage(Arena *arena, const wchar *wide, IStream *stream, String bytes, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight);
 
+#include "Platform/PlatformSvg.c"
+
 function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight)
 {
     Scratch scratch = GetScratchEx(arena);
     wchar *wide = P__FilePathWide(scratch.arena, path);
+    i32 length = wide ? lstrlenW(wide) : 0;
+    if (length >= 4 && CompareStringOrdinal(wide + length - 4, 4, L".svg", 4, TRUE) == CSTR_EQUAL) {
+        String data = {0};
+        b32 result = P_ReadFile(scratch.arena, path, &data) && P__DecodeSvg(arena, data, maxSide, NULL, image, sourceWidth, sourceHeight);
+        ReleaseScratch(scratch);
+        return result;
+    }
     IStream *pdf = wide && P__IsPdf(wide) ? P__PdfPageStream(wide, 0, (u32)maxSide, false) : NULL;
     b32 result = wide && (pdf || !P__IsPdf(wide)) && P__LoadImage(arena, wide, pdf, (String){0}, maxSide, image, sourceWidth, sourceHeight);
     if (pdf) pdf->lpVtbl->Release(pdf);

@@ -2894,6 +2894,16 @@ function void TestMeasure(TestFileFixture *fixture)
         Check(P_LoadImageFile(&arena, path, 2, &image, &width, &height) && width == 3 && image.width == 2);
         Check(!P_LoadImageFile(&arena, Prog_JoinPath(&arena, fixture->path, S("plain.txt")), 4096, &image, &width, &height));
         Check(P__TestRemovePath(fixture, S("red.png"), false));
+        // An SVG is drawn to the side asked whatever its own size, which is kept; one that draws nothing fails.
+        String svg = Prog_JoinPath(&arena, fixture->path, S("Drawing.SVG"));
+        Check(!P_WriteFile(&arena, svg, S("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"10\"><rect width=\"20\" height=\"10\" fill=\"#f00\"/></svg>")).code);
+        Check(P_LoadImageFile(&arena, svg, 400, &image, &width, &height) && width == 20 && height == 10 && image.width == 400 && image.height == 200);
+        Check(image.pixels[100 * 400 + 200] == 0xFF0000FFu);
+        Check(!P_WriteFile(&arena, svg, S("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"10\"/>")).code);
+        Check(!P_LoadImageFile(&arena, svg, 400, &image, &width, &height));
+        Check(!P_WriteFile(&arena, svg, S("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1e12\" height=\"1e999\"><rect width=\"20\" height=\"10\"/></svg>")).code);
+        Check(!P_LoadImageFile(&arena, svg, 400, &image, &width, &height));
+        Check(P__TestRemovePath(fixture, S("Drawing.SVG"), false));
 #if defined(_WIN32)
         // A PDF is its first page, the longer side fitted: a 200 x 100 point page with a red square, on white.
         String pdf = Prog_JoinPath(&arena, fixture->path, S("square.pdf"));

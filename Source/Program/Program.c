@@ -12622,16 +12622,16 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
     UI_Interaction drag = UI_InteractionFromBlock(view);
     f32 roomWidth = MaxF32(1, view->rect.x1 - view->rect.x0 - left - right), roomHeight = MaxF32(1, view->rect.y1 - view->rect.y0 - top - bottom);
     f32 width = (f32)Max(state->previewImageWidth, 1), height = (f32)Max(state->previewImageHeight, 1);
-    f32 fit = MinF32(roomWidth / width, roomHeight / height), least = MinF32(fit, 1);
+    f32 fit = MinF32(roomWidth / width, roomHeight / height), least = MinF32(fit, 1), fitted = Prog__FittedScale(state, fit);
     state->imageFit = fit;
-    f32 scale = state->imageScaleMode == Prog_ImageScale_Fit ? least : state->imageScaleMode == Prog_ImageScale_Original ? 1 : state->imageScale;
+    f32 scale = state->imageScaleMode == Prog_ImageScale_Fit ? fitted : state->imageScaleMode == Prog_ImageScale_Original ? 1 : state->imageScale;
     // The wheel zooms by a steady ratio, a fine-grained one smoothly, and a double click goes between fitting the view and 1:1, both about
     // the point under the pointer, which stays where it is.
     f32 wanted = scale;
     b32 audio = state->previewWaveform;
     if (!audio && UI->hotKey == view->key && UI->wheel.y != 0 && !(UI->mods & KeyMod_Control)) wanted = MinF32(MaxF32(scale * powf(1.2f, UI->wheel.y), least), 32.0f);
     b32 toFit = !audio && drag.pressed && drag.pressCount == 2 && state->imageScaleMode != Prog_ImageScale_Fit;
-    if (!audio && drag.pressed && drag.pressCount == 2) wanted = toFit ? least : 1;
+    if (!audio && drag.pressed && drag.pressCount == 2) wanted = toFit ? fitted : 1;
     if (wanted != scale || toFit) {
         f32 px = UI->mouse.x - view->rect.x0 - left, py = UI->mouse.y - view->rect.y0 - top;
         f32 u = (px - ((roomWidth - width * scale) * 0.5f + state->imagePan.x)) / scale, v = (py - ((roomHeight - height * scale) * 0.5f + state->imagePan.y)) / scale;
@@ -13792,7 +13792,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             }
             if (image && !Prog_IsAudio(entry->file.name)) {
                 // An image's scale, filled up to its own size; a waveform, which fills the view, has none.
-                f32 scale = state->imageScaleMode == Prog_ImageScale_Fit ? MinF32(state->imageFit, 1) : state->imageScaleMode == Prog_ImageScale_Original ? 1 : state->imageScale;
+                f32 scale = state->imageScaleMode == Prog_ImageScale_Fit ? Prog__FittedScale(state, state->imageFit) : state->imageScaleMode == Prog_ImageScale_Original ? 1 : state->imageScale;
                 UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, radius + floorf(4.8f * s + 0.5f), 0 });
                 UI_SetNextCornerRadius(radius);
                 UI_SetNextBorderThickness(m->stroke);

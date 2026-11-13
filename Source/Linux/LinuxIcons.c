@@ -155,8 +155,8 @@ function b32 P__RsvgLoaded(void)
     return P__rsvg.newFromData != NULL;
 }
 
-// `data` drawn into a `size` square, centered, as straight RGBA; false where librsvg is missing or cannot read it.
-function b32 P__RsvgDecode(Arena *arena, String data, i32 size, P_Image *image)
+// `data` drawn into a `width` by `height` box, centered, as straight RGBA; false where librsvg is missing or cannot read it.
+function b32 P__RsvgDecode(Arena *arena, String data, i32 width, i32 height, P_Image *image)
 {
     if (!P__RsvgLoaded()) return false;
     void *error = NULL;
@@ -165,11 +165,11 @@ function b32 P__RsvgDecode(Arena *arena, String data, i32 size, P_Image *image)
         if (error) P__rsvg.freeError(error);
         return false;
     }
-    u32 *pixels = ArenaPushArray(arena, (u64)size * (u64)size, u32);
+    u32 *pixels = ArenaPushArray(arena, (u64)width * (u64)height, u32);
     // Cairo's ARGB32, premultiplied, which is turned into the straight RGBA the icons are kept in below.
-    void *surface = P__rsvg.surfaceForData((u8 *)pixels, 0, size, size, size * 4);
+    void *surface = P__rsvg.surfaceForData((u8 *)pixels, 0, width, height, width * 4);
     void *cairo = P__rsvg.create(surface);
-    P__RsvgRect viewport = { 0, 0, size, size };
+    P__RsvgRect viewport = { 0, 0, width, height };
     b32 result = P__rsvg.renderDocument(handle, cairo, &viewport, &error) != 0;
     if (error) P__rsvg.freeError(error);
     P__rsvg.destroy(cairo);
@@ -177,14 +177,14 @@ function b32 P__RsvgDecode(Arena *arena, String data, i32 size, P_Image *image)
     P__rsvg.surfaceDestroy(surface);
     P__rsvg.unref(handle);
     b32 drawn = false;
-    for (u64 i = 0; i < (u64)size * (u64)size; ++i) {
+    for (u64 i = 0; i < (u64)width * (u64)height; ++i) {
         u32 c = pixels[i], a = c >> 24;
         drawn |= a != 0;
         u32 r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
         if (a && a < 255) r = r * 255 / a, g = g * 255 / a, b = b * 255 / a;
         pixels[i] = a << 24 | Min(b, 255u) << 16 | Min(g, 255u) << 8 | Min(r, 255u);
     }
-    if (result && drawn) *image = (P_Image){ .pixels = pixels, .width = size, .height = size };
+    if (result && drawn) *image = (P_Image){ .pixels = pixels, .width = width, .height = height };
     return result && drawn;
 }
 
@@ -615,7 +615,7 @@ function b32 P__DecodeIcon(Arena *arena, String path, i32 size, P_Image *image)
     b32 result = false;
     if (data.length && StrIsEqual(StrFrom(path, path.length - 4), S(".png"))) {
         result = P__DecodePng(arena, data, image);
-    } else if (data.length && P__RsvgDecode(arena, data, size, image)) {
+    } else if (data.length && P__RsvgDecode(arena, data, size, size, image)) {
         result = true;
     } else if (data.length) {
         NSVGimage *svg = nsvgParse((char *)data.value, "px", 96.0f);
@@ -1048,6 +1048,8 @@ function b32 P__DecodeImage(Arena *arena, String data, i32 maxSide, P_Image *ima
     return true;
 }
 
+#include "Platform/PlatformSvg.c"
+
 function b32 P_LoadImageBytes(Arena *arena, String data, i32 maxSide, P_Image *image)
 {
     i32 width = 0, height = 0;
@@ -1062,8 +1064,11 @@ function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *im
     const u64 limit = UINT64_C(256) << 20;
     struct stat info;
     char *cpath = P__FilePathCString(scratch.arena, path);
-    if (P__IsPicture(P_FileTypeKey(scratch.arena, path, P_FileKind_File)) && cpath && stat(cpath, &info) == 0 && (u64)info.st_size <= limit) {
-        result = P__DecodeImage(arena, P__ReadFile(scratch.arena, path), maxSide, image, sourceWidth, sourceHeight);
+    String typeKey = P_FileTypeKey(scratch.arena, path, P_FileKind_File);
+    b32 svg = StrIsEqual(typeKey, S(".svg"));
+    if ((svg || P__IsPicture(typeKey)) && cpath && stat(cpath, &info) == 0 && (u64)info.st_size < (svg ? P__MostSvgBytes : limit)) {
+        String data = P__ReadFile(scratch.arena, path);
+        result = svg ? P__DecodeSvg(arena, data, maxSide, P__RsvgDecode, image, sourceWidth, sourceHeight) : P__DecodeImage(arena, data, maxSide, image, sourceWidth, sourceHeight);
     }
     ReleaseScratch(scratch);
     return result;

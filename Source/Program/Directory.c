@@ -3620,6 +3620,13 @@ function void Prog__DirectoryJob(P_Job *job)
             result->width = image.width;
             result->height = image.height;
             result->image = true;
+        } else if (!input->folder && Prog_IsSvg(path) && !P_IsCancelled(&job->cancelToken) &&
+                   P_LoadImageFile(&job->arena, path, Prog_PreviewSvgSide, &image, &result->sourceWidth, &result->sourceHeight)) {
+            // Drawn, before the text its XML would read as.
+            result->pixels = image.pixels;
+            result->width = image.width;
+            result->height = image.height;
+            result->image = true;
         } else if (!input->folder && Prog_IsOffice(path) && (result->text = Prog_OfficeText(&job->arena, path, input->size)).length) {
             // Word's prose wraps; a spreadsheet's columns stay lined up.
             result->document = Prog__EqualFolded(StrFrom(path, path.length - 5), S(".docx")) || Prog__EqualFolded(StrFrom(path, path.length - 5), S(".docm"));
@@ -8413,7 +8420,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             // was read, goes unless it brought one.
             const Prog_Preview *preview = job->result;
             if (job == state->previewJob) {
-                state->previewPicture = state->previewImage = state->previewWaveform = false;
+                state->previewPicture = state->previewImage = state->previewWaveform = state->previewVector = false;
                 Prog__DropModel(&state->model);
             }
             if (job == state->previewJob && preview && preview->hex) {
@@ -8532,6 +8539,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->previewImage = state->previewPicture && preview->image;
                     // What the picture is, kept with it while the next item's preview is read, which draws it as it was drawn.
                     state->previewWaveform = state->previewImage && state->previewSeconds > 0 && Prog_IsAudio(state->previewPath);
+                    state->previewVector = state->previewImage && Prog_IsSvg(state->previewPath);
                     state->previewPixels = NULL;
                     if (state->previewImage) {
                         u64 pixels = (u64)preview->width * (u64)preview->height;
