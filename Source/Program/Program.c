@@ -13355,12 +13355,10 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
         }
         // What the pointer is over, or the folder chosen, with its size after its path.
         String about, size;
-        u32 shownFolder = state->usageSelected;
         if (hover != UINT32_MAX) {
             const Prog_UsageCell *cell = &state->usageCells[hover];
             const Prog_UsageFolder *at = &usage->folders[cell->folder];
             about = Prog_UsageFolderPath(frame, usage, cell->folder);
-            shownFolder = cell->folder;
             if (cell->file != UINT32_MAX) {
                 about = Prog_JoinPath(frame, about, usage->files[cell->file].name);
                 size = Prog_FormatSize(frame, usage->files[cell->file].bytes);
@@ -13370,8 +13368,8 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
                 size = Prog_FormatSize(frame, at->bytes);
             }
         } else {
-            about = Prog_UsageFolderPath(frame, usage, shownFolder);
-            size = Prog_FormatSize(frame, usage->folders[shownFolder].bytes);
+            about = Prog_UsageFolderPath(frame, usage, state->usageSelected);
+            size = Prog_FormatSize(frame, usage->folders[state->usageSelected].bytes);
         }
         UI_Block *status = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
         UI_Parent(status) {

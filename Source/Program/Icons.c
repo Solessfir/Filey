@@ -586,7 +586,7 @@ function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image)
         icon = MapsGetPtrNull(state->icons, key);
     }
     icon->wanted = state->ui.frameIndex;
-    return icon && icon->state == Prog_IconState_Loaded ? icon : NULL;
+    return icon->state == Prog_IconState_Loaded ? icon : NULL;
 }
 
 // The busy spinner: eight rounded rays around an empty middle, drawn white so that the draw tints it.

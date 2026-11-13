@@ -850,7 +850,6 @@ function void Prog__PlyLane(void *user, u32 lane)
                 uv[k * 2 + 1] = has ? 1 - cornerUv[from[k] * 2 + 1] : 0;
             }
         }
-        cornerCount = uvCount = 0;
         if (!element->vertex) continue;
         f32 *v = work->positions + i * 3;
         v[0] = (f32)values[0];

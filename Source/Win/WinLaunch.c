@@ -125,10 +125,11 @@ function IStream *P__PdfPageStream(const wchar *path, u32 index, u32 side, b32 s
              SUCCEEDED(page->lpVtbl->get_Size(page, &size)) && size.Width > 0 && size.Height > 0;
     if (ok) {
         f32 scale = (f32)side / (sideIsWidth ? size.Width : MaxF32(size.Width, size.Height));
-        ok = SUCCEEDED(options->lpVtbl->put_DestinationWidth(options, (UINT32)MaxF32(1, size.Width * scale))) &&
-             SUCCEEDED(options->lpVtbl->put_DestinationHeight(options, (UINT32)MaxF32(1, size.Height * scale))) &&
-             SUCCEEDED(page->lpVtbl->RenderWithOptionsToStreamAsync(page, memory, options, &rendering)) && P__WinRtWait(rendering) == P__Wait_Completed &&
-             SUCCEEDED(CreateStreamOverRandomAccessStream((IUnknown *)memory, &P__IID_IStream, (void **)&result));
+        if (SUCCEEDED(options->lpVtbl->put_DestinationWidth(options, (UINT32)MaxF32(1, size.Width * scale))) &&
+            SUCCEEDED(options->lpVtbl->put_DestinationHeight(options, (UINT32)MaxF32(1, size.Height * scale))) &&
+            SUCCEEDED(page->lpVtbl->RenderWithOptionsToStreamAsync(page, memory, options, &rendering)) && P__WinRtWait(rendering) == P__Wait_Completed) {
+            CreateStreamOverRandomAccessStream((IUnknown *)memory, &P__IID_IStream, (void **)&result);
+        }
     }
     if (result) result->lpVtbl->Seek(result, (LARGE_INTEGER){0}, STREAM_SEEK_SET, NULL);
     if (rendering) rendering->lpVtbl->Release(rendering);
