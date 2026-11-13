@@ -3445,6 +3445,12 @@ function u64 Prog__Breadcrumbs(Prog_State *state, f32 room, b32 *fromStart, cons
                 UI_Block *crumb = UI->parent->last;
                 if (UI->hotKey == UI_KeyFromStr(0, identity) || (UI->mouseKnown && UI->mouse.x >= crumb->rect.x0 && UI->mouse.x < crumb->rect.x1 &&
                                                                   UI->mouse.y >= crumb->rect.y0 && UI->mouse.y < crumb->rect.y1)) hovered = end;
+                // Under a drag, a folder up the path takes it, lit, and opens if it is held there.
+                if (!current && P_DropPending() && UI__Contains(crumb->rect, UI->mouse)) {
+                    state->dropPlace = StrCopy(&state->dropPlaceArena, Prog__CrumbFolder(path, end));
+                    crumb->props.colors.background = theme->selection;
+                    crumb->flags |= UI_Flag_DrawBackground;
+                }
             }
         }
         at = end + 1;

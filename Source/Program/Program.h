@@ -458,6 +458,9 @@ typedef struct Prog_ThumbnailSlot {
 // The files with more than one name a walk has counted, so that it counts each once.
 typedef struct Prog_SeenFiles { MapHeader header; struct { P_FileId key; b8 value; } *v; } Prog_SeenFiles;
 
+// How long a drag is held over a folder before the folder opens under it, the drag going on.
+#define Prog_SpringMicroseconds 700000
+
 typedef struct Prog_TreeTotals {
     atomic_uint_fast64_t folders, files, bytes;
     atomic_uint_fast64_t pending;
@@ -1841,6 +1844,10 @@ typedef struct Prog_State {
     // The system's window move loop is modal too, and runs between frames for the same reason.
     b32 moveRequested;
     b32 dragging;
+    // The paths of what Filey's own drag carries, in draggedArena, which cannot be dropped into themselves wherever the drag goes.
+    Arena draggedArena;
+    String *draggedPaths;
+    u64 draggedCount;
     u64 hoverRow;             // row under the pointer in the last build
     u64 gridMoveTime;         // when the grid's layout last changed, which its items glide from for a moment
     u32 iconsPending;         // file icons and cached thumbnails this build drew without, still loading; the first frame waits for them
@@ -2390,6 +2397,10 @@ typedef struct Prog_State {
     String dropPlace;
     u64 dropPanel;            // the panel whose own folder a drag over the window would drop into, which its list shows; 0 for none
     String dragPlace;
+    // The folder a drag has been held over since springSince, in springArena, which opens once it is held there for Prog_SpringMicroseconds.
+    Arena springArena;
+    String springPath;
+    u64 springSince;
     u64 bookmarkGap;
     // The panel zoomed to fill the panels' area (an id, 0 for none), the one shown zoomed while it grows or shrinks back, and its place in
     // the layout, which it grows from.

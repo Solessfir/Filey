@@ -3609,6 +3609,29 @@ function void Prog__OpenInTabs(Prog_State *state, u64 row)
     }
 }
 
+// Whether `path` is one of the items Filey's own drag carries.
+function b32 Prog__Dragged(const Prog_State *state, String path)
+{
+    for (u64 i = 0; state->dragging && i < state->draggedCount; ++i) {
+        if (StrIsEqual(state->draggedPaths[i], path)) return true;
+    }
+    return false;
+}
+
+// Starts the system's drag of `names` in `folder`, keeping their paths while it runs.
+function void Prog__DragNames(Prog_State *state, String folder, const String *names, u64 count, String archive, String inner)
+{
+    ArenaClear(&state->draggedArena);
+    state->draggedPaths = ArenaPushArray(&state->draggedArena, Max(count, (u64)1), String);
+    for (u64 i = 0; i < count; ++i) state->draggedPaths[i] = Prog_JoinPath(&state->draggedArena, folder, names[i]);
+    state->draggedCount = count;
+    state->dragging = true;
+    if (archive.length) P_DragArchiveItems(archive, inner, names, count);
+    else P_DragFiles(folder, names, count);
+    state->dragging = false;
+    state->draggedCount = 0;
+}
+
 function void Prog_DragSelection(Prog_State *state)
 {
     state->dragRequested = false;
@@ -3617,9 +3640,7 @@ function void Prog_DragSelection(Prog_State *state)
         Scratch scratch = GetScratch();
         String path = StrCopy(scratch.arena, state->dragPlace), name = Prog__FolderName(path);
         state->dragPlace = (String){0};
-        state->dragging = true;
-        P_DragFiles(Prog_ParentPath(path), &name, 1);
-        state->dragging = false;
+        Prog__DragNames(state, Prog_ParentPath(path), &name, 1, (String){0}, (String){0});
         UI_CancelActive();
         ReleaseScratch(scratch);
         return;
@@ -3633,10 +3654,8 @@ function void Prog_DragSelection(Prog_State *state)
         if (state->directory.entries[i].selected) rows[count++] = i;
     }
     String folder = Prog__RowsFolder(state, scratch.arena, rows, &count, names), archive = {0}, inner = {0};
-    state->dragging = true;
-    if (state->directory.archive && Prog_ArchiveSplit(folder, &archive, &inner)) P_DragArchiveItems(archive, inner, names, count);
-    else P_DragFiles(folder, names, count);
-    state->dragging = false;
+    if (!state->directory.archive || !Prog_ArchiveSplit(folder, &archive, &inner)) archive = inner = (String){0};
+    Prog__DragNames(state, folder, names, count, archive, inner);
     // The system's drag loop took the button release.
     UI_CancelActive();
     ReleaseScratch(scratch);
@@ -5673,14 +5692,32 @@ function b32 Prog_ProcessCommands(Prog_State *state)
         const Prog_Entry *entry = &state->directory.entries[state->hoverRow];
         // A dragged folder cannot take itself; a program or a script takes the files to start with, as in Explorer.
         b32 runs = Prog__RunsDropped(entry) && !state->directory.archive;
-        if ((entry->file.kind == P_FileKind_Directory || runs) && !(state->dragging && entry->selected)) {
-            drop = Prog_JoinPath(&state->frameArena, state->directory.path, entry->file.name);
+        String path = Prog_JoinPath(&state->frameArena, state->directory.path, entry->file.name);
+        if ((entry->file.kind == P_FileKind_Directory || runs) && !Prog__Dragged(state, path)) {
+            drop = path;
             intoPanel = false;
             onFile = runs;
         }
     }
     Prog__UsePanel(state, state->activePanel);
     if (state->dropPlace.length) drop = state->dropPlace, intoPanel = false, onFile = false;
+    // Held over a folder for a moment, a drag opens it, in the panel under the pointer, else the active one, and goes on into it.
+    String spring = P_DropPending() && !intoPanel && !onFile ? drop : (String){0};
+    if (!StrIsEqual(spring, state->springPath)) {
+        ArenaClear(&state->springArena);
+        state->springPath = StrCopy(&state->springArena, spring);
+        state->springSince = UI->nowMicroseconds;
+    }
+    if (spring.length && UI->nowMicroseconds - state->springSince >= Prog_SpringMicroseconds) {
+        u32 into = dropPanel != UINT32_MAX ? dropPanel : state->activePanel;
+        Prog__UsePanel(state, into);
+        if (!StrIsEqual(spring, state->directory.path)) Prog_RequestDirectory(state, spring, true, 0);
+        Prog__UsePanel(state, state->activePanel);
+        // Once only, until the drag moves to another folder.
+        state->springSince = UINT64_MAX / 2;
+    } else if (spring.length && state->springSince < UINT64_MAX / 2) {
+        UI_WakeAt(state->springSince + Prog_SpringMicroseconds);
+    }
     String archive = {0}, inner = {0};
     if (Prog_ArchiveSplit(drop, &archive, &inner) && (!P_ArchiveWritable(archive) || Prog_ArchiveNested(drop))) drop = (String){0}, intoPanel = false;
     P_SetDropOnFile(onFile);

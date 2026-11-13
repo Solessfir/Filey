@@ -17,6 +17,7 @@
 - Filter as you type, or search through subfolders
 - Tree view, grouping by name, type, date or size
 - Archives (zip, 7z, rar, tar, cab) open as folders, even archives inside archives
+- Hold a drag over a folder, in the list, the sidebar or the path, to open it and drop deeper
 
 **Keyboard**
 - Go To (Alt+E) for recent, bookmarked or typed paths
