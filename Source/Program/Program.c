@@ -2240,18 +2240,21 @@ function void Prog__Label(String text, UI_Size width, f32 height, f32 padding, R
     UI_AddBlock(UI_Flag_DrawText | UI_Flag_Clip);
 }
 
-// The arrow of something that folds, for the block added next: pointing right while folded and down while open, turning between them as
-// it changes, which `key` keeps the turn of. At rest it is the glyph that points that way, which lands on whole pixels as a turned one may not.
-function String Prog__FoldGlyph(UI_Key key, b32 open)
+// The glyph of a two-way control, for the block added next: `from` while off and `to` while on, `from` turned by `radians` while it changes,
+// which `key` keeps the turn of, eased out. At rest it is the glyph itself, which lands on whole pixels as a turned one may not.
+function String Prog__TurnGlyph(UI_Key key, b32 on, String from, String to, f32 radians)
 {
-    f32 turn = UI_Steady(UI_KeyFromStr(key, S("FoldTurn")), open ? 1.0f : 0.0f, 0.15f);
-    if (turn <= 0) return Icon_ChevronRight;
-    if (turn >= 1) return Icon_ChevronDown;
-    // Eased out, which way it turns: quick away from where it was, gentle into place.
-    f32 eased = open ? 1 - (1 - turn) * (1 - turn) * (1 - turn) : turn * turn * turn;
-    UI_SetNextRotation(eased * 1.5707964f);
-    return Icon_ChevronRight;
+    f32 turn = UI_Steady(UI_KeyFromStr(key, S("Turn")), on ? 1.0f : 0.0f, 0.15f);
+    if (turn <= 0) return from;
+    if (turn >= 1) return to;
+    // Quick away from where it was, gentle into place, whichever way it turns.
+    f32 eased = on ? 1 - (1 - turn) * (1 - turn) * (1 - turn) : turn * turn * turn;
+    UI_SetNextRotation(eased * radians);
+    return from;
 }
+
+// The arrow of something that folds, pointing right while folded and down while open.
+function String Prog__FoldGlyph(UI_Key key, b32 open) { return Prog__TurnGlyph(key, open, Icon_ChevronRight, Icon_ChevronDown, 1.5707964f); }
 
 // An icon at the smaller size, for the breadcrumbs' separators.
 function void Prog__SmallIcon(String icon, f32 width, f32 height, R_Color color, f32 alignX, const Prog_Metrics *m)
@@ -13668,7 +13671,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             if (entry) {
                 Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
                 // It points where the card goes: down to open it under the toolbar, up to shut it.
-                Prog__ToolbarButton(state, S("InspectorDetailsButton"), state->inspectorDetails ? Icon_ChevronUp : Icon_ChevronDown, Prog_CommandKind_InspectorToggleDetails, true, m);
+                Prog__ToolbarButton(state, S("InspectorDetailsButton"), Prog__TurnGlyph(UI_KeyFromStr(0, S("InspectorDetailsButton")), state->inspectorDetails, Icon_ChevronDown, Icon_ChevronUp, -3.1415927f),
+                                    Prog_CommandKind_InspectorToggleDetails, true, m);
             }
             Prog__Spacer(UI_Pixels(after), UI_Pixels(bar));
         }
