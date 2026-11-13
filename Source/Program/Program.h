@@ -877,6 +877,7 @@ typedef struct Prog_Preview {
     u32 *coverPixels;               // and its cover's picture
     i32 coverWidth, coverHeight;
     Prog_TorrentInfo torrent;       // a .torrent's files; none for any other file
+    u32 links;                      // the file's names in its file system, more than 1 for a hard link; 0 for a folder or unknown
     // The text's lines, where each starts and one past its end, and with its syntax what each starts inside of; `windowed` when the text
     // is the start of a file too big to hold, read from `readPath`, its copy taken out when it is inside an archive.
     u32 *lines;
@@ -1520,7 +1521,7 @@ typedef struct Prog_PdfView {
     X(b32, inspectorDetails) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(String, previewMedia) X(f64, previewSeconds) X(R_TextureHandle, previewTexture) \
     X(Prog_AudioTags, previewTags) X(R_TextureHandle, previewCover) \
     X(Prog_ModelView, model) X(Prog_PdfView, pdf) \
-    X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(b32, previewWaveform) X(b32, previewVector) X(i32, previewImageWidth) X(i32, previewImageHeight) \
+    X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(b32, previewWaveform) X(b32, previewVector) X(i32, previewImageWidth) X(i32, previewImageHeight) X(u32, previewLinks) \
     X(u32 *, previewPixels) \
     X(b32, previewFolder) X(b32, previewHex) X(u64, hexSize) X(u8 **, hexPages) X(u64, hexPageCount) X(P_Job *, hexPageJob) \
     X(u8 **, hexSlots) X(u64 *, hexSlotPage) X(u64, hexBase) X(u64, hexPress) X(P_Job *, hexFindJob) X(b32, hexFindAgain) X(u64, hexJumpTo) \

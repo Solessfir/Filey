@@ -12090,6 +12090,8 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     }
     labels[count] = Tr("Created"), values[count++] = created;
     labels[count] = Tr("Modified"), values[count++] = Prog_EntryModified(frame, entry);
+    // A file with more than one name, each a hard link to the same data, once its preview has counted them.
+    if (!folder && state->previewLinks > 1 && !state->previewJob) labels[count] = Tr("Hard links"), values[count++] = StrFormat(frame, "%u", state->previewLinks);
     // A picture's size in pixels, once it is read; a video's is among its details.
     // Not the picture kept up from the item before while this one's is read.
     // A PDF's page has a size in points, not pixels, so it has none.

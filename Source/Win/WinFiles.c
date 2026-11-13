@@ -1606,6 +1606,20 @@ function ArrayStr P_StartupPaths(Arena *arena)
     return result;
 }
 
+function u32 P_FileLinkCount(String path)
+{
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    // Opened for no access, which neither waits on a file another program holds nor downloads a cloud placeholder.
+    HANDLE file = wide ? CreateFileW(wide, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL)
+                       : INVALID_HANDLE_VALUE;
+    ReleaseScratch(scratch);
+    BY_HANDLE_FILE_INFORMATION info;
+    u32 result = file != INVALID_HANDLE_VALUE && GetFileInformationByHandle(file, &info) ? (u32)info.nNumberOfLinks : 0;
+    if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+    return result;
+}
+
 function b32 P_ReadFile(Arena *arena, String path, String *contents)
 {
     *contents = (String){0};

@@ -417,6 +417,8 @@ function String P_ConfigDirectory(Arena *arena);
 function String P_CacheDirectory(Arena *arena);
 // The whole file; false when it cannot be read.
 function b32 P_ReadFile(Arena *arena, String path, String *contents);
+// How many names, hard links, the item at `path` has in its file system, 1 for most files; a link's own, not its target's; 0 when unknown.
+function u32 P_FileLinkCount(String path);
 // Reads at most `limit` bytes from the start of the file at `path`.
 function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *contents);
 // Runs `arguments[0]`, found on the PATH, with the rest of `arguments` in `directory`, without a window, and gives what it wrote to its standard

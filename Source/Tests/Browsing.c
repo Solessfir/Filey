@@ -2904,6 +2904,17 @@ function void TestMeasure(TestFileFixture *fixture)
         Check(!P_WriteFile(&arena, svg, S("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1e12\" height=\"1e999\"><rect width=\"20\" height=\"10\"/></svg>")).code);
         Check(!P_LoadImageFile(&arena, svg, 400, &image, &width, &height));
         Check(P__TestRemovePath(fixture, S("Drawing.SVG"), false));
+        // A file has one name until a hard link gives it another, which both then count.
+        String named = Prog_JoinPath(&arena, fixture->path, S("named.txt")), second = Prog_JoinPath(&arena, fixture->path, S("second.txt"));
+        Check(!P_WriteFile(&arena, named, S("x")).code && P_FileLinkCount(named) == 1);
+#if defined(_WIN32)
+        Check(CreateHardLinkW(P__FilePathWide(&arena, second), P__FilePathWide(&arena, named), NULL));
+#else
+        Check(link(P__FilePathCString(&arena, named), P__FilePathCString(&arena, second)) == 0);
+#endif
+        Check(P_FileLinkCount(named) == 2 && P_FileLinkCount(second) == 2);
+        Check(P__TestRemovePath(fixture, S("second.txt"), false) && P_FileLinkCount(named) == 1);
+        Check(P__TestRemovePath(fixture, S("named.txt"), false) && P_FileLinkCount(named) == 0);
 #if defined(_WIN32)
         // A PDF is its first page, the longer side fitted: a 200 x 100 point page with a red square, on white.
         String pdf = Prog_JoinPath(&arena, fixture->path, S("square.pdf"));

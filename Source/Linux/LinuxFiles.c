@@ -2520,6 +2520,16 @@ function i32 P__OpenRegular(const char *native)
     return fd;
 }
 
+function u32 P_FileLinkCount(String path)
+{
+    Scratch scratch = GetScratch();
+    char *cpath = P__FilePathCString(scratch.arena, path);
+    struct stat info;
+    u32 result = cpath && lstat(cpath, &info) == 0 ? (u32)info.st_nlink : 0;
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function b32 P_ReadFile(Arena *arena, String path, String *contents)
 {
     *contents = (String){0};

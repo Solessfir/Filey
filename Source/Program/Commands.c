@@ -2888,6 +2888,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     ArenaClear(&state->previewArena);
     state->previewPath = StrCopy(&state->previewArena, want);
     state->previewText = state->previewMedia = (String){0};
+    state->previewLinks = 0;
     state->previewSeconds = 0;
     state->previewTags = (Prog_AudioTags){0};
     R_TextureRelease(state->previewCover);

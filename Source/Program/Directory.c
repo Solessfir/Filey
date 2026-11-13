@@ -3563,6 +3563,8 @@ function void Prog__DirectoryJob(P_Job *job)
         // A file inside an archive is read from its copy taken out, but for one too large to be worth it.
         String copy = !input->folder && input->size <= Prog_ArchivePreviewBytes ? Prog_ArchiveCopy(&job->arena, input->path, input->progress, &job->cancelToken) : (String){0};
         String path = copy.length ? copy : input->path;
+        // A folder's count is its subfolders' on Linux, not names it has.
+        if (!input->folder && !input->archive && !copy.length) result->links = P_FileLinkCount(path);
         String start = {0}, torrent = {0};
         P_Image image = {0};
         P_FileArray items = {0};
@@ -8430,6 +8432,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->hexPages = ArenaPushArray(&state->previewArena, Max(state->hexPageCount, (u64)1), u8 *);
                 Prog_KeepHexPage(state, 0, preview->text);
                 state->previewHex = true;
+                state->previewLinks = preview->links;
                 changed = true;
             } else if (job == state->previewJob && preview) {
                 state->previewJob = NULL;
@@ -8439,6 +8442,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->previewText = StrCopy(textArena, preview->text);
                 state->previewMedia = StrCopy(&state->previewArena, preview->media);
                 state->previewSeconds = preview->seconds;
+                state->previewLinks = preview->links;
                 state->previewTags = preview->tags;
                 for (u32 t = 0; t < Prog_AudioTagCount; ++t) state->previewTags.values[t] = StrCopy(&state->previewArena, preview->tags.values[t]);
                 state->previewTags.cover = StrCopy(&state->previewArena, preview->tags.cover);

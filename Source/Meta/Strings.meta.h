@@ -450,6 +450,7 @@ global const char *const Prog_Strings[] = {
     "Subfiles",
     "Created",
     "Modified",
+    "Hard links",
     "Dimensions",
     "Mixed",
     "Audio files",
