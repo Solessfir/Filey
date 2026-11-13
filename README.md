@@ -11,19 +11,33 @@
 
 ## Features
 
-- **Panels and tabs**: split panels side by side or stacked, tabs that move between panels and windows, and layouts you can save and restore.
-- **Fast lists**: details, list, columns and icon views with thumbnails, folder sizes, filters as you type, an expanded search through subfolders, Miller columns, a tree view that unfolds folders in place, one at a time or with everything inside, a folder tree in the sidebar under the drives as an option, and items grouped under headings by name, type, date, size, item count or share of the folder or drive, and in the bin and This PC by what only they show.
-- **Keyboard sidebar**: Alt+Q takes the keyboard into the sidebar: the arrows go through it, Left and Right fold and unfold, Enter opens, Alt+Up and Alt+Down reorder bookmarks, places and groups, Delete removes, F2 renames, and typing filters it.
-- **Go To and the command palette**: jump to recent, bookmarked or typed paths (with `~`, environment variables and, on Windows, Explorer's `shell:` and `::{GUID}` locations), and run any command by name, or by its English name in another language. Searches also find what was typed with the US or Russian keyboard layout on by mistake. Every hotkey can be changed.
-- **Inspector**: previews text with syntax highlighting and line numbers, filtered to the lines with a word or found in from match to match (Alt+Shift+F), images, SVG drawings, PDFs, 3D models (OBJ, STL, PLY, glTF, FBX, .blend, USD, Collada, 3DS, 3MF), see-through where their materials are, Word and Excel text, archives, and any file as hex; a folder or drive can show by what takes its space instead, as a treemap of everything in it with its folders by size and its kinds of file, whose items can be trashed, deleted or shown in their folder. The arrow beside the item's name drops its details under the toolbar: its path, size and dates, how many hard links a file has, a picture's size in pixels and an audio file's tags, each copied by a click or, for a tag, typed in.
-- **Archives as folders**: browse zip, 7z, rar, tar and cab files, archives inside archives too, and drag, copy and paste in and out of them. An encrypted archive asks for its password; encrypted 7z and RAR ones open with [7-Zip](https://www.7-zip.org) installed.
-- **Network**: the computers on your network that share folders, under Network on Windows, and their shares. On Linux, **Connect to Server** opens `sftp://`, `smb://`, `ftp://` and WebDAV addresses through GVFS, asking for a password when the server wants one, and lists them under Storage until you disconnect.
-- **Phones and cameras**: browse a phone or camera connected by USB, under This PC on Windows and through GVFS on Linux (with `gvfs-mtp`), and copy, move, rename and delete on it as in any folder, which updates as the phone changes. On Linux, Filey mounts them as they connect, and Eject in the right-click menu takes them and USB drives away. Partitions nothing has mounted, such as a Windows one, are listed under Storage too and mounted when opened, as Nemo does.
-- **Git**: the branch, the commits to push and pull, the changed files colored in the list, branch switching and a safe pull that only fast-forwards.
-- **Themes**: Catppuccin, Nord, Gruvbox, Tokyo Night, One Dark and Filey Dark built in, schemes of your own, starting from the system's light or dark mode until you pick one, and a transparent glass look in any of them.
-- **Linux desktop**: the file manager other programs open for Show in Folder, New from your Templates folder, Set as Default in Open With, your Nemo actions and scripts in the right-click menu (an action that puts a file's name into a command Filey cannot quote safely, such as one with `$` or a shell inside another, is left out), and Open as Root.
-- **Languages**: English, Chinese, French, German, Polish, Portuguese, Russian and Spanish, plus your own through a translation file.
-- **AI agents**: an [MCP server](#ai-agents-mcp), `filey --mcp`, through which an agent sees the folder and selection you are looking at, shows you what it found or made, and runs Filey's commands.
+**Browsing**
+- Split panels and tabs, with layouts you can save and restore
+- Details, list, icon and Miller column views, with thumbnails and folder sizes
+- Filter as you type, or search through subfolders
+- Tree view, grouping by name, type, date or size
+- Archives (zip, 7z, rar, tar, cab) open as folders, even archives inside archives
+
+**Keyboard**
+- Go To (Alt+E) for recent, bookmarked or typed paths
+- A command palette that runs any command by name
+- The sidebar works from the keyboard too (Alt+Q)
+- Every hotkey can be changed
+
+**Inspector**
+- Previews of text with syntax highlighting, images, SVG, PDF, Word, Excel, archives and hex
+- 3D models: OBJ, STL, PLY, glTF, FBX, .blend, USD, Collada, 3DS, 3MF
+- Audio waveforms and tags, video frames
+- Disk usage as a treemap
+- File details: path, size, dates, hard links, picture size
+
+**More**
+- Git status in the list, branch switching and a safe pull
+- Network shares, phones and cameras, and on Linux `sftp://`, `smb://`, `ftp://` and WebDAV
+- Themes (Catppuccin, Nord, Gruvbox, Tokyo Night, One Dark, Filey Dark), your own schemes and a glass look
+- English, Chinese, French, German, Polish, Portuguese, Russian and Spanish, or your own translation
+- Linux desktop integration: Show in Folder, Templates, Open With, Nemo actions, Open as Root
+- An [MCP server](#ai-agents-mcp) for AI agents (`filey --mcp`)
 
 ## Optional tools
 
@@ -31,10 +45,10 @@ Filey uses these when they are on your `PATH`. Without them, their features just
 
 | Tool | What it adds |
 | --- | --- |
-| [FFmpeg](https://ffmpeg.org/) (`ffmpeg`, `ffprobe`) | Audio waveforms you can play and scrub in the inspector, audio tags you can edit there, one file's or a whole folder's or selection's at once, with the album cover shown, replaced by a click on it or by dropping a picture on it and saved as a picture from the button on it (a folder's or a selection's covers one picture for each that differs), **Convert Audio** (MP3 320 or V0, AAC, Opus or FLAC, into a folder beside the files) on a line under the inspector's toolbar, seeking five seconds either way while a file plays (Alt+Shift+Left and Right), video frames, media details, and **Compress Video** in the inspector's footer, which encodes on the graphics card (NVENC, AMF or Quick Sync) when it can. |
-| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Paste a video's web address into a folder to download it there, as MP4 or audio only, alone or with its whole playlist. |
-| [aria2](https://aria2.github.io/) (`aria2c`) | Download torrents: paste a magnet link, tick the files you want in the inspector and press Download. Five download at once and the rest wait their turn; downloads left unfinished go on the next time Filey starts. |
-| [Git](https://git-scm.com/) | The Git features above. It never asks for a login: a repository that needs one is left alone. |
+| [FFmpeg](https://ffmpeg.org/) (`ffmpeg`, `ffprobe`) | Audio playback, waveforms, tags and covers, **Convert Audio** (MP3, AAC, Opus, FLAC), video frames and details, and **Compress Video** on the graphics card. |
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Paste a video's web address into a folder to download it. |
+| [aria2](https://aria2.github.io/) (`aria2c`) | Torrents: paste a magnet link, pick the files and download. |
+| [Git](https://git-scm.com/) | The Git features above. |
 
 ## Install
 
