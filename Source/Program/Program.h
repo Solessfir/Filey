@@ -1625,6 +1625,7 @@ typedef struct Prog_Panel {
     u64 inspectorOf;
     R_Rect inspectorRect;  // its inspector's in the last layout; empty while it is hidden
     R_Rect listRect;       // its list's in the last layout, where a split's preview shows; empty while it shows none
+    f32 listHeader;        // the height of the column titles over its list, which the preview covers too; 0 without them
     f32 convertShown, convertFrom;  // its inspector's convert line's height in the last frame, and where it was as it last began to open or shut
     b8 convertOpen;                 // whether that line is opening, rather than shutting
     b8 wasActive, drawn;
