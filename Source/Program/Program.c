@@ -2240,6 +2240,17 @@ function void Prog__Label(String text, UI_Size width, f32 height, f32 padding, R
     UI_AddBlock(UI_Flag_DrawText | UI_Flag_Clip);
 }
 
+// The arrow of something that folds, for the block added next: pointing right while folded and down while open, turning between them as
+// it changes, which `key` keeps the turn of. At rest it is the glyph that points that way, which lands on whole pixels as a turned one may not.
+function String Prog__FoldGlyph(UI_Key key, b32 open)
+{
+    f32 turn = UI_Animate(UI_KeyFromStr(key, S("FoldTurn")), open ? 1.0f : 0.0f, open ? 1.0f : 0.0f);
+    if (turn <= 0) return Icon_ChevronRight;
+    if (turn >= 1) return Icon_ChevronDown;
+    UI_SetNextRotation(turn * 1.5707964f);
+    return Icon_ChevronRight;
+}
+
 // An icon at the smaller size, for the breadcrumbs' separators.
 function void Prog__SmallIcon(String icon, f32 width, f32 height, R_Color color, f32 alignX, const Prog_Metrics *m)
 {
@@ -4827,7 +4838,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
                 UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
                 UI_SetNextFont(m->iconsSmall);
                 UI_SetNextColors((UI_Colors){ .text = UI->hotKey == key ? theme->text : theme->icon });
-                UI_SetNextText(Prog_TreeIsOpen(state, entry->file.name) ? Icon_ChevronDown : Icon_ChevronRight);
+                UI_SetNextText(Prog__FoldGlyph(key, Prog_TreeIsOpen(state, entry->file.name)));
                 UI_Interaction unfold = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_DrawText | UI_Flag_LeftMouseClickable));
                 if (unfold.clicked) Prog_QueueCommand(state, Prog_CommandKind_TreeToggle, index, 0, unfold.clickOrder);
             } else {
@@ -5116,7 +5127,7 @@ function void Prog__GroupHeading(Prog_State *state, UI_Key seed, u32 index, f32 
     UI_Parent(heading) {
         R_Color color = hot ? theme->text : theme->textHeading;
         // Folded as soon as it is clicked, while its items ease shut.
-        Prog__Icon(!Prog__GroupFolded(state, group->label) || !group->total ? Icon_ChevronDown : Icon_ChevronRight, m->iconSlot, height, color, 0.5f, m);
+        Prog__Icon(Prog__FoldGlyph(key, !Prog__GroupFolded(state, group->label) || !group->total), m->iconSlot, height, color, 0.5f, m);
         Prog__Label(Prog_Tr(group->label), UI_TextContent(), height, 0, color, 0);
         Prog__Label(StrFormat(&state->frameArena, "%" PRIu64, group->total), UI_TextContent(), height, m->gap, theme->textDim, 0);
         UI_Block *rule = Prog__Box(UI_Flex(), UI_Pixels(height), UI_Layout_Horizontal, (R_Color){0}, 0);
@@ -5772,7 +5783,7 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
         if (icon.length) Prog__Icon(icon, slot, m->row, color, 0, m);
         if (state->layoutSaving && state->nameFor == 1 && (u32)group == Prog_Group_Count + state->nameGroup) Prog__SidebarNameBox(state, m->row, m);
         else Prog__Label(title, UI_Flex(), m->row, 0, color, 0);
-        Prog__Icon(Prog_GroupShown(state, group) ? Icon_ChevronDown : Icon_ChevronRight, m->line * 1.5f, m->row, color, 0.5f, m);
+        Prog__Icon(Prog__FoldGlyph(key, Prog_GroupShown(state, group)), m->line * 1.5f, m->row, color, 0.5f, m);
     }
 }
 
@@ -5972,7 +5983,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
             UI_SetNextFont(m->iconsSmall);
             UI_SetNextColors((UI_Colors){ .text = UI->hotKey == arrowKey ? theme->text : theme->icon });
-            UI_SetNextText(state->treeNodes.v[node].open ? Icon_ChevronDown : Icon_ChevronRight);
+            UI_SetNextText(Prog__FoldGlyph(arrowKey, state->treeNodes.v[node].open));
             UI_Interaction unfold = UI_InteractionFromBlock(UI_AddBlockFromKey(arrowKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable));
             if (unfold.clicked) Prog_QueueCommand(state, Prog_CommandKind_SidebarTreeToggle, node, 0, unfold.clickOrder);
         }
@@ -7307,7 +7318,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                     }
                 }
                 if (command || chipCounts[i]) Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(itemHeight));
-                if (item->childCount) Prog__Icon(expanded ? Icon_ChevronDown : Icon_ChevronRight, arrow, itemHeight, highlighted ? theme->text : theme->icon, 0.5f, m);
+                if (item->childCount) Prog__Icon(Prog__FoldGlyph(key, expanded), arrow, itemHeight, highlighted ? theme->text : theme->icon, 0.5f, m);
             }
             if (open) {
                 // The submenu starts level with its row, the row's top line running on as its own.
@@ -7954,7 +7965,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                         b32 own = at.section >= Prog_GoToSection_Count;
                         Prog__Icon(own ? Icon_FolderFilled : icons[at.section], (f32)state->iconSize + floorf(7.2f * s + 0.5f), face, theme->icon, 0, m);
                         Prog__Label(own ? state->userGroups[at.section - Prog_GoToSection_Count].name : Prog_Tr(titles[at.section]), UI_Flex(), face, 0, theme->text, 0);
-                        Prog__Icon(folded ? Icon_ChevronRight : Icon_ChevronDown, floorf(m->line * 1.2f), face, theme->icon, 0.5f, m);
+                        Prog__Icon(Prog__FoldGlyph(key, !folded), floorf(m->line * 1.2f), face, theme->icon, 0.5f, m);
                     }
                     Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
                     continue;
@@ -8159,7 +8170,7 @@ function UI_Interaction Prog__OptionButton(Arena *frame, UI_Key key, String labe
         R_Color ink = open ? theme->contentSelection : theme->text;
         Prog__Spacer(UI_Pixels(chevron), UI_Pixels(height));
         Prog__Label(Prog__Ellipsize(frame, m->font, label, width - 2 * chevron), UI_Flex(), height, 0, ink, 0.5f);
-        Prog__Icon(open ? Icon_ChevronDown : Icon_ChevronRight, chevron, height, open ? theme->contentSelection : theme->icon, 0.5f, m);
+        Prog__Icon(Prog__FoldGlyph(key, open), chevron, height, open ? theme->contentSelection : theme->icon, 0.5f, m);
     }
     return UI_InteractionFromBlock(button);
 }
@@ -8264,7 +8275,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             }
         } break;
         case Prog_OptionControl_Expand: {
-            Prog__Icon(state->colorsExpanded ? Icon_ChevronDown : Icon_ChevronRight, floorf(20.8f * s + 0.5f), height, theme->icon, 0.5f, m);
+            Prog__Icon(Prog__FoldGlyph(UI_KeyFromStr(0, S("OptionsColors")), state->colorsExpanded), floorf(20.8f * s + 0.5f), height, theme->icon, 0.5f, m);
         } break;
         case Prog_OptionControl_Color: {
             // The color's hex digits in a field, which a press types in, and a swatch of it beside them, which a click opens the picker for.
@@ -10182,7 +10193,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                         R_Color icon = highlighted ? theme->text : theme->icon;
                         Prog__Icon(sectionIcons[section], slot, face, icon, 0, m);
                         Prog__Label(Prog_Tr(Prog_OptionSections[section].name), UI_Flex(), face, 0, theme->text, 0);
-                        Prog__Icon(state->optionsFolded & (1u << section) ? Icon_ChevronRight : Icon_ChevronDown, floorf(m->line * 1.2f), face, icon, 0.5f, m);
+                        Prog__Icon(Prog__FoldGlyph(key, !(state->optionsFolded & (1u << section))), floorf(m->line * 1.2f), face, icon, 0.5f, m);
                     }
                     if (i + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
                     continue;
@@ -10221,7 +10232,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                         b32 open = !(state->paletteFolded & (1u << at.group));
                         Prog__Icon(groupIcons[at.group], slot, face, icon, 0, m);
                         Prog__Label(Prog_Tr(groupNames[at.group]), UI_Flex(), face, 0, theme->text, 0);
-                        Prog__Icon(open ? Icon_ChevronDown : Icon_ChevronRight, floorf(m->line * 1.2f), face, icon, 0.5f, m);
+                        Prog__Icon(Prog__FoldGlyph(key, open), floorf(m->line * 1.2f), face, icon, 0.5f, m);
                     } else {
                         String label = Prog_CommandLabel((Prog_CommandKind)at.kind), tooltip = Prog_CommandTooltip((Prog_CommandKind)at.kind);
                         if (searching) {
@@ -13500,7 +13511,7 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
                         }
                         Prog__Spacer(UI_Pixels((f32)depths[i] * indent), UI_Pixels(row));
                         b32 opens = !filesRow && (folder->firstChild != UINT32_MAX || folder->fileCount || folder->restFiles);
-                        if (opens) Prog__SmallIcon(state->usageOpen[index] ? Icon_ChevronDown : Icon_ChevronRight, chevron, row, dim, 0.5f, m);
+                        if (opens) Prog__SmallIcon(Prog__FoldGlyph(key, state->usageOpen[index]), chevron, row, dim, 0.5f, m);
                         else Prog__Spacer(UI_Pixels(chevron), UI_Pixels(row));
                         R_Color nameColor = filesRow || folder->hidden || folder->system || folder->unreadable ? dim : ink;
                         f32 fixed = (f32)depths[i] * indent + chevron + percentWidth + sizeWidth + (counts ? 2 * countWidth : 0) + (dates ? dateWidth : 0);

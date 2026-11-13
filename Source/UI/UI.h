@@ -71,6 +71,7 @@ typedef struct UI_Properties {
     f32 borderThickness;  // 0 draws one pixel
     f32 fade;  // 0 is opaque and 1 invisible, for this block and everything inside it
     f32 scale; // 0 draws it at its size; otherwise it and everything inside it are drawn that much larger around its center
+    f32 rotation; // its text turned clockwise by this many radians about its center
     f32 blur;  // 0 draws over what is under it; above 0 it first blurs that, this many pixels across, inside its corners;
                // below 0 its fill only tints what is under it, as it would a blur
     f32 softness;  // 0 gives the background a sharp edge; otherwise it fades in from its edge over this many pixels
@@ -109,7 +110,7 @@ struct UI_Block {
 
 // A value that eases toward a target, kept while its key is used every frame.
 typedef struct UI_Animation { UI_Key key; f32 value; u64 startMicroseconds, lastFrameTouched; } UI_Animation;
-#define UI_MaxAnimations 128
+#define UI_MaxAnimations 512
 
 #define UI_HashSlotCount 1024
 typedef struct UI_Context {
@@ -207,6 +208,7 @@ function void UI_SetNextSoftness(f32 softness);
 function void UI_SetNextEdgeFade(f32 pixels);
 function void UI_SetNextQuads(const UI_Quad *quads, u32 count);
 function void UI_SetNextScale(f32 scale);
+function void UI_SetNextRotation(f32 radians);
 
 // Eases `value` toward `target`, snapping within `epsilon`; anything still moving asks for another frame.
 function f32 UI_Approach(f32 value, f32 target, f32 epsilon);

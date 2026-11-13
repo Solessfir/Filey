@@ -105,6 +105,9 @@ typedef enum R_Shape {
     R_Shape_Dithered          = 1 << 9,
 } R_Shape;
 function void R_SetShape(u32 shape);
+// What is drawn after it, but for lines, is turned clockwise by `radians` about each box's own center, until it is set back to 0, as an
+// arrow turns between pointing right and down.
+function void R_SetRotation(f32 radians);
 
 // Draw calls are only valid between R_BeginFrame and R_EndFrame and are submitted in order.
 function void R_DrawRect(R_Rect rect, R_Color color, f32 cornerRadius);

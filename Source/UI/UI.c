@@ -354,6 +354,7 @@ function void UI_SetNextSoftness(f32 softness) { UI->next.softness = softness; }
 function void UI_SetNextEdgeFade(f32 pixels) { UI->next.edgeFade = pixels; }
 function void UI_SetNextQuads(const UI_Quad *quads, u32 count) { UI->next.quads = quads, UI->next.quadCount = count; }
 function void UI_SetNextScale(f32 scale) { UI->next.scale = scale; }
+function void UI_SetNextRotation(f32 radians) { UI->next.rotation = radians; }
 
 function UI_Vec2 UI__TextSize(UI_Block *block)
 {
@@ -601,7 +602,9 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
             f32 y = block->rect.y0 + pad.top + MaxF32(0, innerHeight - text.y) * UI__Clamp(block->props.textAlignment.y, 0, 1);
             b32 clipText = clipsChildren && (text.x > innerWidth || text.y > innerHeight);
             if (clipText) R_PushClip(block->clipRect);
+            if (block->props.rotation != 0) R_SetRotation(block->props.rotation);
             R_DrawText(block->props.font, x, y, UI__Faded(block->props.colors.text, opacity), block->props.text);
+            if (block->props.rotation != 0) R_SetRotation(0);
             if (clipText) R_PopClip();
         }
     }

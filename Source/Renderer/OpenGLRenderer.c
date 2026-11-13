@@ -167,7 +167,9 @@ typedef struct GL_Instance {
 #define GL_ShapeRegion   128
 // A square fill on whole pixels, which covers each of them wholly, so that its color needs no shape worked out: most of a frame's pixels.
 #define GL_ShapePlain    256
-static_assert(!(R_Shape_Dithered & (GL_ShapeLine | GL_ShapeGradient | GL_ShapeRegion | GL_ShapePlain)) && R_Shape_Dithered == 512);
+// Turned about its center by the cosine and sine in its second corner's color, which only a gradient has another use for.
+#define GL_ShapeTurned   1024
+static_assert(!(R_Shape_Dithered & (GL_ShapeLine | GL_ShapeGradient | GL_ShapeRegion | GL_ShapePlain | GL_ShapeTurned)) && R_Shape_Dithered == 512);
 
 #define GL_BatchTextures 4
 
@@ -253,6 +255,7 @@ typedef struct GL_State {
     struct { f32 scale, x, y; } scales[GL_MaxClipDepth];
     u32              scaleDepth;
     f32              scale, offsetX, offsetY;
+    f32              rotation;
     i32              width;
     i32              height;
     // Blurs, by the dual Kawase filter: the frame under a box copied at its size, halved level by level and grown back level by level.
@@ -391,6 +394,11 @@ global const char GL_VertexShader[] =
     "    int textured = int(aStyle.z + 0.5);\n"
     "    vSlot = textured >> 3;\n"
     "    vStyle = vec4(aStyle.xy, float(textured & 7), aStyle.w);\n"
+    // Turned only where it lands: its own coordinates, which the shading works in, are those of the box before it turned.
+    "    if ((vShape & 1024) != 0) {\n"
+    "        vec2 center = 0.5 * (aRect.xy + aRect.zw), d = position - center;\n"
+    "        position = center + vec2(d.x * aTopRight.x - d.y * aTopRight.y, d.x * aTopRight.y + d.y * aTopRight.x);\n"
+    "    }\n"
     "    vec2 ndc = position / uViewport * 2.0 - 1.0;\n"
     "    gl_Position = vec4(ndc.x, -ndc.y, 0.0, 1.0);\n"
     "}\n";
@@ -923,6 +931,7 @@ function void R_BeginFrame(i32 width, i32 height, R_Color clear)
     GL.scaleDepth = 0;
     GL.scale = 1;
     GL.offsetX = GL.offsetY = 0;
+    GL.rotation = 0;
     GL.inSource = false;
     GL.solidCount = 0;
     if (clear.a >= 1) GL.solids[GL.solidCount++] = (GL_Solid){ .cover = { 0, 0, (f32)width, (f32)height }, .color = clear };
@@ -1040,14 +1049,23 @@ function void GL__PushInstance(GL_Instance instance, GLuint texture)
         instance.thickness *= GL.scale;
         instance.softness *= GL.scale;
     }
-    instance.shape = (f32)(GL.shape | (line ? GL_ShapeLine : 0) | ((u32)instance.shape & GL_ShapeGradient));
+    b32 turned = GL.rotation != 0 && !line && !((u32)instance.shape & GL_ShapeGradient);
+    instance.shape = (f32)(GL.shape | (line ? GL_ShapeLine : 0) | ((u32)instance.shape & GL_ShapeGradient) | (turned ? GL_ShapeTurned : 0));
+    // A turned box reaches past its own corners, at most to the circle through them.
+    R_Rect bounds = instance.rect;
+    if (turned) {
+        instance.corners[0] = (R_Color){ cosf(GL.rotation), sinf(GL.rotation), 0, 0 };
+        f32 cx = (bounds.x0 + bounds.x1) * 0.5f, cy = (bounds.y0 + bounds.y1) * 0.5f;
+        f32 reach = 0.5f * sqrtf((bounds.x1 - bounds.x0) * (bounds.x1 - bounds.x0) + (bounds.y1 - bounds.y0) * (bounds.y1 - bounds.y0));
+        bounds = (R_Rect){ cx - reach, cy - reach, cx + reach, cy + reach };
+    }
     R_Rect clip = GL__CurrentClip();
     GL_Batch *batch = GL.batches.header.count > 0 ? &GL.batches.v[GL.batches.header.count - 1] : NULL;
-    R_Rect shaded = GL__Covered(instance.rect, clip);
+    R_Rect shaded = GL__Covered(bounds, clip);
     if (GL__ChangesNothing(&instance, shaded)) return;
     R_Rect r = instance.rect;
     b32 plain = floorf(r.x0) == r.x0 && floorf(r.y0) == r.y0 && floorf(r.x1) == r.x1 && floorf(r.y1) == r.y1 && instance.textured == 0 && instance.radius == 0 &&
-                instance.thickness == 0 && instance.softness == 0 && !((u32)instance.shape & (R_Shape_Inverted | GL_ShapeLine | GL_ShapeGradient | R_Shape_Dithered));
+                instance.thickness == 0 && instance.softness == 0 && !((u32)instance.shape & (R_Shape_Inverted | GL_ShapeLine | GL_ShapeGradient | R_Shape_Dithered | GL_ShapeTurned));
     if (plain) instance.shape = (f32)((u32)instance.shape | GL_ShapePlain);
     if (!GL.inLayer) {
         GL__Touch(shaded);
@@ -1058,7 +1076,7 @@ function void GL__PushInstance(GL_Instance instance, GLuint texture)
         }
     }
     // An instance inside both clips shades the same pixels under either, so it joins the batch it follows, as most of a list's rows do.
-    R_Rect whole = GL__Covered(instance.rect, instance.rect);
+    R_Rect whole = GL__Covered(bounds, bounds);
     b32 sameClip = batch != NULL && (MemCompare(&batch->clip, &clip, sizeof(clip)) == 0 ||
                                      (GL__Inside(whole, GL__Scissor(clip)) && GL__Inside(whole, GL__Scissor(batch->clip))));
     b32 compatibleTexture = batch != NULL && (texture == 0 || GL__TextureSlot(batch, texture) < GL_BatchTextures);
@@ -1246,6 +1264,11 @@ function void GL__Blur(const GL_Batch *batch, b32 held)
 function void R_SetShape(u32 shape)
 {
     GL.shape = shape;
+}
+
+function void R_SetRotation(f32 radians)
+{
+    GL.rotation = radians;
 }
 
 function void R_DrawRect(R_Rect rect, R_Color color, f32 cornerRadius)
@@ -1463,7 +1486,7 @@ function R_Rect GL__OpaqueBox(const GL_Instance *instance, R_Rect clip)
 {
     u32 shape = (u32)instance->shape;
     if (instance->color.a < 1 || instance->textured != 0 || instance->thickness != 0 || instance->softness != 0 ||
-        (shape & (R_Shape_Inverted | GL_ShapeLine | GL_ShapeGradient | GL_ShapeRegion | R_Shape_Dithered))) return (R_Rect){0};
+        (shape & (R_Shape_Inverted | GL_ShapeLine | GL_ShapeGradient | GL_ShapeRegion | R_Shape_Dithered | GL_ShapeTurned))) return (R_Rect){0};
     return GL__Intersect(GL__Inner(instance->rect, instance->radius > 0 ? ceilf(instance->radius) + 1 : 0), GL__Scissor(clip));
 }
 
@@ -1511,7 +1534,7 @@ function void GL__Cull(void)
                 u32 count = 1;
                 b32 cut = true;
                 u32 shape = (u32)instance.shape;
-                b32 cuttable = instance.textured == 0 && !(shape & (GL_ShapeLine | GL_ShapeRegion));
+                b32 cuttable = instance.textured == 0 && !(shape & (GL_ShapeLine | GL_ShapeRegion | GL_ShapeTurned));
                 if (cuttable && instance.thickness > 0 && !(shape & R_Shape_Inverted)) cut = GL__Subtract(pieces, &count, GL__Inner(instance.rect, MaxF32(ceilf(instance.radius), ceilf(instance.thickness)) + 1));
                 for (u64 k = nextOccluder; cut && count && k < occluders.header.count; ++k) cut = GL__Subtract(pieces, &count, occluders.v[k].box);
                 if (!cut || (count == 1 && MemCompare(&pieces[0], &area, sizeof(area)) == 0)) {
