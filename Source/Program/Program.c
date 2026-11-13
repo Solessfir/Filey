@@ -7028,8 +7028,13 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // Submenus open to the right of their item, or to the left when there is no room; a menu pushed in from the right edge keeps a margin.
     // A submenu sits against its opener's panel, on the side the menus have been opening to while there is room, so that it does not cover the
     // panel before.
-    if (place.leftward && x - place.openerWidth - width >= view.x0) x -= place.openerWidth + width;
+    // The top level of a menu at the pointer opens to its left where it has no room to the right, and up from it where it has none below,
+    // so that its first items stay by the pointer; where neither side has the room, it takes the side with more.
+    b32 flips = level == 0 && state->menuFlips && state->menuRight <= 0;
+    if (flips && x + width > view.x1 && x - width >= view.x0) x -= width;
+    else if (place.leftward && x - place.openerWidth - width >= view.x0) x -= place.openerWidth + width;
     else if (x + width > view.x1) x = place.openerWidth > 0 ? x - place.openerWidth - width : view.x1 - width - floorf(4.0f * m->scale + 0.5f);
+    if (flips && y + height > view.y1 && state->menuAbove - view.y0 > view.y1 - y) y = MaxF32(view.y0, state->menuAbove - height);
     // An end of a submenu near the same end of its opener's panel goes level with it, rather than leave a step too short to curve into.
     R_Rect parent = place.openerPanel;
     b32 opened = level > 0 && place.opener.y1 > place.opener.y0;

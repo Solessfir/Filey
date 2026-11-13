@@ -418,6 +418,7 @@ function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *it
     state->menu.count = state->menu.rootCount = count;
     state->menuOpen = true;
     state->menuAt = at;
+    state->menuFlips = false;
     // The keyboard starts on the first item.
     state->menuHighlight = UINT32_MAX;
     for (u32 i = 0; i < count && state->menuHighlight == UINT32_MAX; ++i) if (!state->menu.items[i].separator && !state->menu.items[i].disabled) state->menuHighlight = i;
@@ -2207,9 +2208,10 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
         return;
     }
     Prog__ApplyMenuPins(state);
-    state->menuAt = mouse ? state->ui.mouse
-                  : state->menuRowCount ? (UI_Vec2){ state->focusedRowRect.x0 + 24, state->focusedRowRect.y1 }
-                  : state->ui.mouse;
+    b32 atRow = !mouse && state->menuRowCount;
+    state->menuAt = atRow ? (UI_Vec2){ state->focusedRowRect.x0 + 24, state->focusedRowRect.y1 } : state->ui.mouse;
+    state->menuFlips = true;
+    state->menuAbove = atRow ? state->focusedRowRect.y0 : state->menuAt.y;
     // It starts on its first item, from the mouse too.
     state->menuHighlight = UINT32_MAX;
     Prog__MenuMove(state, 1);
@@ -4236,6 +4238,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 }
                 Prog__ApplyMenuPins(state);
                 state->menuAt = command->at.x != 0 || command->at.y != 0 ? command->at : state->ui.mouse;
+                state->menuFlips = true;
+                state->menuAbove = state->menuAt.y;
                 state->menuHighlight = UINT32_MAX;
                 Prog__MenuMove(state, 1);
             } break;

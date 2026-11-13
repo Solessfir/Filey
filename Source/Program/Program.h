@@ -1842,6 +1842,10 @@ typedef struct Prog_State {
     String tooltipChip;       // a key that does the same, in a chip after a tip's last line of words
     String tooltipPath;       // a sidebar folder, whose tip shows what it holds instead
     f32 menuRight;            // when nonzero, the right edge the top level lines up with
+    // A menu opened at the pointer or at a row turns to open up from it, or left of it, where it has no room below or to the right, as the
+    // system's do, its bottom then at menuAbove: the pointer, or the top of the row.
+    b32 menuFlips;
+    f32 menuAbove;
     // Drag and drop.
     // The system's drag loop is modal, so a drag is requested during a frame and run between frames by Prog_DragSelection.
     b32 dragRequested;

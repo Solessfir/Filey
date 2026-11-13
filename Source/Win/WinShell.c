@@ -1086,6 +1086,7 @@ global const GUID P__FolderDownloads = { 0x374DE290, 0x123F, 0x4565, { 0x91, 0x6
 global const GUID P__FolderMusic     = { 0x4BD8D571, 0x6D19, 0x48D3, { 0xBE, 0x97, 0x42, 0x22, 0x20, 0x08, 0x0E, 0x43 } };
 global const GUID P__FolderPictures  = { 0x33E28130, 0x4E1E, 0x4676, { 0x83, 0x5A, 0x98, 0x39, 0x5C, 0x3B, 0xC3, 0xBB } };
 global const GUID P__FolderVideos    = { 0x18989B1D, 0x99B5, 0x455B, { 0x84, 0x1C, 0xAB, 0x7C, 0x74, 0xE4, 0xDD, 0xFC } };
+global const GUID P__FolderOneDrive  = { 0xA52BBA46, 0xE9E1, 0x435F, { 0xB3, 0xD9, 0x28, 0xDA, 0xA6, 0x48, 0xC0, 0xF6 } };
 global const GUID P__FolderLocalData = { 0xF1B32785, 0x6FBA, 0x4FCF, { 0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91 } };
 global const GUID P__FolderRoamingData = { 0x3EB685DB, 0x65F9, 0x4CF6, { 0xA0, 0x3A, 0xE3, 0xEF, 0x65, 0x72, 0x9F, 0x3D } };
 
@@ -1350,6 +1351,33 @@ function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *path
     return (P_FileError){0};
 }
 
+// The OneDrive folders set up for the user, after their home folder as Explorer lists them, by their own names ("OneDrive", or a work or
+// school account's "OneDrive - Contoso"): the known folder, and the work and personal accounts' as OneDrive sets them in the environment.
+function void P__AddOneDrives(Arena *arena, P_ArrayPlace *places)
+{
+    Scratch scratch = GetScratchEx(arena);
+    String found[3] = { P__KnownFolder(scratch.arena, &P__FolderOneDrive) };
+    const wchar *variables[] = { L"OneDriveCommercial", L"OneDriveConsumer" };
+    for (u32 v = 0; v < CArrayCount(variables); ++v) {
+        wchar value[MAX_PATH];
+        DWORD length = GetEnvironmentVariableW(variables[v], value, MAX_PATH);
+        if (length && length < MAX_PATH) found[v + 1] = P_AbsolutePath(scratch.arena, P__FileStringWide(scratch.arena, value, (i32)length));
+    }
+    for (u32 i = 0; i < CArrayCount(found); ++i) {
+        String path = found[i];
+        b32 seen = false;
+        for (u32 k = 0; k < i; ++k) seen |= StrIsEqual(found[k], path);
+        for (u64 k = 0; k < places->header.count; ++k) seen |= StrIsEqual(places->v[k].path, path);
+        // The known folder names a place for OneDrive even where it was never set up.
+        wchar *wide = path.length && !seen ? P__FilePathWide(scratch.arena, path) : NULL;
+        DWORD attributes = wide ? GetFileAttributesW(wide) : INVALID_FILE_ATTRIBUTES;
+        if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        String kept = StrCopy(arena, path);
+        ArrayPush(arena, *places, ((P_Place){ .name = StrFrom(kept, StrIndexChar(kept, '/', SSF_SearchBackwards).value + 1), .path = kept }));
+    }
+    ReleaseScratch(scratch);
+}
+
 function P_ArrayPlace P_UserPlaces(Arena *arena)
 {
     local_persist const struct { const GUID *id; const char *name; } folders[] = {
@@ -1362,6 +1390,7 @@ function P_ArrayPlace P_UserPlaces(Arena *arena)
         if (!path.length) continue;
         String name = folders[i].name ? StrFromCStr(folders[i].name) : StrFrom(path, StrIndexChar(path, '/', SSF_SearchBackwards).value + 1);
         ArrayPush(arena, result, ((P_Place){ .name = name, .path = path, .home = !folders[i].name }));
+        if (i == 0) P__AddOneDrives(arena, &result);
     }
     ArrayPush(arena, result, ((P_Place){ .name = S("Recycle Bin"), .path = P_TrashFolder(arena) }));
     return result;
