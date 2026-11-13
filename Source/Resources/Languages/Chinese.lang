@@ -3937,3 +3937,9 @@ Shows buttons for cut, copy, rename and delete at the edge of the selection's me
 
 Quick actions
 = 快捷操作
+
+Explorer's Pinned Folders
+= 资源管理器的固定文件夹
+
+Lists the folders pinned to Explorer's Quick access after the sidebar's bookmarks.
+= 在侧边栏书签之后列出固定到资源管理器“快速访问”的文件夹。

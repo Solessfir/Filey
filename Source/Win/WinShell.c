@@ -1498,6 +1498,45 @@ global const PROPERTYKEY P__PKEY_Size         = { { 0xB725F130, 0x47EF, 0x101A, 
 global const PROPERTYKEY P__PKEY_DateModified = { { 0xB725F130, 0x47EF, 0x101A, { 0xA5, 0xF1, 0x02, 0x60, 0x8C, 0x9E, 0xEB, 0xAC } }, 14 };
 global const PROPERTYKEY P__PKEY_DateCreated  = { { 0xB725F130, 0x47EF, 0x101A, { 0xA5, 0xF1, 0x02, 0x60, 0x8C, 0x9E, 0xEB, 0xAC } }, 15 };
 global const PROPERTYKEY P__PKEY_ItemTypeText = { { 0xB725F130, 0x47EF, 0x101A, { 0xA5, 0xF1, 0x02, 0x60, 0x8C, 0x9E, 0xEB, 0xAC } }, 4 };
+// System.Home.IsPinned: whether a Quick access item is pinned there, rather than one of the frequent folders.
+global const PROPERTYKEY P__PKEY_HomeIsPinned = { { 0x30C8EEF4, 0xA832, 0x41E2, { 0xAB, 0x32, 0xE3, 0xC3, 0xCA, 0x28, 0xFD, 0x29 } }, 4 };
+
+function P_ArrayPlace P_PinnedFolders(Arena *arena)
+{
+    P_ArrayPlace result = {0};
+    b32 com = SUCCEEDED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE));
+    IShellItem *home = NULL;
+    IEnumShellItems *items = NULL;
+    if (SUCCEEDED(SHCreateItemFromParsingName(L"shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}", NULL, &P__IID_IShellItem, (void **)&home)) &&
+        SUCCEEDED(home->lpVtbl->BindToHandler(home, NULL, &P__BHID_EnumItems, &P__IID_IEnumShellItems, (void **)&items))) {
+        Scratch scratch = GetScratchEx(arena);
+        IShellItem *item = NULL;
+        while (items->lpVtbl->Next(items, 1, &item, NULL) == S_OK) {
+            IShellItem2 *details = NULL;
+            BOOL pinned = FALSE;
+            SFGAOF attributes = 0;
+            wchar *path = NULL, *name = NULL;
+            // Only folders that are on a disk, which the places open; a pinned This PC or library is left out.
+            if (SUCCEEDED(item->lpVtbl->QueryInterface(item, &P__IID_IShellItem2, (void **)&details)) && SUCCEEDED(details->lpVtbl->GetBool(details, &P__PKEY_HomeIsPinned, &pinned)) &&
+                pinned && SUCCEEDED(item->lpVtbl->GetAttributes(item, SFGAO_FOLDER | SFGAO_FILESYSTEM, &attributes)) &&
+                (attributes & (SFGAO_FOLDER | SFGAO_FILESYSTEM)) == (SFGAO_FOLDER | SFGAO_FILESYSTEM) && SUCCEEDED(item->lpVtbl->GetDisplayName(item, SIGDN_FILESYSPATH, &path))) {
+                if (FAILED(item->lpVtbl->GetDisplayName(item, SIGDN_NORMALDISPLAY, &name))) name = NULL;
+                String folder = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, path, lstrlenW(path)));
+                String shown = name ? P__FileStringWide(arena, name, lstrlenW(name)) : StrFrom(folder, StrIndexChar(folder, '/', SSF_SearchBackwards).value + 1);
+                if (folder.length) ArrayPush(arena, result, ((P_Place){ .name = shown, .path = folder }));
+            }
+            CoTaskMemFree(path);
+            CoTaskMemFree(name);
+            if (details) details->lpVtbl->Release(details);
+            item->lpVtbl->Release(item);
+        }
+        ReleaseScratch(scratch);
+    }
+    if (items) items->lpVtbl->Release(items);
+    if (home) home->lpVtbl->Release(home);
+    if (com) CoUninitialize();
+    return result;
+}
 
 // What a device path stands for in the shell, its item id list's bytes, kept from every listing of a device's folder, on any thread.
 typedef struct P__DeviceName { String list; u64 listing; b8 folder; } P__DeviceName;

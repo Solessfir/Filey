@@ -128,6 +128,8 @@ global const char *const Prog_Strings[] = {
     "Show previously visited subfolders in the address bar.",
     "Sidebar Folder Tree",
     "Unfolds the sidebar's drives into the folders in them, as a tree.",
+    "Explorer's Pinned Folders",
+    "Lists the folders pinned to Explorer's Quick access after the sidebar's bookmarks.",
     "Show Selection Boxes",
     "Toggle visibility of checkboxes when selecting multiple items in a panel.",
     "Confirm Emptying Recycle Bin",

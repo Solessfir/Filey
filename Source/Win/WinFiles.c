@@ -1300,6 +1300,7 @@ function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count,
 // Only with a window to own its dialog, so that the headless tests confirm as other platforms do.
 function b32 P_DeleteAsks(void) { return P__shellOwner != NULL; }
 function b32 P_HasSystemFiles(void) { return true; }
+function b32 P_HasPinnedFolders(void) { return true; }
 
 // NTFS's master file table, enumerated through the volume as FSCTL_ENUM_USN_DATA gives it: a record for every file with its reference,
 // its folder's and its name, which opening the volume needs an administrator for. The table's own files, the first 24 records, are left out.

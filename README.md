@@ -35,6 +35,7 @@
 
 **More**
 - Git status in the list, branch switching and a safe pull
+- OneDrive, Google Drive, iCloud Drive and MEGA in Places, and optionally Explorer's pinned folders under Bookmarks
 - Network shares, phones and cameras, and on Linux `sftp://`, `smb://`, `ftp://` and WebDAV
 - Themes (Catppuccin, Nord, Gruvbox, Tokyo Night, One Dark, Filey Dark), your own schemes and a glass look
 - English, Chinese, French, German, Polish, Portuguese, Russian and Spanish, or your own translation

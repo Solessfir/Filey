@@ -462,6 +462,8 @@ typedef struct Prog_SeenFiles { MapHeader header; struct { P_FileId key; b8 valu
 #define Prog_SpringMicroseconds 700000
 // How long a closed split's panel takes to slide out.
 #define Prog_ClosingMicroseconds 160000
+// How often the folders pinned to Explorer's Quick access are read again while the bookmarks show them.
+#define Prog_PinnedMicroseconds 30000000
 
 typedef struct Prog_TreeTotals {
     atomic_uint_fast64_t folders, files, bytes;
@@ -563,6 +565,7 @@ typedef struct Prog_JobInput {
     b32 showSystem;
     b32 miller;            // FilesList: for a Miller column of `panel`, rather than the folder dropdown
     b32 explorer;          // Open: the folder `path` in the system's file manager
+    b32 pinned;            // Places: the folders pinned to Explorer's Quick access are read too
     b32 expanded;
     b32 tree;               // a tree: the folders `treeOpen` names, by their paths from `path`, are listed too
     String *treeOpen;
@@ -970,6 +973,8 @@ typedef struct Prog_Places {
     ArrayStr roots;
     ArrayStr searched;  // P_SearchPlaces
     ArrayStr missing;   // the bookmarks whose folders are gone
+    P_ArrayPlace pinned; // P_PinnedFolders, when the job was asked to read them
+    b32 pinnedRead;
 } Prog_Places;
 
 typedef enum Prog_PaletteMode {
@@ -1057,6 +1062,7 @@ typedef enum Prog_Option {
     Prog_Option_ShortenedPaths,
     Prog_Option_Breadcrumbs,
     Prog_Option_SidebarTree,
+    Prog_Option_PinnedPlaces,
     Prog_Option_ShowCheckboxes,
     Prog_Option_ConfirmEmptyTrash,
     Prog_Option_GitFetch,
@@ -2388,6 +2394,11 @@ typedef struct Prog_State {
     u32 groupDrag, groupGap;
     f32 groupTops[Prog_SidebarGroupMax];
     b32 placesWanted;         // the sidebar was built, so its places are kept current
+    // The bookmarks show the folders pinned to Explorer's Quick access after their own, read at most every Prog_PinnedMicroseconds into pinnedArena.
+    b32 pinnedPlaces;
+    Arena pinnedArena;
+    P_ArrayPlace pinned;
+    u64 pinnedTime;
     b32 windowInactive;       // another window has the focus, which dims the title strip
     b32 drivesChanged;        // the system told of a drive or medium coming or going, which the places are listed again for
     Arena placesArena;        // the latest places listing

@@ -3701,6 +3701,7 @@ function void Prog__DirectoryJob(P_Job *job)
             result->drives = P_Drives(&job->arena);
             result->roots = P_PathRoots(&job->arena);
             result->searched = P_SearchPlaces(&job->arena);
+            if (input->pinned) result->pinned = P_PinnedFolders(&job->arena), result->pinnedRead = true;
             for (u64 i = 0; i < input->pathCount; ++i) if (!P_PathExists(input->paths[i])) ArrayPush(&job->arena, result->missing, input->paths[i]);
         }
         job->result = result;
@@ -8346,6 +8347,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
         input->panel = Prog__PanelId(state);
         input->kind = Prog_JobKind_Places;
+        // The pinned folders are read less often, as asking the shell for them takes longer than listing the drives.
+        input->pinned = state->pinnedPlaces && (!state->pinnedTime || now - state->pinnedTime >= Prog_PinnedMicroseconds);
+        if (input->pinned) state->pinnedTime = now;
         input->pathCount = state->bookmarks.header.count;
         input->paths = ArenaPushArray(&job->arena, Max(input->pathCount, (u64)1), String);
         for (u64 i = 0; i < input->pathCount; ++i) input->paths[i] = StrCopy(&job->arena, state->bookmarks.v[i]);
@@ -9212,6 +9216,16 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 ArrayPush(&state->placesArena, state->places, ((P_Place){ .name = Prog_ThisPC, .path = Prog_ThisPC }));
                 if (P_NetworkFolder().length) ArrayPush(&state->placesArena, state->places, ((P_Place){ .name = P_NetworkFolder(), .path = P_NetworkFolder() }));
                 for (u64 i = 0; i < result->places.header.count; ++i) ArrayPush(&state->placesArena, state->places, result->places.v[i]);
+                // Explorer's pinned folders, which the bookmarks show after their own.
+                if (result->pinnedRead) {
+                    ArenaClear(&state->pinnedArena);
+                    state->pinned = (P_ArrayPlace){0};
+                    for (u64 i = 0; i < result->pinned.header.count; ++i) {
+                        P_Place place = result->pinned.v[i];
+                        place.name = StrCopy(&state->pinnedArena, place.name), place.path = StrCopy(&state->pinnedArena, place.path);
+                        ArrayPush(&state->pinnedArena, state->pinned, place);
+                    }
+                }
                 Prog__OrderPlaces(state);
                 Prog__OrderDrives(state, &result->drives);
                 state->drives = result->drives;

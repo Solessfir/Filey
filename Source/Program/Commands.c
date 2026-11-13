@@ -3567,13 +3567,36 @@ function b32 Prog__RunsDropped(const Prog_Entry *entry)
     return false;
 }
 
+// Explorer's pinned folder that is the bookmarks' row `index`, after their own, those bookmarked already left out; empty for the bookmarks'
+// own rows and past the end. The bookmarks show these only while places.pinned is on.
+function String Prog__PinnedBookmark(const Prog_State *state, u64 index)
+{
+    if (!state->pinnedPlaces || index < state->bookmarks.header.count) return (String){0};
+    u64 wanted = index - state->bookmarks.header.count;
+    for (u64 i = 0; i < state->pinned.header.count; ++i) {
+        String path = state->pinned.v[i].path;
+        b32 bookmarked = false;
+        for (u64 k = 0; k < state->bookmarks.header.count && !bookmarked; ++k) bookmarked = Prog__EqualFolded(state->bookmarks.v[k], path);
+        if (bookmarked) continue;
+        if (!wanted--) return path;
+    }
+    return (String){0};
+}
+
+// Whether the sidebar row `index` of `group` is one of Explorer's pinned folders, which the bookmarks show but do not keep: not moved, removed
+// or renamed there.
+function b32 Prog__PinnedRow(const Prog_State *state, Prog_Group group, u64 index)
+{
+    return group == Prog_Group_Bookmarks && index >= state->bookmarks.header.count;
+}
+
 // The folder of sidebar item `index` in `group`; empty when there is no such item.
 function String Prog__SidebarPath(const Prog_State *state, Prog_Group group, u64 index)
 {
     if (group == Prog_Group_Tree) return (index & UINT32_MAX) < state->treeNodes.header.count ? state->treeNodes.v[index & UINT32_MAX].path : (String){0};
     switch (group) {
         case Prog_Group_Recents: return index < state->recents.header.count ? state->recents.v[index] : (String){0};
-        case Prog_Group_Bookmarks: return index < state->bookmarks.header.count ? state->bookmarks.v[index] : (String){0};
+        case Prog_Group_Bookmarks: return index < state->bookmarks.header.count ? state->bookmarks.v[index] : Prog__PinnedBookmark(state, index);
         case Prog_Group_Storage: {
             // The drives, then the servers' shares.
             if (index < state->drives.header.count) return state->drives.v[index].path;
@@ -4242,7 +4265,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog_CloseMenu(state);
                 state->menuTarget = StrCopy(&state->menuArena, path);
                 state->menuMiller = (b8)miller;
-                b32 renamable = !miller && Prog__SidebarRenamable((Prog_Group)command->row, path);
+                b32 renamable = !miller && Prog__SidebarRenamable((Prog_Group)command->row, path) && !Prog__PinnedRow(state, (Prog_Group)command->row, command->target);
                 state->menuSidebar = renamable ? (u32)command->row + 1 : 0;
                 state->menuSidebarIndex = command->target;
                 String folder = {0}, name = {0};
@@ -4699,7 +4722,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_SidebarRename: {
                 String path = Prog__SidebarPath(state, (Prog_Group)command->row, command->target);
-                if (Prog__SidebarRenamable((Prog_Group)command->row, path)) Prog__BeginSidebarName(state, 2, (u32)command->row, command->target, Prog__FolderName(path), path);
+                if (Prog__SidebarRenamable((Prog_Group)command->row, path) && !Prog__PinnedRow(state, (Prog_Group)command->row, command->target)) Prog__BeginSidebarName(state, 2, (u32)command->row, command->target, Prog__FolderName(path), path);
             } break;
             case Prog_CommandKind_GroupDelete: if (command->row >= Prog_Group_Count) Prog_UserGroupDelete(state, (u32)(command->row - Prog_Group_Count)); break;
             case Prog_CommandKind_GroupItemRemove: if (command->row >= Prog_Group_Count) Prog_UserGroupRemove(state, (u32)(command->row - Prog_Group_Count), command->target); break;

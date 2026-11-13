@@ -364,6 +364,8 @@ function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count,
 function b32 P_DeleteAsks(void);
 // Whether files can be marked as the system's own, as P_File.system says on Windows, which showing or hiding them needs.
 function b32 P_HasSystemFiles(void);
+// Whether the system has such pinned folders to show: Windows.
+function b32 P_HasPinnedFolders(void);
 // A whole volume's folders and files read from its file system's own table rather than folder by folder, in breadth-first order from
 // its root: each entry's name, the entry of the folder it is in (UINT32_MAX for the root's own), and whether it is a folder, hidden or a
 // link, which is not gone into.
@@ -417,6 +419,9 @@ typedef struct P_ArrayPlace { ArrayHeader header; P_Place *v; } P_ArrayPlace;
 
 // The user's home and its desktop, documents, downloads, music, pictures and videos folders that exist.
 function P_ArrayPlace P_UserPlaces(Arena *arena);
+// The folders pinned to Explorer's Quick access, in its order, for the places to show; none on Linux, whose GTK bookmarks are among the places
+// already. Talks to the shell, so run it in a job.
+function P_ArrayPlace P_PinnedFolders(Arena *arena);
 // Folders that the breadcrumbs of the folders inside them start from: the user's places, and on Windows the local and roaming app data.
 function ArrayStr P_PathRoots(Arena *arena);
 // Folders Go To searches besides the user's places that exist: on Windows the app data folders, the Start menu and Startup, Favorites,

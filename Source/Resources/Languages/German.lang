@@ -3937,3 +3937,9 @@ Shows buttons for cut, copy, rename and delete at the edge of the selection's me
 
 Quick actions
 = Schnellaktionen
+
+Explorer's Pinned Folders
+= Angeheftete Explorer-Ordner
+
+Lists the folders pinned to Explorer's Quick access after the sidebar's bookmarks.
+= Zeigt die an den Schnellzugriff des Explorers angehefteten Ordner nach den Lesezeichen der Seitenleiste.

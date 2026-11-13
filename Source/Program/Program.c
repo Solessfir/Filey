@@ -812,6 +812,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
     for (u32 i = 0; i < Prog_QuickAction_Count; ++i) state->quickOrder[i] = (u8)i;
     state->quickCount = Prog_QuickAction_Count;
+    state->pinnedPlaces = false;
     state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->menuQuickActions = state->noTooltips = state->separateInstances = state->gitFetch = state->mcp = false;
     state->startup = Prog_Startup_LastSession;
     state->newTab = Prog_NewTab_Root;
@@ -898,6 +899,11 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->fullPaths = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("paths.trail"))) {
             state->noTrail = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("places.pinned"))) {
+            b32 on = Prog__SettingOn(value);
+            // Read again at once when turned on.
+            if (on && !state->pinnedPlaces) state->pinnedTime = 0;
+            state->pinnedPlaces = on;
         } else if (StrIsEqual(name, S("sidebar.tree"))) {
             state->sidebarTree = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("menus.inline"))) {
@@ -1115,6 +1121,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# The address bar: from the first recognized folder rather than the drive, and with the visited subfolders past the shown one.\n"
                                 "# paths.short = true\n# paths.trail = true\n\n"
                                 "# The sidebar's drives unfolding into the folders in them, as a tree.\n# sidebar.tree = false\n\n"
+                                "# The folders pinned to Explorer's Quick access, after the bookmarks (Windows).\n# places.pinned = false\n\n"
                                 "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = false\n\n"
                                 "# Submenus that open inside their menu, under their item, rather than beside it.\n# menus.inline = false\n\n"
                                 "# A row of buttons for cutting, copying, renaming and deleting at the edge of the menu of selected items nearest the pointer.\n# menus.quick = false\n\n"
@@ -1273,6 +1280,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                   Prog_OptionSwitch, 2, SInit("paths.trail") },
     [Prog_Option_SidebarTree] = { TrInit("Sidebar Folder Tree"), TrInit("Unfolds the sidebar's drives into the folders in them, as a tree."),
                                   Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("sidebar.tree") },
+    [Prog_Option_PinnedPlaces] = { TrInit("Explorer's Pinned Folders"), TrInit("Lists the folders pinned to Explorer's Quick access after the sidebar's bookmarks."),
+                                   Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("places.pinned") },
     [Prog_Option_ShowCheckboxes] = { TrInit("Show Selection Boxes"), TrInit("Toggle visibility of checkboxes when selecting multiple items in a panel."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, SInit("checkboxes") },
     [Prog_Option_ConfirmEmptyTrash] = { TrInit("Confirm Emptying Recycle Bin"), TrInit("Ask before permanently deleting everything in the Recycle Bin."),
@@ -1376,6 +1385,7 @@ function b32 Prog_OptionApplies(Prog_State *state, Prog_Option option)
     if (option == Prog_Option_WindowOpacity) return !PlatformHasBackdrops();
     if (option == Prog_Option_VSync) return PlatformHasVSync();
     if (option == Prog_Option_ShowSystemFiles) return P_HasSystemFiles();
+    if (option == Prog_Option_PinnedPlaces) return P_HasPinnedFolders();
     if (option == Prog_Option_LongPaths) return P_HasPathLimit();
     // Torrents download with aria2c.
     if (option == Prog_Option_DeleteFinishedTorrents) {
@@ -1472,6 +1482,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ShortenedPaths: return !state->fullPaths;
         case Prog_Option_Breadcrumbs: return !state->noTrail;
         case Prog_Option_SidebarTree: return state->sidebarTree;
+        case Prog_Option_PinnedPlaces: return state->pinnedPlaces;
         case Prog_Option_ShowCheckboxes: return state->showCheckboxes;
         case Prog_Option_ConfirmEmptyTrash: return !state->noTrashConfirm;
         case Prog_Option_GitFetch: return state->gitFetch;
@@ -6015,7 +6026,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpen, (u64)group, 0, interaction.clickOrder);
         command->target = index;
         // One on the folder shown that is no double click's renames it, once the double-click time shows it is none, as in Explorer.
-        if (interaction.pressCount == 1 && StrIsEqual(path, state->directory.path) && Prog__SidebarRenamable(group, path)) Prog__AskSidebarRename(state, group, index);
+        if (interaction.pressCount == 1 && StrIsEqual(path, state->directory.path) && Prog__SidebarRenamable(group, path) && !Prog__PinnedRow(state, group, index)) Prog__AskSidebarRename(state, group, index);
     }
     if (UI->hotKey == key && !UI->activeKey && path.length && !StrIsEqual(path, Prog_ThisPC)) {
         state->tooltipKey = key;
@@ -6090,7 +6101,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             Prog__MarkedText(name, marks, m->font, m->row, color);
         }
         // A bookmark's x removes it, as a folder's in a group of the user's does; a place's eye hides it, or shows it again while hidden ones show.
-        if ((group == Prog_Group_Bookmarks || group == Prog_Group_Places || own) && hot && !state->sidebarDrag) {
+        if ((group == Prog_Group_Bookmarks || group == Prog_Group_Places || own) && hot && !state->sidebarDrag && !Prog__PinnedRow(state, group, index)) {
             b32 removeHot = UI->hotKey == removeKey;
             f32 size = floorf(m->line * 1.3f);
             UI_SetNextPrefWidth(UI_Pixels(size));
@@ -6342,8 +6353,10 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                     }
                 } break;
                 case Prog_Group_Bookmarks: {
-                    u64 count = state->bookmarks.header.count, found = 0;
+                    u64 count = state->bookmarks.header.count, found = 0, pinnedCount = 0;
                     for (u64 i = 0; i < count; ++i) found += Prog__SidebarFinds(state, Prog_PathName(state, state->bookmarks.v[i])) ? 1 : 0;
+                    // Explorer's pinned folders follow the bookmarks' own, while the option shows them.
+                    for (String pinned; (pinned = Prog__PinnedBookmark(state, count + pinnedCount)).length; ++pinnedCount) found += Prog__SidebarFinds(state, Prog_PathName(state, pinned)) ? 1 : 0;
                     if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Bookmarks, Tr("Bookmarks"), Icon_Bookmark, m);
                     // A drag over the section pins its folders between the bookmarks the pointer is between, marked by a line there; the rects are the last layout's.
                     R_Rect title = sidebar->last ? sidebar->last->rect : (R_Rect){0}, zone = title;
@@ -6366,6 +6379,10 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                             } else if (before == count) {
                                 lineY = row.y1;
                             }
+                        }
+                        for (u64 k = 0; k < pinnedCount; ++k) {
+                            String path = Prog__PinnedBookmark(state, count + k);
+                            if (Prog__SidebarFinds(state, Prog_PathName(state, path))) Prog__SidebarItem(state, Prog_Group_Bookmarks, count + k, Prog_PathName(state, path), path, NULL, false, m);
                         }
                     }
                     // Not while filtering, which leaves bookmarks out from between the others.

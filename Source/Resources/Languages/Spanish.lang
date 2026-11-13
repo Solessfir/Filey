@@ -3937,3 +3937,9 @@ Shows buttons for cut, copy, rename and delete at the edge of the selection's me
 
 Quick actions
 = Acciones rápidas
+
+Explorer's Pinned Folders
+= Carpetas ancladas del Explorador
+
+Lists the folders pinned to Explorer's Quick access after the sidebar's bookmarks.
+= Muestra las carpetas ancladas al Acceso rápido del Explorador después de los marcadores de la barra lateral.

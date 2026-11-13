@@ -1600,6 +1600,8 @@ function P_FileError P_EmptyTrash(Arena *arena, b32 confirm)
 function b32 P_EmptyTrashAsks(void) { return false; }
 function b32 P_DeleteAsks(void) { return false; }
 function b32 P_HasSystemFiles(void) { return false; }
+function b32 P_HasPinnedFolders(void) { return false; }
+function P_ArrayPlace P_PinnedFolders(Arena *arena) { (void)arena; return (P_ArrayPlace){0}; }
 function b32 P_HasPathLimit(void) { return false; }
 function b32 P_ReadVolumeTree(Arena *arena, String root, u64 most, const P_CancelToken *cancel, P_VolumeTree *tree)
 {
