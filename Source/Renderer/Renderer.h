@@ -133,6 +133,8 @@ function void R_PushClip(R_Rect rect);
 function void R_PopClip(void);
 // Everything drawn until the matching pop is scaled by `scale` around (x, y), clips included, as for a block that zooms in.
 function void R_PushScale(f32 x, f32 y, f32 scale);
+// Everything drawn until the matching R_PopScale is moved by (x, y), clips included, as for a row sliding into place.
+function void R_PushShift(f32 x, f32 y);
 function void R_PopScale(void);
 // Everything drawn until the matching pop goes into a layer, which is then laid over what is under `rect` at `opacity`,
 // so that a fading group shows what is under it evenly instead of through each of its parts. Layers do not nest, and nothing blurs inside one.

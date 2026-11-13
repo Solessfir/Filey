@@ -2244,10 +2244,12 @@ function void Prog__Label(String text, UI_Size width, f32 height, f32 padding, R
 // it changes, which `key` keeps the turn of. At rest it is the glyph that points that way, which lands on whole pixels as a turned one may not.
 function String Prog__FoldGlyph(UI_Key key, b32 open)
 {
-    f32 turn = UI_Animate(UI_KeyFromStr(key, S("FoldTurn")), open ? 1.0f : 0.0f, open ? 1.0f : 0.0f);
+    f32 turn = UI_Steady(UI_KeyFromStr(key, S("FoldTurn")), open ? 1.0f : 0.0f, 0.15f);
     if (turn <= 0) return Icon_ChevronRight;
     if (turn >= 1) return Icon_ChevronDown;
-    UI_SetNextRotation(turn * 1.5707964f);
+    // Eased out, which way it turns: quick away from where it was, gentle into place.
+    f32 eased = open ? 1 - (1 - turn) * (1 - turn) * (1 - turn) : turn * turn * turn;
+    UI_SetNextRotation(eased * 1.5707964f);
     return Icon_ChevronRight;
 }
 
@@ -6109,8 +6111,24 @@ function UI_Block *Prog__GroupBody(Prog_State *state, Prog_Group group, const Pr
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "GroupBody/%u", (u32)group));
     UI_Block *last = UI__Find(key);
     f32 full = last ? last->contentSize.y : 0;
-    f32 shown = UI_Animate(UI_KeyFromStr(key, S("Shown")), open ? 1.0f : 0.0f, open ? 1.0f : 0.0f);
+    UI_Key shownKey = UI_KeyFromStr(key, S("Shown"));
+    // Opened by a click, rather than open as the sidebar first shows, its items cascade in as it grows.
+    b32 opening = open && UI_KeptOr(shownKey, 1) < 1;
+    // Grown at a steady pace, eased out, quicker than the usual approach.
+    f32 steady = UI_Steady(shownKey, open ? 1.0f : 0.0f, 0.08f), shown = 1 - (1 - steady) * (1 - steady) * (1 - steady);
     if (!open && shown <= 0) return NULL;
+    if (open) {
+        UI_Key cascadeKey = UI_KeyFromStr(key, S("Cascade"));
+        b32 cascading = UI_Kept(cascadeKey) > 0 || (opening && UI->animate);
+        UI_Animate(cascadeKey, cascading ? 1.0f : 0.0f, cascading ? 1.0f : 0.0f);
+        f32 seconds = cascading ? (f32)UI_TimeSince(UI_KeyFromStr(key, S("Since"))) / 1e6f + 1e-6f : 0;
+        u32 rows = 0;
+        for (UI_Block *row = last ? last->first : NULL; row; row = row->next) ++rows;
+        if (cascading && seconds < UI_CascadeSeconds(rows)) {
+            UI_SetNextCascade(seconds);
+            UI_KeepAnimating();
+        }
+    }
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(shown >= 1 ? UI_Fill() : UI_Pixels(floorf(full * shown + 0.5f)));
     UI_SetNextChildrenLayout(UI_Layout_Vertical);

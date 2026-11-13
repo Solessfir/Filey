@@ -184,6 +184,7 @@ function void R_PopClip(void)
 
 function void R_SetShape(u32 shape) {}
 function void R_SetRotation(f32 radians) {}
+function void R_PushShift(f32 x, f32 y) {}
 function void R_BeginBlurSource(void) {}
 function void R_EndBlurSource(void) {}
 

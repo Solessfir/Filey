@@ -89,6 +89,20 @@ function f32 UI_Slide(UI_Key key, f32 target, f32 cap)
     return animation->value;
 }
 
+function f32 UI_Steady(UI_Key key, f32 target, f32 seconds)
+{
+    UI_Animation *animation = UI__Animation(key, target);
+    if (!animation || !UI->animate || seconds <= 0) return target;
+    f32 step = UI->dt / seconds;
+    if (fabsf(target - animation->value) <= step) {
+        animation->value = target;
+    } else {
+        animation->value += animation->value < target ? step : -step;
+        UI->animating = true;
+    }
+    return animation->value;
+}
+
 function f32 UI_Fall(UI_Key key, f32 target)
 {
     UI_Animation *animation = UI__Animation(key, target);
@@ -97,13 +111,15 @@ function f32 UI_Fall(UI_Key key, f32 target)
     return animation->value;
 }
 
-function f32 UI_Kept(UI_Key key)
+function f32 UI_KeptOr(UI_Key key, f32 fallback)
 {
     for (u32 i = 0; i < UI->animationCount; ++i) {
         if (UI->animations[i].key == key) return UI->animations[i].value;
     }
-    return 0;
+    return fallback;
 }
+
+function f32 UI_Kept(UI_Key key) { return UI_KeptOr(key, 0); }
 
 function u64 UI_TimeSince(UI_Key key)
 {
@@ -355,6 +371,13 @@ function void UI_SetNextEdgeFade(f32 pixels) { UI->next.edgeFade = pixels; }
 function void UI_SetNextQuads(const UI_Quad *quads, u32 count) { UI->next.quads = quads, UI->next.quadCount = count; }
 function void UI_SetNextScale(f32 scale) { UI->next.scale = scale; }
 function void UI_SetNextRotation(f32 radians) { UI->next.rotation = radians; }
+function void UI_SetNextCascade(f32 seconds) { UI->next.cascade = seconds; }
+
+// Each child of a cascade starts this long after the one before it and takes UI__CascadeTime to land.
+#define UI__CascadeStep 0.008f
+#define UI__CascadeTime 0.11f
+
+function f32 UI_CascadeSeconds(u32 count) { return (f32)(count ? count - 1 : 0) * UI__CascadeStep + UI__CascadeTime; }
 
 function UI_Vec2 UI__TextSize(UI_Block *block)
 {
@@ -520,6 +543,26 @@ function void UI_EndFrame(void)
 function R_Color UI__Faded(R_Color color, f32 opacity) { color.a *= opacity; return color; }
 
 function void UI__DrawBlockScaled(UI_Block *block, f32 opacity);
+function void UI__DrawBlock(UI_Block *block, f32 opacity);
+
+// Child `index` of a cascade `seconds` in: faded and lifted by what is left of its fall, which slows as it lands, as something with weight
+// does, and then stays put.
+function void UI__DrawCascaded(UI_Block *block, f32 opacity, f32 seconds, u32 index)
+{
+    f32 t = UI__Clamp((seconds - (f32)index * UI__CascadeStep) / UI__CascadeTime, 0, 1);
+    if (t >= 1) {
+        UI__DrawBlock(block, opacity);
+        return;
+    }
+    // Eased out, and faded in over the first half. The lift is in whole pixels, so that a row nearly in place stays still rather than its
+    // text shifting by fractions of a pixel.
+    f32 left = (1 - t) * (1 - t) * (1 - t);
+    f32 lift = floorf(-left * 0.5f * (block->rect.y1 - block->rect.y0) + 0.5f);
+    f32 shown = UI__Clamp(t * 2, 0, 1);
+    R_PushShift(0, lift);
+    UI__DrawBlock(block, opacity * shown * (2 - shown));
+    R_PopScale();
+}
 
 function void UI__DrawBlock(UI_Block *block, f32 opacity)
 {
@@ -610,7 +653,12 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
     }
     if (clipsChildren && !visible) return;
     if (clipsChildren && block->first) R_PushClip(block->clipRect);
-    for (UI_Block *child = block->first; child; child = child->next) UI__DrawBlock(child, opacity);
+    if (block->props.cascade > 0) {
+        u32 index = 0;
+        for (UI_Block *child = block->first; child; child = child->next) UI__DrawCascaded(child, opacity, block->props.cascade, index++);
+    } else {
+        for (UI_Block *child = block->first; child; child = child->next) UI__DrawBlock(child, opacity);
+    }
     // Over the content, coming in as far as it has scrolled, so that a list at its top or end keeps its first or last row clear.
     f32 fade = block->props.edgeFade;
     if (fade > 0 && block->first && FlagExists(block->flags, UI_Flag_Scrollable)) {

@@ -1042,7 +1042,7 @@ function R_Rect GL__Scissor(R_Rect clip)
 function void GL__PushInstance(GL_Instance instance, GLuint texture)
 {
     b32 line = ((u32)instance.shape & GL_ShapeLine) != 0;
-    if (GL.scale != 1) {
+    if (GL.scale != 1 || GL.offsetX != 0 || GL.offsetY != 0) {
         instance.rect = GL__Scaled(instance.rect);
         if (line) instance.uv = GL__Scaled(instance.uv);
         instance.radius *= GL.scale;
@@ -1114,7 +1114,7 @@ function b32 R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity
 {
     // A layer's texture is not the frame, which the blur reads.
     if (opacity <= 0 || radius <= 0 || GL.inLayer) return false;
-    if (GL.scale != 1) {
+    if (GL.scale != 1 || GL.offsetX != 0 || GL.offsetY != 0) {
         rect = GL__Scaled(rect);
         cornerRadius *= GL.scale;
         radius *= GL.scale;
@@ -1339,6 +1339,14 @@ function void R_PushScale(f32 x, f32 y, f32 scale)
     GL.offsetX += GL.scale * x * (1 - scale);
     GL.offsetY += GL.scale * y * (1 - scale);
     GL.scale *= scale;
+}
+
+function void R_PushShift(f32 x, f32 y)
+{
+    Assert(GL.scaleDepth < GL_MaxClipDepth);
+    GL.scales[GL.scaleDepth++] = (typeof(GL.scales[0])){ GL.scale, GL.offsetX, GL.offsetY };
+    GL.offsetX += GL.scale * x;
+    GL.offsetY += GL.scale * y;
 }
 
 function void R_PopScale(void)

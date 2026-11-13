@@ -72,6 +72,9 @@ typedef struct UI_Properties {
     f32 fade;  // 0 is opaque and 1 invisible, for this block and everything inside it
     f32 scale; // 0 draws it at its size; otherwise it and everything inside it are drawn that much larger around its center
     f32 rotation; // its text turned clockwise by this many radians about its center
+    // Above 0, the seconds since its children started to cascade in: each, a little after the one before it, drops into place from above
+    // as it fades in, settling as a weight would.
+    f32 cascade;
     f32 blur;  // 0 draws over what is under it; above 0 it first blurs that, this many pixels across, inside its corners;
                // below 0 its fill only tints what is under it, as it would a blur
     f32 softness;  // 0 gives the background a sharp edge; otherwise it fades in from its edge over this many pixels
@@ -209,6 +212,9 @@ function void UI_SetNextEdgeFade(f32 pixels);
 function void UI_SetNextQuads(const UI_Quad *quads, u32 count);
 function void UI_SetNextScale(f32 scale);
 function void UI_SetNextRotation(f32 radians);
+function void UI_SetNextCascade(f32 seconds);
+// The seconds a cascade of `count` children takes, after which they are all in place.
+function f32 UI_CascadeSeconds(u32 count);
 
 // Eases `value` toward `target`, snapping within `epsilon`; anything still moving asks for another frame.
 function f32 UI_Approach(f32 value, f32 target, f32 epsilon);
@@ -219,10 +225,14 @@ function void UI_LimitScrollEase(UI_Block *block);
 function f32 UI_Animate(UI_Key key, f32 target, f32 initial);
 // A position or size kept under `key`: a change starts at most `cap` from `target` and eases the rest.
 function f32 UI_Slide(UI_Key key, f32 target, f32 cap);
+// The value kept under `key`, starting at `target`, moved toward it at a steady pace that covers 1 in `seconds`, for a curve to ease.
+function f32 UI_Steady(UI_Key key, f32 target, f32 seconds);
 // The value kept under `key`, which rises to `target` at once and eases only on the way down, as hover washes fade.
 function f32 UI_Fall(UI_Key key, f32 target);
 // The value last kept under `key`, or 0 without one, without keeping it for another frame.
 function f32 UI_Kept(UI_Key key);
+// The same, or `fallback` without one.
+function f32 UI_KeptOr(UI_Key key, f32 fallback);
 // Microseconds since `key` was first asked for in an unbroken run of frames.
 function u64 UI_TimeSince(UI_Key key);
 // Asks for another frame, for animations that are not eased values.
