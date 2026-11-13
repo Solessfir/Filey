@@ -2539,6 +2539,7 @@ function String Prog_AudioFolder(u32 format, String folder);
 function u32 Prog_ConvertFormat(u32 format, const String *paths, u64 count);
 function u64 Prog_SeekTarget(u64 at, u64 length, b32 back);
 function b32 Prog_NoteHash(u64 *seen, u64 *count, u64 hash);
+function String Prog_CutUtf8(String text, u64 most);
 function P_FileError Prog_ConvertAudio(Arena *arena, String path, u32 format, String folder, u64 base, P_Progress *progress, const P_CancelToken *cancel, String *placed);
 function String Prog__NameStem(String name);
 function String Prog__FreeName(Arena *arena, String directory, String stem, String extension);

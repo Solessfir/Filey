@@ -4668,6 +4668,14 @@ function void Prog_NotifyWinEKey(Prog_State *state)
     state->notices[state->noticeCount - 1].stays = true;
 }
 
+// At most `most` bytes of `text`, cut where a character starts rather than inside one.
+function String Prog_CutUtf8(String text, u64 most)
+{
+    u64 kept = Min(text.length, most);
+    while (kept < text.length && kept && ((u8)text.value[kept] & 0xC0) == 0x80) --kept;
+    return StrFromTo(text, 0, (i64)kept);
+}
+
 function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, String title, String message)
 {
     // Those below the kinds the settings show are not shown, nor a kind muted.
@@ -4676,8 +4684,8 @@ function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, S
     // A message from a job is in English.
     message = Prog_Tr(message);
     key = StrFromTo(key, 0, (i64)Min(key.length, sizeof(state->notices[0].key)));
-    title = StrFromTo(title, 0, (i64)Min(title.length, sizeof(state->notices[0].title)));
-    message = StrFromTo(message, 0, (i64)Min(message.length, sizeof(state->notices[0].message)));
+    title = Prog_CutUtf8(title, sizeof(state->notices[0].title));
+    message = Prog_CutUtf8(message, sizeof(state->notices[0].message));
     Prog_Notice notice = { .kind = (u8)kind, .count = 1, .since = PlatformNowMicroseconds() };
     for (u32 i = 0; i < state->noticeCount; ++i) {
         Prog_Notice *same = &state->notices[i];

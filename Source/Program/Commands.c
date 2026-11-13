@@ -5558,7 +5558,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 String value = StrMake((const char *)state->detailCopy, state->detailCopyLength);
                 if (!value.length) break;
                 PlatformClipboardSetText(value);
-                Prog_Notify(state, Prog_NoticeKind_Info, S("detail.copied"), Tr("Copied"), StrFormat(&state->frameArena, TrF("%S is on the clipboard."), value));
+                // A long one, as lyrics, shows its start, so that the notice stays small and still says where it went.
+                String shown = Prog_CutUtf8(value, 160);
+                if (shown.length < value.length) shown = StrFormat(&state->frameArena, "%S…", shown);
+                Prog_Notify(state, Prog_NoticeKind_Info, S("detail.copied"), Tr("Copied"), StrFormat(&state->frameArena, TrF("%S is on the clipboard."), shown));
             } break;
             case Prog_CommandKind_InspectorPickCover: {
                 if (state->directory.archive || state->pickingCover) break;

@@ -1509,7 +1509,8 @@ function void TestFileIcons(TestFileFixture *fixture)
             // A seek goes five seconds either way, not before the start nor into the last half second; a length not known has no end.
             Check(Prog_SeekTarget(12000, 60000, true) == 7000 && Prog_SeekTarget(3000, 60000, true) == 0 && Prog_SeekTarget(12000, 60000, false) == 17000);
             Check(Prog_SeekTarget(58000, 60000, false) == 59500 && Prog_SeekTarget(100, 300, false) == 0 && Prog_SeekTarget(58000, 0, false) == 63000);
-            // Covers the same as one saved already are told apart from new ones, which are kept.
+            // Text cut short is cut where a character starts.
+            Check(Prog_CutUtf8(S("aéb"), 2).length == 1 && Prog_CutUtf8(S("aéb"), 3).length == 3 && Prog_CutUtf8(S("ab"), 9).length == 2);
             // A video's frame kept is given back by its key, and the one used longest ago goes once the frames pass their budget.
             {
                 Arena frames = {0};
@@ -1523,6 +1524,7 @@ function void TestFileIcons(TestFileFixture *fixture)
                 Check(Prog__FrameCacheGet(&frames, UINT64_C(0xF00D0005), &back, &sourceWidth, &sourceHeight) && back.width == 2048 && back.pixels[5] == 0xFF00FF00u && sourceWidth == 3840);
                 ArenaRelease(&frames);
             }
+            // Covers the same as one saved already are told apart from new ones, which are kept.
             u64 seen[3] = {0}, seenCount = 0;
             Check(!Prog_NoteHash(seen, &seenCount, 7) && Prog_NoteHash(seen, &seenCount, 7) && !Prog_NoteHash(seen, &seenCount, 9) && seenCount == 2 && Prog_NoteHash(seen, &seenCount, 9));
             // Converted into a folder beside it, made as it is missing, with its tags, and its cover where the format takes one.

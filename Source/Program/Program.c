@@ -12092,7 +12092,8 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     labels[count] = Tr("Modified"), values[count++] = Prog_EntryModified(frame, entry);
     // A picture's size in pixels, once it is read; a video's is among its details.
     // Not the picture kept up from the item before while this one's is read.
-    b32 pictured = state->previewImage && !state->previewJob && !state->previewWaveform && !Prog_IsVideo(entry->file.name) && state->previewImageWidth > 0;
+    // A PDF's page has a size in points, not pixels, so it has none.
+    b32 pictured = state->previewImage && !state->previewJob && !state->previewWaveform && !state->pdf.pageCount && !Prog_IsVideo(entry->file.name) && state->previewImageWidth > 0;
     if (pictured) labels[count] = Tr("Dimensions"), values[count++] = StrFormat(frame, "%d \u00D7 %d", state->previewImageWidth, state->previewImageHeight);
     // An audio or video file's details, once its preview has read them.
     for (u64 at = 0; state->previewMedia.length && at < state->previewMedia.length && count < CArrayCount(labels);) {
@@ -12168,9 +12169,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                         UI_Interaction copy = UI_InteractionFromBlock(UI_AddBlockFromKey(valueKey, UI_Flag_DrawText | UI_Flag_DrawBackground | (copies ? UI_Flag_LeftMouseClickable : 0)));
                         if (copy.clicked && copies) {
                             // One too long for it is cut where a character starts, not inside one.
-                            u64 kept = Min(values[i].length, sizeof(state->detailCopy));
-                            while (kept < values[i].length && kept && ((u8)values[i].value[kept] & 0xC0) == 0x80) --kept;
-                            state->detailCopyLength = (u32)kept;
+                            state->detailCopyLength = (u32)Prog_CutUtf8(values[i], sizeof(state->detailCopy)).length;
                             MemCopy(state->detailCopy, values[i].value, state->detailCopyLength);
                             Prog_QueueCommand(state, Prog_CommandKind_InspectorCopyDetail, 0, 0, copy.clickOrder);
                         }
@@ -13783,7 +13782,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             // An image's type, size and date there, the name being in the toolbar, cut short of the scale beside it.
             } else if (image && !Prog_IsAudio(entry->file.name)) {
                 String facts = StrFormat(&state->frameArena, "%S, %S", Prog__FactsLine(state, entry), Prog_EntryModified(&state->frameArena, entry));
-                if (state->previewImageWidth > 0 && !state->previewJob) facts = StrFormat(&state->frameArena, "%d \u00D7 %d, %S", state->previewImageWidth, state->previewImageHeight, facts);
+                if (state->previewImageWidth > 0 && !state->previewJob && !state->pdf.pageCount) facts = StrFormat(&state->frameArena, "%d \u00D7 %d, %S", state->previewImageWidth, state->previewImageHeight, facts);
                 f32 fits = MaxF32(0, pane->rect.x1 - pane->rect.x0 - radius - m->inset - floorf(m->line * 2.4f) - 2 * radius - m->gap - floorf(9.6f * s + 0.5f));
                 Prog__LabelPadded(Prog__Ellipsize(&state->frameArena, m->font, facts, fits), UI_Flex(), m->pill, radius + m->inset, 0, theme->textDim, 0);
             } else {
