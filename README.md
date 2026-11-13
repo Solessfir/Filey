@@ -7,7 +7,7 @@
 > If you care about hand-crafted software, use File Pilot instead, or better, buy it.
 > Developers like Vjekoslav Krajačić, who build amazing apps like it by hand, deserve our support.
 
-![Filey with the Options open over a folder of screenshots, one of them previewed in the inspector](.github/Screenshot.png)
+![Filey browsing pictures, filtering 60,000 files, Miller columns, previews, 3D models, disk usage, the context menu, the command palette, themes and splits](.github/Filey.gif)
 
 ## Features
 
