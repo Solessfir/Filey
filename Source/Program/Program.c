@@ -4811,7 +4811,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog_Entry *entry = &state->directory.entries[index];
     b32 focused = state->hasFocus && state->focusedRow == index;
-    b32 hot = UI->hotKey == key && !state->loading;
+    b32 hot = UI->hotKey == key && !state->loading && !state->tabDrag;
     b32 highlighted = entry->selected || hot;
     f32 height = m->row - Prog__RowLine(m);
     // Every other row tinted, when asked.
@@ -4959,7 +4959,7 @@ function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog_Entry *entry = &state->directory.entries[index];
     b32 focused = state->hasFocus && state->focusedRow == index;
-    b32 hot = UI->hotKey == key && !state->loading;
+    b32 hot = UI->hotKey == key && !state->loading && !state->tabDrag;
     b32 highlighted = entry->selected || hot;
     f32 height = m->row - Prog__RowLine(m);
     b32 tinted = state->alternatingRows && (line & 1);
@@ -5006,7 +5006,7 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog_Entry *entry = &state->directory.entries[index];
     b32 focused = state->hasFocus && state->focusedRow == index;
-    b32 hot = UI->hotKey == key && !state->loading;
+    b32 hot = UI->hotKey == key && !state->loading && !state->tabDrag;
     b32 highlighted = entry->selected || hot;
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -5140,7 +5140,7 @@ function void Prog__GroupHeading(Prog_State *state, UI_Key seed, u32 index, f32 
     const Prog_Theme *theme = Prog_CurrentTheme();
     const Prog_ListGroup *group = &state->groups[index];
     UI_Key key = UI_KeyFromStr(seed, group->label);
-    b32 hot = UI->hotKey == key && !state->loading;
+    b32 hot = UI->hotKey == key && !state->loading && !state->tabDrag;
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
