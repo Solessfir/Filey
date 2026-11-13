@@ -104,3 +104,5 @@ Source/
 ## Workflow
 
 - Commit each finished, validated step right away without asking. If follow-up fixes are requested for that work, amend the commit while it is unpushed.
+- No pull request is opened, and no change is pushed for one, before a recursive code review of it has come back clean.
+- A recursive code review is a loop over the changes under review: review them, fix what the review finds, commit the fixes (amending the commit each fix belongs to while it is unpushed), then review again. Stop once a pass finds no issues, or only nitpicks, and report what each pass found and fixed, and the nitpicks left.
