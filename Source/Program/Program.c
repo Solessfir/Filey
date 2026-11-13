@@ -11093,6 +11093,8 @@ function b32 Prog__DropZone(R_Rect box, R_Rect panel, u32 parts, b32 across, u32
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 width = box.x1 - box.x0, height = box.y1 - box.y0, pad = floorf(7.2f * m->scale + 0.5f), radius = floorf(6.0f * m->scale + 0.5f);
     b32 hot = UI__Contains((R_Rect){ panel.x0 + box.x0, panel.y0 + box.y0, panel.x0 + box.x1, panel.y0 + box.y1 }, UI->mouse);
+    // Lifted off the list under it by a menu's shadow.
+    Prog__DropShadow(box.x0, box.y0, width, height, radius * 1.5f, 1, m);
     UI_SetNextFloatingOffset((UI_Vec2){ box.x0, box.y0 });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -11150,6 +11152,12 @@ function void Prog__DropZones(Prog_State *state, R_Rect panel, f32 top, const Pr
         if (drop == Prog_TabDrop_Right) x0 = midX;
         if (drop == Prog_TabDrop_Top) y1 = midY;
         if (drop == Prog_TabDrop_Bottom) y0 = midY;
+        // It grows out of the zone under the pointer into its place, easing out, afresh for each zone.
+        UI_Key growKey = UI_KeyFromStr(UI_KeyFromStr(0, StrFormat(&state->frameArena, "SplitPreview/%" PRIu64, Prog__PanelId(state))), StrFormat(&state->frameArena, "%u", (u32)drop));
+        if (UI_KeptOr(growKey, -1) < 0) UI_Animate(growKey, 0, 0);
+        f32 grow = UI_Steady(growKey, 1, 0.12f), eased = 1 - (1 - grow) * (1 - grow) * (1 - grow);
+        x0 = floorf(box.x0 + (x0 - box.x0) * eased + 0.5f), x1 = floorf(box.x1 + (x1 - box.x1) * eased + 0.5f);
+        y0 = floorf(box.y0 + (y0 - box.y0) * eased + 0.5f), y1 = floorf(box.y1 + (y1 - box.y1) * eased + 0.5f);
         const Prog_Theme *theme = Prog_CurrentTheme();
         R_Color fill = theme->selection;
         fill.a *= theme->hoverAmount.r * (2.0f / 3.0f);
