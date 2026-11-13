@@ -1937,7 +1937,7 @@ typedef struct Prog_State {
     Prog_TextEdit tagEdit, tagBefore;
     // The audio file whose cover a drag is over in the last build, which a drop there replaces, and the one the drop goes to as this frame
     // takes it.
-    u8 detailCopy[1024];    // the value clicked in the inspector's details, for InspectorCopyDetail to put on the clipboard
+    u8 detailCopy[8192];    // the value clicked in the inspector's details, for InspectorCopyDetail to put on the clipboard, a long path's too
     u32 detailCopyLength;
     u8 coverDropShown[1024], coverDrop[1024];
     u32 coverDropShownLength, coverDropLength;
@@ -2021,6 +2021,7 @@ typedef struct Prog_State {
     Arena bulkArena;
     Prog_BulkTags bulk;
     R_TextureHandle bulkCover;
+    b8 pickingCover;  // the system's dialog for a cover is open, which a job waits on, so that another click opens no second one
     b8 warmPdf;    // the app's, not the tests': the system's PDF renderer is to be started ahead, as the first folder with a PDF in it shows
     b8 coverDropBulkShown, coverDropBulk;  // the drag over the cover is over the shared one, as coverDrop is over a file's
     u8 videoQuality;  // its constant quality, 0 (best) to 51

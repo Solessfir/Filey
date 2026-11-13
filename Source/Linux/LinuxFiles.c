@@ -2718,8 +2718,9 @@ function String P_PickFile(Arena *arena, String title, String kind, String patte
     const String zenity[] = { S("zenity"), S("--file-selection"), StrFormat(scratch.arena, "--title=%S", title), StrFormat(scratch.arena, "--file-filter=%S | %S", kind, patterns) };
     const String kdialog[] = { S("kdialog"), S("--getopenfilename"), S("."), StrFormat(scratch.arena, "%S|%S", patterns, kind), S("--title"), title };
     // An hour to answer in, after which it is let go.
-    b32 answered = (P_ProgramFound(S("zenity")) > 0 && P_RunCommand(scratch.arena, S("/"), zenity, CArrayCount(zenity), 3600000, &output, false)) ||
-                   (P_ProgramFound(S("kdialog")) > 0 && P_RunCommand(scratch.arena, S("/"), kdialog, CArrayCount(kdialog), 3600000, &output, false));
+    // One of them, not the second after the first was cancelled, which ends it as failing.
+    b32 answered = P_ProgramFound(S("zenity")) > 0 ? P_RunCommand(scratch.arena, S("/"), zenity, CArrayCount(zenity), 3600000, &output, false)
+                 : P_ProgramFound(S("kdialog")) > 0 && P_RunCommand(scratch.arena, S("/"), kdialog, CArrayCount(kdialog), 3600000, &output, false);
     if (answered) {
         Index end = StrIndexChar(output, '\n', SSF_CountOnFail);
         String line = StrFromTo(output, 0, (i64)end.value);

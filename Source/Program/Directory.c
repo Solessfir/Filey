@@ -4154,6 +4154,7 @@ function void Prog_PickCover(Prog_State *state, const String *paths, u64 count)
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_PickCover;
+    state->pickingCover = true;
     input->paths = ArenaPushArray(&job->arena, count, String);
     input->pathCount = count;
     for (u64 i = 0; i < count; ++i) input->paths[i] = StrCopy(&job->arena, paths[i]);
@@ -9224,6 +9225,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             const b32 *waits = job->result;
             if (waits && *waits) Prog_NotifyWinEKey(state);
         } else if (input->kind == Prog_JobKind_PickCover) {
+            state->pickingCover = false;
             const String *picked = job->result;
             if (picked && picked->length) Prog_SetCover(state, input->paths, input->pathCount, *picked);
         } else if (input->kind == Prog_JobKind_LongPaths) {

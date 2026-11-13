@@ -5561,7 +5561,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog_Notify(state, Prog_NoticeKind_Info, S("detail.copied"), Tr("Copied"), StrFormat(&state->frameArena, TrF("%S is on the clipboard."), value));
             } break;
             case Prog_CommandKind_InspectorPickCover: {
-                if (state->directory.archive) break;
+                if (state->directory.archive || state->pickingCover) break;
                 if (command->row) Prog_PickCover(state, state->bulk.paths, state->bulk.count);
                 else if (state->previewPath.length && Prog_AudioHoldsCover(state->previewPath)) Prog_PickCover(state, &state->previewPath, 1);
             } break;
