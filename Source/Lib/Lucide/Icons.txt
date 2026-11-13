@@ -97,4 +97,4 @@ volume-x
 eye-off
 layout-dashboard
 folder-filled
-map-pin
+folders

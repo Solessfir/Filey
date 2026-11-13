@@ -99,7 +99,7 @@
 #define Icon_EyeOff            S("\uE05C")
 #define Icon_LayoutDashboard   S("\uE05D")
 #define Icon_FolderFilled      S("\uE05E")
-#define Icon_MapPin            S("\uE05F")
+#define Icon_Folders           S("\uE05F")
 
 global const u8 Icon_FontData[] = {
 #embed "../Lib/Lucide/Lucide.ttf"
