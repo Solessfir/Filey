@@ -35,7 +35,7 @@ typedef struct P_File {
     b8 ownIcon;         // a folder that may choose its own icon, as a read-only or system one with a desktop.ini does on Windows
     u16 mode;           // the permission bits where the system has them, as on Linux (owner, group, others: read, write, run); 0 elsewhere
     u32 links;          // how many names, hard links, it has, on Linux; 0 where a listing does not say, as on Windows, and for a link
-    P_FileId id;        // with `links`
+    P_FileId id;        // which file it is, on Linux with `links` and on Windows from P_EnumerateDirectoryWithIds; zero where unknown
 } P_File;
 
 typedef struct P_FileArray {
@@ -66,6 +66,8 @@ function b32 P_FileErrorIsCancel(P_FileError error);
 
 // Results belong to arena. Cancellation and directory errors discard partial listings.
 function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const P_CancelToken *cancel);
+// The same with each file's `id`, which Linux's listing always has and Windows reads from the folder's handle, where its file system gives it.
+function P_DirectoryResult P_EnumerateDirectoryWithIds(Arena *arena, String path, const P_CancelToken *cancel);
 // Up to `limit` items inside an archive (zip, 7z, rar, tar and the like), each named by its path inside it with '/' between folders, folders
 // as P_FileKind_Directory; false, with none, when the system cannot read it as an archive or finds nothing in it. Slow; run it in a job.
 function b32 P_ListArchive(Arena *arena, String path, u64 limit, const P_CancelToken *cancel, P_FileArray *files);

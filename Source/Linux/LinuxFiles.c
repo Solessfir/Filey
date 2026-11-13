@@ -153,6 +153,11 @@ enum { P__ArchiveCancelled = ECANCELED, P__ArchiveUnsupported = ENOSYS, P__Archi
 
 #include "Platform/PlatformArchive.c"
 
+function P_DirectoryResult P_EnumerateDirectoryWithIds(Arena *arena, String path, const P_CancelToken *cancel)
+{
+    return P_EnumerateDirectory(arena, path, cancel);
+}
+
 function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const P_CancelToken *cancel)
 {
     P_DirectoryResult result = {0};

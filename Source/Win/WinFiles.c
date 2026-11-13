@@ -445,7 +445,80 @@ function P_ArrayPlace P_ServerShares(Arena *arena, String server, const P_Cancel
     return result;
 }
 
-function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const P_CancelToken *cancel)
+// A listed item from what both ways of listing a folder give: its name, attributes, reparse tag, size and times in 100 ns ticks since 1601.
+function P_File P__ListedFile(Arena *arena, const wchar *name, i32 nameLength, u32 attributes, u32 reparseTag, u64 size, u64 time, u64 created, u64 accessed)
+{
+    return (P_File){
+        .name = P__FileStringWide(arena, name, nameLength),
+        .size = size,
+        .modifiedTimeUnix = (i64)(time / UINT64_C(10000000)) - INT64_C(11644473600),
+        .createdTimeUnix = created ? (i64)(created / UINT64_C(10000000)) - INT64_C(11644473600) : 0,
+        .accessedTimeUnix = accessed ? (i64)(accessed / UINT64_C(10000000)) - INT64_C(11644473600) : 0,
+        .modifiedTicks = (u32)(time % UINT64_C(10000000)),
+        .createdTicks = (u32)(created % UINT64_C(10000000)),
+        .accessedTicks = (u32)(accessed % UINT64_C(10000000)),
+        .kind = (attributes & FILE_ATTRIBUTE_DIRECTORY) ? P_FileKind_Directory : (attributes & FILE_ATTRIBUTE_DEVICE) ? P_FileKind_Other : P_FileKind_File,
+        .hidden = (attributes & FILE_ATTRIBUTE_HIDDEN) != 0 || name[0] == L'.',
+        .system = (attributes & FILE_ATTRIBUTE_SYSTEM) != 0,
+        .metadataValid = true,
+        .ownIcon = (attributes & FILE_ATTRIBUTE_DIRECTORY) && (attributes & (FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM)),
+        // A cloud drive's placeholders are reparse points too, of tags of their own; only links and junctions lead elsewhere.
+        .symbolicLink = (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 && (reparseTag == IO_REPARSE_TAG_SYMLINK || reparseTag == IO_REPARSE_TAG_MOUNT_POINT),
+        .online = !(attributes & FILE_ATTRIBUTE_DIRECTORY) && (attributes & (FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS | FILE_ATTRIBUTE_OFFLINE)) != 0,
+    };
+}
+
+// Lists the folder `directory` from its handle, as FindFirstFile does but with each file's ID, which it leaves out.
+// False, with nothing listed, where the file system does not give IDs, for the folder to be listed the usual way.
+function b32 P__ListWithIds(Arena *arena, const wchar *directory, const P_CancelToken *cancel, P_DirectoryResult *result, u32 *error)
+{
+    HANDLE folder = CreateFileW(directory, FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (folder == INVALID_HANDLE_VALUE) return false;
+    BY_HANDLE_FILE_INFORMATION own = {0};
+    u64 device = GetFileInformationByHandle(folder, &own) ? own.dwVolumeSerialNumber : 0;
+    Scratch scratch = GetScratchEx(arena);
+    // The entries are 8-byte aligned in it.
+    const u32 bytes = 64 << 10;
+    u64 *buffer = ArenaPushArrayNoZero(scratch.arena, bytes / sizeof(u64), u64);
+    b32 handled = true;
+    for (b32 first = true;; first = false) {
+        if (P_IsCancelled(cancel)) {
+            result->cancelled = true;
+            break;
+        }
+        if (!GetFileInformationByHandleEx(folder, first ? FileIdExtdDirectoryRestartInfo : FileIdExtdDirectoryInfo, buffer, bytes)) {
+            u32 code = GetLastError();
+            // A first answer of any other kind is a file system without IDs, as some network shares are.
+            if (code != ERROR_NO_MORE_FILES) {
+                if (first) handled = false;
+                else *error = code;
+            }
+            break;
+        }
+        for (const FILE_ID_EXTD_DIR_INFO *entry = (const FILE_ID_EXTD_DIR_INFO *)buffer;;
+             entry = (const FILE_ID_EXTD_DIR_INFO *)((const u8 *)entry + entry->NextEntryOffset)) {
+            const wchar *name = entry->FileName;
+            i32 nameLength = (i32)(entry->FileNameLength / sizeof(wchar));
+            b32 dots = name[0] == L'.' && (nameLength == 1 || (nameLength == 2 && name[1] == L'.'));
+            if (!dots) {
+                P_File file = P__ListedFile(arena, name, nameLength, entry->FileAttributes, entry->ReparsePointTag, (u64)entry->EndOfFile.QuadPart,
+                                            (u64)entry->LastWriteTime.QuadPart, (u64)entry->CreationTime.QuadPart, (u64)entry->LastAccessTime.QuadPart);
+                // NTFS's IDs fit in 64 bits; ReFS's 128 are folded into them.
+                u64 low = 0, high = 0;
+                MemCopy(&low, entry->FileId.Identifier, 8);
+                MemCopy(&high, entry->FileId.Identifier + 8, 8);
+                if (low || high) file.id = (P_FileId){ device, low ^ (high * UINT64_C(0x9E3779B97F4A7C15)) };
+                ArrayPush(arena, result->files, file);
+            }
+            if (!entry->NextEntryOffset) break;
+        }
+    }
+    ReleaseScratch(scratch);
+    CloseHandle(folder);
+    return handled;
+}
+
+function P_DirectoryResult P__EnumerateDirectory(Arena *arena, String path, const P_CancelToken *cancel, b32 ids)
 {
     P_DirectoryResult result = {0};
     if (P_IsCancelled(cancel)) {
@@ -476,8 +549,8 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
         MemCopy(pattern, directory, length * sizeof(wchar));
         if (length && pattern[length - 1] != L'\\') pattern[length++] = L'\\';
         pattern[length] = L'*';
-        find = FindFirstFileExW(pattern, FindExInfoBasic, &data, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH);
-        if (find == INVALID_HANDLE_VALUE) {
+        b32 listed = ids && P__ListWithIds(arena, directory, cancel, &result, &error);
+        if (!listed && (find = FindFirstFileExW(pattern, FindExInfoBasic, &data, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH)) == INVALID_HANDLE_VALUE) {
             error = GetLastError();
             if (error == ERROR_FILE_NOT_FOUND) {
                 u32 attributes = GetFileAttributesW(directory);
@@ -497,25 +570,8 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
             u64 time = ((u64)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime;
             u64 created = ((u64)data.ftCreationTime.dwHighDateTime << 32) | data.ftCreationTime.dwLowDateTime;
             u64 accessed = ((u64)data.ftLastAccessTime.dwHighDateTime << 32) | data.ftLastAccessTime.dwLowDateTime;
-            P_File file = {
-                .name = P__FileStringWide(arena, data.cFileName, nameLength),
-                .size = ((u64)data.nFileSizeHigh << 32) | data.nFileSizeLow,
-                .modifiedTimeUnix = (i64)(time / UINT64_C(10000000)) - INT64_C(11644473600),
-                .createdTimeUnix = created ? (i64)(created / UINT64_C(10000000)) - INT64_C(11644473600) : 0,
-                .accessedTimeUnix = accessed ? (i64)(accessed / UINT64_C(10000000)) - INT64_C(11644473600) : 0,
-                .modifiedTicks = (u32)(time % UINT64_C(10000000)),
-                .createdTicks = (u32)(created % UINT64_C(10000000)),
-                .accessedTicks = (u32)(accessed % UINT64_C(10000000)),
-                .kind = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? P_FileKind_Directory : (data.dwFileAttributes & FILE_ATTRIBUTE_DEVICE) ? P_FileKind_Other : P_FileKind_File,
-                .hidden = (data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0 || data.cFileName[0] == L'.',
-                .system = (data.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) != 0,
-                .metadataValid = true,
-                .ownIcon = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && (data.dwFileAttributes & (FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM)),
-                // A cloud drive's placeholders are reparse points too, of tags of their own; only links and junctions lead elsewhere.
-                .symbolicLink = (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 && (data.dwReserved0 == IO_REPARSE_TAG_SYMLINK || data.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT),
-                .online = !(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && (data.dwFileAttributes & (FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS | FILE_ATTRIBUTE_OFFLINE)) != 0,
-            };
-            ArrayPush(arena, result.files, file);
+            ArrayPush(arena, result.files, P__ListedFile(arena, data.cFileName, nameLength, data.dwFileAttributes, data.dwReserved0,
+                                                         ((u64)data.nFileSizeHigh << 32) | data.nFileSizeLow, time, created, accessed));
         } while (FindNextFileW(find, &data));
         if (!result.cancelled && GetLastError() != ERROR_NO_MORE_FILES) error = GetLastError();
         FindClose(find);
@@ -543,6 +599,16 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
         }
     }
     return result;
+}
+
+function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const P_CancelToken *cancel)
+{
+    return P__EnumerateDirectory(arena, path, cancel, false);
+}
+
+function P_DirectoryResult P_EnumerateDirectoryWithIds(Arena *arena, String path, const P_CancelToken *cancel)
+{
+    return P__EnumerateDirectory(arena, path, cancel, true);
 }
 
 // Separators would turn a rename into a move.

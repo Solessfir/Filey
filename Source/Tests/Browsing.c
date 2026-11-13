@@ -2955,18 +2955,31 @@ function void TestMeasure(TestFileFixture *fixture)
         Check(!missing.complete && !missing.files);
         for (u32 i = 0; i < CArrayCount(paths); ++i) Check(atomic_load(&trees[i].pending) == 0);
     }
-#if defined(__linux__)
-    // A file with two names, one in a subfolder, counts both names but its bytes once, in the measure and in a disk usage scan.
+    // A file with two names, one in a subfolder, counts both names but its bytes once in a disk usage scan, and in the measure on Linux.
     {
         String made = Prog_JoinPath(&arena, fixture->path, S("Linked"));
         Check(!P_CreateItem(&arena, fixture->path, S("Linked"), true, &(String){0}).code);
         Check(!P_CreateItem(&arena, made, S("Inner"), true, &(String){0}).code);
         String first = Prog_JoinPath(&arena, made, S("a.txt")), second = Prog_JoinPath(&arena, made, S("Inner/b.txt"));
-        Check(!P_WriteFile(&arena, first, S("abcd")).code && link(P__FilePathCString(&arena, first), P__FilePathCString(&arena, second)) == 0);
+        Check(!P_WriteFile(&arena, first, S("abcd")).code);
+#if defined(_WIN32)
+        Check(CreateHardLinkW(P__FilePathWide(&arena, second), P__FilePathWide(&arena, first), NULL));
+#else
+        Check(link(P__FilePathCString(&arena, first), P__FilePathCString(&arena, second)) == 0);
         Prog_TreeTotals tree = {0};
         Check(Prog_MeasureTrees(&made, 1, &tree, &token));
         P_DirectoryTotals totals = Prog_TreeTotalsTaken(&tree, true);
         Check(totals.files == 2 && totals.bytes == 4);
+#endif
+        // The listing with IDs is the plain one with them, the same for both names.
+        P_DirectoryResult plain = P_EnumerateDirectory(&arena, made, &token), named = P_EnumerateDirectoryWithIds(&arena, made, &token);
+        P_DirectoryResult inner = P_EnumerateDirectoryWithIds(&arena, Prog_JoinPath(&arena, made, S("Inner")), &token);
+        Check(plain.files.header.count == 2 && named.files.header.count == 2 && inner.files.header.count == 1);
+        for (u64 i = 0; i < named.files.header.count; ++i) {
+            const P_File *a = &plain.files.v[i], *b = &named.files.v[i];
+            Check(StrIsEqual(a->name, b->name) && a->kind == b->kind && a->size == b->size && a->modifiedTimeUnix == b->modifiedTimeUnix && a->hidden == b->hidden);
+            if (StrIsEqual(b->name, S("a.txt"))) Check(b->id.inode && b->id.inode == inner.files.v[0].id.inode && b->id.device == inner.files.v[0].id.device);
+        }
         Arena kept = {0};
         Prog_UsageProgress progress = {0};
         Prog_Usage usage = {0};
@@ -2975,7 +2988,6 @@ function void TestMeasure(TestFileFixture *fixture)
         Check(P__TestRemovePath(fixture, S("Linked/Inner/b.txt"), false) && P__TestRemovePath(fixture, S("Linked/Inner"), true));
         Check(P__TestRemovePath(fixture, S("Linked/a.txt"), false) && P__TestRemovePath(fixture, S("Linked"), true));
     }
-#endif
     // A disk usage scan comes to what the measure does, its folders largest first, its types adding up to the whole, and a treemap inside its rectangle that starts with the root's frame.
     {
         Prog_TreeTotals tree = {0};

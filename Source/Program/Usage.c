@@ -64,6 +64,12 @@ function u32 Prog__UsageType(Prog__UsageWalk *walk, String extension)
     return index;
 }
 
+// Whether a file may have other names the walk could find it by: more than one, or an ID without a count of them.
+function b32 Prog__UsageShared(const P_File *file)
+{
+    return !file->symbolicLink && (file->id.device || file->id.inode) && file->links != 1;
+}
+
 function void Prog__UsageLane(void *user, u32 lane)
 {
     (void)lane;
@@ -82,7 +88,7 @@ function void Prog__UsageLane(void *user, u32 lane)
         P_MutexUnlock(&walk->mutex);
 
         ArenaClear(&local);
-        P_DirectoryResult listed = P_EnumerateDirectory(&local, next.path, walk->cancel);
+        P_DirectoryResult listed = P_EnumerateDirectoryWithIds(&local, next.path, walk->cancel);
         u32 count = (u32)listed.files.header.count, fileCount = 0, folderCount = 0;
         u32 *files = ArenaPushArray(&local, count + 1, u32), *spare = ArenaPushArray(&local, count + 1, u32), *folders = ArenaPushArray(&local, count + 1, u32);
         u64 *keys = ArenaPushArray(&local, count + 1, u64);
@@ -98,18 +104,19 @@ function void Prog__UsageLane(void *user, u32 lane)
                 folders[folderCount++] = i;
             } else {
                 keys[i] = file->symbolicLink ? 0 : file->size;
-                linked |= file->links > 1;
+                linked |= Prog__UsageShared(file);
                 files[fileCount++] = i;
                 ownBytes += keys[i];
                 newest = Max(newest, file->modifiedTimeUnix);
             }
         }
-        // A file with more than one name counts where the walk first finds it, and with no size at its other names.
+        // A file with more than one name counts where the walk first finds it, and with no size at its other names; on Windows, where the
+        // listing does not tell how many names a file has, every file is looked up.
         if (linked) {
             P_MutexLock(&walk->mutex);
             for (u32 k = 0; k < fileCount; ++k) {
                 const P_File *file = &listed.files.v[files[k]];
-                if (file->links <= 1 || file->symbolicLink) continue;
+                if (!Prog__UsageShared(file)) continue;
                 if (MapGet(walk->seen, b8, file->id)) ownBytes -= keys[files[k]], keys[files[k]] = 0;
                 else MapPut(&walk->walk, walk->seen, file->id, true);
             }
