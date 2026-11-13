@@ -6608,6 +6608,37 @@ function void Prog_ClosePanel(Prog_State *state, u32 index)
     state->activePanel = state->currentPanel;
 }
 
+// Closes panel `index` once it has slid out of the layout, toward the side it is on; at once without animations, or for an inspector's panel.
+function void Prog_ClosePanelSliding(Prog_State *state, u32 index)
+{
+    if (index >= state->panelCount) return;
+    u64 id = state->panels[index].id;
+    if (state->closingPanel == id) return;
+    // One closing already is let go first.
+    if (state->closingPanel) {
+        u32 earlier = Prog_PanelIndex(state, state->closingPanel);
+        state->closingPanel = 0;
+        if (earlier != UINT32_MAX) Prog_ClosePanel(state, earlier);
+        index = Prog_PanelIndex(state, id);
+        if (index == UINT32_MAX) return;
+    }
+    if (!UI || !UI->animate || state->panels[index].inspectorOf) {
+        Prog_ClosePanel(state, index);
+        return;
+    }
+    state->closingPanel = id;
+    state->closingSince = UI->nowMicroseconds;
+    // The side it leaves to takes the keyboard at once.
+    u32 leaf = Prog__SplitOf(state, id);
+    for (u32 i = 0; i < Prog_MaxSplits && leaf != UINT32_MAX; ++i) {
+        const Prog_Split *split = &state->splits[i];
+        if ((split->kind != Prog_SplitKind_Horizontal && split->kind != Prog_SplitKind_Vertical) || (split->first != leaf && split->second != leaf)) continue;
+        u32 next = Prog_PanelIndex(state, Prog__FirstPanelOf(state, split->first == leaf ? split->second : split->first));
+        if (next != UINT32_MAX) Prog__ActivatePanel(state, next);
+        break;
+    }
+}
+
 // Leaves the active panel, or the one whose inspector it is, as the only one, without inspector panels or zoom; with `remember`, the
 // closed panels' tabs go to the closed tabs, for Reopen Closed Tab.
 function void Prog_KeepOnePanel(Prog_State *state, b32 remember)
@@ -8016,7 +8047,7 @@ function void Prog_CloseTab(Prog_State *state, u32 index)
     if (index < state->tabCount && state->tabCount == 1) {
         String path = Prog_TabPath(state, index);
         if (path.length) ArrayPush(&state->closedArena, state->closedTabs, StrCopy(&state->closedArena, path));
-        Prog_ClosePanel(state, state->currentPanel);
+        Prog_ClosePanelSliding(state, state->currentPanel);
         return;
     }
     if (index >= state->tabCount || state->tabCount == 1) return;

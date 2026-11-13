@@ -460,6 +460,8 @@ typedef struct Prog_SeenFiles { MapHeader header; struct { P_FileId key; b8 valu
 
 // How long a drag is held over a folder before the folder opens under it, the drag going on.
 #define Prog_SpringMicroseconds 700000
+// How long a closed split's panel takes to slide out.
+#define Prog_ClosingMicroseconds 160000
 
 typedef struct Prog_TreeTotals {
     atomic_uint_fast64_t folders, files, bytes;
@@ -2407,6 +2409,9 @@ typedef struct Prog_State {
     // The panel zoomed to fill the panels' area (an id, 0 for none), the one shown zoomed while it grows or shrinks back, and its place in
     // the layout, which it grows from.
     u64 zoomedPanel;
+    // A split's panel sliding out as it closes (an id, 0 for none), since closingSince, removed once it is out.
+    u64 closingPanel;
+    u64 closingSince;
     u64 zoomShownPanel;
     R_Rect zoomFrom;          // where the last build found a drag over the bookmarks would go, plus one, for the rows to open a gap
     // The recents, best first: the more often one is opened the higher it ranks, and among equals the later; one listed without being opened
@@ -2572,6 +2577,7 @@ function void Prog_OpenRow(Prog_State *state, u64 row);
 function Prog_Command *Prog_QueueCommand(Prog_State *state, Prog_CommandKind kind, u64 row, u32 pressCount, u64 inputOrder);
 function void Prog_HandleInput(Prog_State *state, PlatformEventList events);
 function b32 Prog_ProcessCommands(Prog_State *state);
+function void Prog_ClosePanelSliding(Prog_State *state, u32 index);
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale);
 function f32 Prog_RowHeight(const R_Font *font);
 function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, const Prog_Entry *entry);

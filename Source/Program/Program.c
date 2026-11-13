@@ -14170,15 +14170,36 @@ function void Prog__Layout(Prog_State *state, u32 node, R_Rect rect, R_Rect area
     }
     if (split->kind != Prog_SplitKind_Horizontal && split->kind != Prog_SplitKind_Vertical) return;
     b32 across = split->kind == Prog_SplitKind_Horizontal;
-    f32 length = across ? rect.x1 - rect.x0 : rect.y1 - rect.y0, line = m->separator;
-    f32 first = floorf(MaxF32(0, length - line) * (split->ratio > 0 ? split->ratio : 0.5f) + 0.5f);
+    f32 length = across ? rect.x1 - rect.x0 : rect.y1 - rect.y0, line = m->separator, ratio = split->ratio > 0 ? split->ratio : 0.5f;
+    // A side closing slides out past its edge, its share easing to nothing while it keeps its size, the other side growing into the room.
+    b32 closesFirst = state->closingPanel && state->splits[split->first].kind == Prog_SplitKind_Panel && state->splits[split->first].panel == state->closingPanel;
+    b32 closesSecond = state->closingPanel && state->splits[split->second].kind == Prog_SplitKind_Panel && state->splits[split->second].panel == state->closingPanel;
+    f32 kept = floorf(MaxF32(0, length - line) * ratio + 0.5f), shift = 0;
+    if (closesFirst || closesSecond) {
+        f32 t = MinF32(1, (f32)(UI->nowMicroseconds - state->closingSince) / (f32)Prog_ClosingMicroseconds), eased = 1 - (1 - t) * (1 - t) * (1 - t);
+        ratio = closesSecond ? ratio + (1 - ratio) * eased : ratio * (1 - eased);
+        UI_KeepAnimating();
+    }
+    f32 first = floorf(MaxF32(0, length - line) * ratio + 0.5f);
     R_Rect a = rect, b = rect;
     if (across) { a.x1 = rect.x0 + first; b.x0 = a.x1 + line; }
     else        { a.y1 = rect.y0 + first; b.y0 = a.y1 + line; }
+    if (closesSecond) {
+        f32 full = MaxF32(0, length - line) - kept;
+        if (across) b.x1 = b.x0 + full;
+        else        b.y1 = b.y0 + full;
+    }
+    if (closesFirst) {
+        // Laid out at its whole size, moved back past the edge by what it has given up.
+        shift = kept - first;
+        if (across) a.x0 = a.x1 - kept;
+        else        a.y0 = a.y1 - kept;
+    }
     UI_SetNextPrefWidth(UI_Pixels(rect.x1 - rect.x0));
     UI_SetNextPrefHeight(UI_Pixels(rect.y1 - rect.y0));
     UI_SetNextChildrenLayout(across ? UI_Layout_Horizontal : UI_Layout_Vertical);
-    UI_Block *box = UI_AddBlock(0);
+    if (shift > 0) UI_SetNextChildrenPadding(across ? (UI_Padding){ -shift, 0, 0, 0 } : (UI_Padding){ 0, -shift, 0, 0 });
+    UI_Block *box = UI_AddBlock(closesFirst || closesSecond ? UI_Flag_Clip : 0);
     UI_Parent(box) {
         Prog__Layout(state, split->first, a, area, scale, m);
         // Keys here are the window's, not the last built panel's.

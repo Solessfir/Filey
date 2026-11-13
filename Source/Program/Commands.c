@@ -3788,6 +3788,13 @@ function void Prog__Reveal(Prog_State *state, String folder, String item, b32 in
 function b32 Prog_ProcessCommands(Prog_State *state)
 {
     b32 changed = state->commandFirst != NULL;
+    // A closed split's panel goes once it has slid out.
+    if (state->closingPanel && UI->nowMicroseconds - state->closingSince >= Prog_ClosingMicroseconds) {
+        u32 closing = Prog_PanelIndex(state, state->closingPanel);
+        state->closingPanel = 0;
+        if (closing != UINT32_MAX) Prog_ClosePanel(state, closing);
+        changed = true;
+    }
     for (Prog_Command *command = state->commandFirst; command; command = command->next) {
         // Input in another panel's UI makes that panel active first.
         u32 from = command->panel ? Prog_PanelIndex(state, command->panel) : UINT32_MAX;
@@ -3894,10 +3901,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_MoveTab: Prog_MoveTab(state, (u32)command->row, (u32)command->target); break;
             case Prog_CommandKind_TabNew:
             case Prog_CommandKind_TabDuplicate: {
-                // A new tab shows what the settings say, and a duplicate the current tab's folder.
+                // A new tab shows what the settings say, after all the others, and a duplicate the current tab's folder, beside it.
                 String path = Prog_TabPath(state, state->activeTab);
-                if (command->kind == Prog_CommandKind_TabNew) path = Prog_NewTabPath(state, &state->frameArena, path);
-                Prog_OpenTab(state, path, state->activeTab + 1, true);
+                b32 fresh = command->kind == Prog_CommandKind_TabNew;
+                if (fresh) path = Prog_NewTabPath(state, &state->frameArena, path);
+                Prog_OpenTab(state, path, fresh ? state->tabCount : state->activeTab + 1, true);
             } break;
             case Prog_CommandKind_TabShiftLeft: if (state->activeTab) Prog_MoveTab(state, state->activeTab, state->activeTab - 1); break;
             case Prog_CommandKind_TabShiftRight: Prog_MoveTab(state, state->activeTab, state->activeTab + 1); break;
@@ -3912,7 +3920,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     String path = Prog_TabPath(state, i);
                     if (path.length) ArrayPush(&state->closedArena, state->closedTabs, StrCopy(&state->closedArena, path));
                 }
-                Prog_ClosePanel(state, state->currentPanel);
+                Prog_ClosePanelSliding(state, state->currentPanel);
             } break;
             case Prog_CommandKind_TabCloseOthers:
             case Prog_CommandKind_TabCloseLeftTabs:
