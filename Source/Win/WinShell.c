@@ -1351,29 +1351,50 @@ function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *path
     return (P_FileError){0};
 }
 
-// The OneDrive folders set up for the user, after their home folder as Explorer lists them, by their own names ("OneDrive", or a work or
-// school account's "OneDrive - Contoso"): the known folder, and the work and personal accounts' as OneDrive sets them in the environment.
-function void P__AddOneDrives(Arena *arena, P_ArrayPlace *places)
+// Adds `path` to `places` as `name`, or by its own folder's name without one, while it is a folder that is not there yet.
+function void P__AddPlaceFolder(Arena *arena, P_ArrayPlace *places, String path, String name)
+{
+    if (!path.length) return;
+    for (u64 k = 0; k < places->header.count; ++k) {
+        if (StrIsEqual(places->v[k].path, path)) return;
+    }
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    DWORD attributes = wide ? GetFileAttributesW(wide) : INVALID_FILE_ATTRIBUTES;
+    ReleaseScratch(scratch);
+    if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY)) return;
+    String kept = StrCopy(arena, path);
+    if (!name.length) name = StrFrom(kept, StrIndexChar(kept, '/', SSF_SearchBackwards).value + 1);
+    ArrayPush(arena, *places, ((P_Place){ .name = name, .path = kept }));
+}
+
+// The cloud drives' folders set up for the user, after their home folder `home` as Explorer lists them. OneDrive's by their own names
+// ("OneDrive", or a work or school account's "OneDrive - Contoso"), from the known folder and the accounts OneDrive sets in the
+// environment; iCloud's and MEGA's where their apps put them in the home folder; Google Drive's My Drive on the fixed drive its app makes,
+// and the home folder's Google Drive of its older app.
+function void P__AddCloudFolders(Arena *arena, P_ArrayPlace *places, String home)
 {
     Scratch scratch = GetScratchEx(arena);
-    String found[3] = { P__KnownFolder(scratch.arena, &P__FolderOneDrive) };
+    // The known folder names a place for OneDrive even where it was never set up, which the folder being there tells apart.
+    P__AddPlaceFolder(arena, places, P__KnownFolder(scratch.arena, &P__FolderOneDrive), (String){0});
     const wchar *variables[] = { L"OneDriveCommercial", L"OneDriveConsumer" };
     for (u32 v = 0; v < CArrayCount(variables); ++v) {
         wchar value[MAX_PATH];
         DWORD length = GetEnvironmentVariableW(variables[v], value, MAX_PATH);
-        if (length && length < MAX_PATH) found[v + 1] = P_AbsolutePath(scratch.arena, P__FileStringWide(scratch.arena, value, (i32)length));
+        if (length && length < MAX_PATH) P__AddPlaceFolder(arena, places, P_AbsolutePath(scratch.arena, P__FileStringWide(scratch.arena, value, (i32)length)), (String){0});
     }
-    for (u32 i = 0; i < CArrayCount(found); ++i) {
-        String path = found[i];
-        b32 seen = false;
-        for (u32 k = 0; k < i; ++k) seen |= StrIsEqual(found[k], path);
-        for (u64 k = 0; k < places->header.count; ++k) seen |= StrIsEqual(places->v[k].path, path);
-        // The known folder names a place for OneDrive even where it was never set up.
-        wchar *wide = path.length && !seen ? P__FilePathWide(scratch.arena, path) : NULL;
-        DWORD attributes = wide ? GetFileAttributesW(wide) : INVALID_FILE_ATTRIBUTES;
-        if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
-        String kept = StrCopy(arena, path);
-        ArrayPush(arena, *places, ((P_Place){ .name = StrFrom(kept, StrIndexChar(kept, '/', SSF_SearchBackwards).value + 1), .path = kept }));
+    // Only fixed drives are looked in, as asking a network or removable one can stall.
+    DWORD drives = GetLogicalDrives();
+    for (u32 letter = 0; letter < 26; ++letter) {
+        wchar root[] = { (wchar)(L'A' + letter), L':', L'\\', 0 };
+        if (!(drives & (1u << letter)) || GetDriveTypeW(root) != DRIVE_FIXED) continue;
+        P__AddPlaceFolder(arena, places, StrFormat(scratch.arena, "%c:/My Drive", 'A' + letter), S("Google Drive"));
+    }
+    if (home.length) {
+        P__AddPlaceFolder(arena, places, StrFormat(scratch.arena, "%S/Google Drive", home), S("Google Drive"));
+        P__AddPlaceFolder(arena, places, StrFormat(scratch.arena, "%S/iCloudDrive", home), S("iCloud Drive"));
+        const String mega[] = { SInit("MEGA"), SInit("MEGAsync"), SInit("MEGA Sync") };
+        for (u32 i = 0; i < CArrayCount(mega); ++i) P__AddPlaceFolder(arena, places, StrFormat(scratch.arena, "%S/%S", home, mega[i]), S("MEGA"));
     }
     ReleaseScratch(scratch);
 }
@@ -1390,7 +1411,7 @@ function P_ArrayPlace P_UserPlaces(Arena *arena)
         if (!path.length) continue;
         String name = folders[i].name ? StrFromCStr(folders[i].name) : StrFrom(path, StrIndexChar(path, '/', SSF_SearchBackwards).value + 1);
         ArrayPush(arena, result, ((P_Place){ .name = name, .path = path, .home = !folders[i].name }));
-        if (i == 0) P__AddOneDrives(arena, &result);
+        if (i == 0) P__AddCloudFolders(arena, &result, path);
     }
     ArrayPush(arena, result, ((P_Place){ .name = S("Recycle Bin"), .path = P_TrashFolder(arena) }));
     return result;
