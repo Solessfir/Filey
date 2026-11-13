@@ -1844,6 +1844,7 @@ typedef struct Prog_State {
     // The system's window move loop is modal too, and runs between frames for the same reason.
     b32 moveRequested;
     b32 dragging;
+    f32 listWash;             // how far the list being built is washed toward the selection color, as under a drag into its folder
     // The paths of what Filey's own drag carries, in draggedArena, which cannot be dropped into themselves wherever the drag goes.
     Arena draggedArena;
     String *draggedPaths;

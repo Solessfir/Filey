@@ -2373,6 +2373,13 @@ function UI_Interaction Prog__TextButton(String identity, String text, const R_F
 
 function R_Color Prog__Fade(R_Color color, f32 opacity) { color.a *= opacity; return color; }
 
+// `color` taken `into` of the way to the selection color, as the list is while a drag would drop into its folder.
+function R_Color Prog__DropWashed(R_Color color, f32 into)
+{
+    R_Color wash = Prog_CurrentTheme()->selection;
+    return (R_Color){ color.r + (wash.r - color.r) * into, color.g + (wash.g - color.g) * into, color.b + (wash.b - color.b) * into, color.a + (1 - color.a) * into };
+}
+
 // A dialog's answer: filled with `fill` and outlined in it, the fill stronger under the pointer and when pressed, as wide as a short word at least.
 function UI_Interaction Prog__DialogButton(UI_Key key, String text, R_Color color, R_Color fill, const Prog_Metrics *m)
 {
@@ -4420,7 +4427,8 @@ function R_Color Prog__ItemMatch(const Prog_Entry *entry, b32 hot)
 
 // How an item's box shows: filled with the selection color when selected and the keyboard's item or pointed at, washed with it when selected otherwise or under the pointer,
 // outlined under the pointer, and outlined as the keyboard's item.
-typedef struct Prog_ItemLook { R_Color fill, border; UI_Flags flags; } Prog_ItemLook;
+// `wash` takes the line under the item toward the selection color with the list, as under a drag into its folder.
+typedef struct Prog_ItemLook { R_Color fill, border; UI_Flags flags; f32 wash; } Prog_ItemLook;
 
 function Prog_ItemLook Prog__ItemLook(b32 selected, b32 hot, b32 focused)
 {
@@ -4451,7 +4459,7 @@ function void Prog__ItemBox(Prog_ItemLook look, UI_Size width, const Prog_Metric
     UI_SetNextFloatingOffset((UI_Vec2){ 0, m->row - line });
     UI_SetNextPrefWidth(width);
     UI_SetNextPrefHeight(UI_Pixels(line));
-    UI_SetNextColors((UI_Colors){ .background = Prog_CurrentTheme()->separator });
+    UI_SetNextColors((UI_Colors){ .background = Prog__DropWashed(Prog_CurrentTheme()->separator, look.wash) });
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
 }
 
@@ -4808,7 +4816,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_SetNextCornerRadius(m->radius);
-    UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
+    UI_SetNextColors((UI_Colors){ .background = Prog__DropWashed(theme->alternateRow, state->listWash) });
     UI_Block *row = UI_AddBlockFromKey(key, (tinted ? UI_Flag_DrawBackground : 0) | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     b32 renaming = Prog__ItemRenaming(state, entry);
     // A tree's item stands in by its depth, after an arrow that unfolds a folder; the name shows without the folders it is in.
@@ -4826,7 +4834,9 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     P_DirectoryTotals live;
     b32 counting = entry->file.kind == P_FileKind_Directory && !entry->measured && Prog__LiveTotals(state, entry, &live) && !live.complete;
     UI_Parent(row) {
-        Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Percent(1), m);
+        Prog_ItemLook look = Prog__ItemLook(entry->selected, hot, focused);
+        look.wash = state->listWash;
+        Prog__ItemBox(look, UI_Percent(1), m);
         // Paths copied flash the items they came from.
         if (entry->selected) Prog__CopyFlash(state->itemsFlashTime, Prog_CurrentTheme()->text, 0.25f, (UI_Vec2){ 0, 0 }, UI_Percent(1), UI_Pixels(m->row - Prog__RowLine(m)), m->radius);
         if (Prog__MarksRecents(state) && entry->recent) Prog__Icon(Icon_Clock, Prog__RecentGutter(m->scale), height, theme->text, 0.5f, m);
@@ -4953,13 +4963,15 @@ function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_SetNextCornerRadius(m->radius);
-    UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
+    UI_SetNextColors((UI_Colors){ .background = Prog__DropWashed(theme->alternateRow, state->listWash) });
     UI_Block *cell = UI_AddBlockFromKey(key, (tinted ? UI_Flag_DrawBackground : 0) | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     b32 renaming = Prog__ItemRenaming(state, entry);
     b32 onName = UI->pressOrigin.x < cell->rect.x0 + m->iconSlot + R_TextWidth(m->font, entry->file.name) + m->gap;
     b32 result = Prog__ItemInput(state, index, cell, key, onName, renaming);
     UI_Parent(cell) {
-        Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Pixels(width), m);
+        Prog_ItemLook look = Prog__ItemLook(entry->selected, hot, focused);
+        look.wash = state->listWash;
+        Prog__ItemBox(look, UI_Pixels(width), m);
         if (entry->selected) Prog__CopyFlash(state->itemsFlashTime, Prog_CurrentTheme()->text, 0.25f, (UI_Vec2){ 0, 0 }, UI_Pixels(width), UI_Pixels(m->row - Prog__RowLine(m)), m->radius);
         if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, Prog__ListIconInset(m), highlighted, m);
         if (renaming) Prog__RenameBox(state, UI_Flex(), false, m);
@@ -5177,11 +5189,10 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     // While the items run past the bottom, the rows leave room on the right for the scroll bar.
     UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset + (state->listScrolls ? Prog__ScrollGutter(m) : 0), 0 });
     // While a drag over the window would drop into the panel's folder, the list fades into the selection color's wash, as a hovered row's.
-    R_Color background = theme->background, wash = theme->selection;
     f32 dropping = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "DropWash/%" PRIu64, Prog__PanelId(state))), state->dropPanel == Prog__PanelId(state) ? 1.0f : 0.0f, 0);
-    f32 into = theme->hoverAmount.r * wash.a * dropping;
-    background = (R_Color){ background.r + (wash.r - background.r) * into, background.g + (wash.g - background.g) * into, background.b + (wash.b - background.b) * into,
-                            background.a + (1 - background.a) * into };
+    // The tinted rows take the same wash, so that they stay a shade off the list rather than show as dark bands over it.
+    state->listWash = theme->hoverAmount.r * theme->selection.a * dropping;
+    R_Color background = Prog__DropWashed(theme->background, state->listWash);
     UI_SetNextColors((UI_Colors){ .background = background });
     UI_SetNextEdgeFade(floorf(m->row * 0.75f));
     UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Files")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable |
