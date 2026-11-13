@@ -203,7 +203,7 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
                     file.mode = (u16)(metadata.stx_mode & 07777);
                     if (!file.symbolicLink) {
                         file.links = metadata.stx_nlink;
-                        file.id = (P_FileId){ (u64)metadata.stx_dev_major << 32 | metadata.stx_dev_minor, metadata.stx_ino };
+                        file.id = (P_FileId){ (u64)makedev(metadata.stx_dev_major, metadata.stx_dev_minor), metadata.stx_ino };
                     }
                     file.modifiedTimeUnix = (i64)metadata.stx_mtime.tv_sec;
                     file.accessedTimeUnix = (i64)metadata.stx_atime.tv_sec;

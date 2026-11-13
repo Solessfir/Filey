@@ -455,8 +455,11 @@ typedef struct Prog_ThumbnailSlot {
 #define Prog_ThumbnailSlots 3
 
 // What a measure of a folder's tree has counted so far, readable while it runs; `pending` is the folders of it left to list, 0 once it is done.
-// The files with more than one name a walk has counted, so that it counts each once.
-typedef struct Prog_SeenFiles { MapHeader header; struct { P_FileId key; b8 value; } *v; } Prog_SeenFiles;
+// The files with more than one name a walk has counted, so that it counts each once, with the most bytes any of their names listed: NTFS keeps
+// a size for each name, brought up to date only for the name a file was last written through. In an arena and under a lock of their own,
+// apart from the walk's, as on Windows every file goes in.
+typedef struct Prog_SeenFiles { MapHeader header; struct { P_FileId key; u64 value; } *v; } Prog_SeenFiles;
+typedef struct Prog_Seen { P_Mutex mutex; Arena arena; Prog_SeenFiles *trees; } Prog_Seen;
 
 // How long a drag is held over a folder before the folder opens under it, the drag going on.
 #define Prog_SpringMicroseconds 700000

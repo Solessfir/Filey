@@ -20,7 +20,8 @@ typedef struct Prog__UsageWalk {
     Prog__UsageFiles files;
     Prog__UsageTypes types;
     Prog__UsageTypeMap typeOf;
-    Prog_SeenFiles seen;
+    Prog_Seen seen;
+    Prog_SeenFiles seenFiles;
 } Prog__UsageWalk;
 
 // Sorts `order`, `count` indices, by their `keys`, largest first, keeping the order of equal ones; `spare` holds as many.
@@ -113,14 +114,14 @@ function void Prog__UsageLane(void *user, u32 lane)
         // A file with more than one name counts where the walk first finds it, and with no size at its other names; on Windows, where the
         // listing does not tell how many names a file has, every file is looked up.
         if (linked) {
-            P_MutexLock(&walk->mutex);
+            P_MutexLock(&walk->seen.mutex);
             for (u32 k = 0; k < fileCount; ++k) {
                 const P_File *file = &listed.files.v[files[k]];
                 if (!Prog__UsageShared(file)) continue;
-                if (MapGet(walk->seen, b8, file->id)) ownBytes -= keys[files[k]], keys[files[k]] = 0;
-                else MapPut(&walk->walk, walk->seen, file->id, true);
+                u64 counted = Prog_SeenBytes(&walk->seen.arena, &walk->seenFiles, file->id, keys[files[k]]);
+                ownBytes -= keys[files[k]] - counted, keys[files[k]] = counted;
             }
-            P_MutexUnlock(&walk->mutex);
+            P_MutexUnlock(&walk->seen.mutex);
         }
         Prog__UsageSort(files, fileCount, keys, spare);
         // The listing's extensions, counted here so that the lock is held once for them.
@@ -190,10 +191,17 @@ function b32 Prog_ScanUsage(Arena *arena, String path, Prog_UsageProgress *progr
         P_MutexRelease(&walk.mutex);
         return false;
     }
+    if (!P_MutexInit(&walk.seen.mutex)) {
+        P_ConditionRelease(&walk.condition);
+        P_MutexRelease(&walk.mutex);
+        return false;
+    }
     String root = StrCopy(arena, path);
     ArrayPush(&walk.walk, walk.folders, ((Prog_UsageFolder){ .name = root, .parent = UINT32_MAX, .firstChild = UINT32_MAX, .nextSibling = UINT32_MAX }));
     ArrayPush(&walk.walk, walk.stack, ((Prog__UsagePending){ root, 0 }));
     P_RunLanes(Max(1u, Min(P_ProcessorCount(), (u32)Prog_WalkLanes)), Prog__UsageLane, &walk);
+    ArenaRelease(&walk.seen.arena);
+    P_MutexRelease(&walk.seen.mutex);
     P_ConditionRelease(&walk.condition);
     P_MutexRelease(&walk.mutex);
     b32 result = !P_IsCancelled(cancel);

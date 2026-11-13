@@ -2771,6 +2771,20 @@ function void Prog__IndexLane(void *user, u32 lane)
 // A measure of several folders' trees at once, sharing the lanes:
 // each lane lists one folder at a time, adds what it holds to its tree's totals and leaves its subfolders for whichever lane is free next.
 // Each tree keeps its own stack of folders to list, and the lanes take from the trees in turn, so that small trees finish while a big one is walked.
+// Notes that a name of the file `id` lists `bytes`, returning how many of them to count: all of them the first time, then only what they are
+// past the most counted for it.
+function u64 Prog_SeenBytes(Arena *arena, Prog_SeenFiles *seen, P_FileId id, u64 bytes)
+{
+    u64 *counted = MapGetPtrNull(*seen, id);
+    if (!counted) {
+        MapPut(arena, *seen, id, bytes);
+        return bytes;
+    }
+    u64 more = bytes > *counted ? bytes - *counted : 0;
+    *counted = Max(*counted, bytes);
+    return more;
+}
+
 typedef struct Prog__Measure {
     Prog_TreeTotals *trees;
     const P_CancelToken *cancel;
@@ -2781,7 +2795,7 @@ typedef struct Prog__Measure {
     u32 *turn;        // the trees with folders on their stacks
     b8 *inTurn;
     b8 *started;      // its own folder has been taken, so later ones are its subfolders
-    Prog_SeenFiles *seen;  // by tree
+    Prog_Seen seen;        // by tree
     u32 turnCount, next;
     u64 waiting;      // folders on all the stacks
     u32 busy;
@@ -2827,12 +2841,14 @@ function void Prog__MeasureLane(void *user, u32 index)
         atomic_fetch_add(&tree->folders, counted.folders);
         atomic_fetch_add(&tree->files, counted.files);
         atomic_fetch_add(&tree->bytes, counted.bytes);
-        P_MutexLock(&walk->mutex);
-        for (u64 i = 0; i < linked.header.count; ++i) {
-            if (MapGet(walk->seen[which], b8, linked.v[i].id)) continue;
-            MapPut(&walk->arena, walk->seen[which], linked.v[i].id, true);
-            atomic_fetch_add(&tree->bytes, linked.v[i].bytes);
+        if (linked.header.count) {
+            u64 more = 0;
+            P_MutexLock(&walk->seen.mutex);
+            for (u64 i = 0; i < linked.header.count; ++i) more += Prog_SeenBytes(&walk->seen.arena, &walk->seen.trees[which], linked.v[i].id, linked.v[i].bytes);
+            P_MutexUnlock(&walk->seen.mutex);
+            atomic_fetch_add(&tree->bytes, more);
         }
+        P_MutexLock(&walk->mutex);
         for (u64 i = 0; i < below.header.count; ++i) ArrayPush(&walk->arena, *stack, below.v[i]);
         if (below.header.count && !walk->inTurn[which]) {
             walk->turn[walk->turnCount++] = which;
@@ -2857,12 +2873,17 @@ function b32 Prog_MeasureTrees(const String *paths, u64 count, Prog_TreeTotals *
         P_MutexRelease(&walk.mutex);
         return false;
     }
+    if (!P_MutexInit(&walk.seen.mutex)) {
+        P_ConditionRelease(&walk.condition);
+        P_MutexRelease(&walk.mutex);
+        return false;
+    }
     u64 room = Max(count, (u64)1);
     walk.stacks = ArenaPushArray(&walk.arena, room, ArrayStr);
     walk.turn = ArenaPushArray(&walk.arena, room, u32);
     walk.inTurn = ArenaPushArray(&walk.arena, room, b8);
     walk.started = ArenaPushArray(&walk.arena, room, b8);
-    walk.seen = ArenaPushArray(&walk.arena, room, Prog_SeenFiles);
+    walk.seen.trees = ArenaPushArray(&walk.arena, room, Prog_SeenFiles);
     for (u64 i = 0; i < count; ++i) {
         atomic_store(&trees[i].pending, 1);
         ArrayPush(&walk.arena, walk.stacks[i], paths[i]);
@@ -2874,6 +2895,8 @@ function b32 Prog_MeasureTrees(const String *paths, u64 count, Prog_TreeTotals *
     P_RunLanes(lanes, Prog__MeasureLane, &walk);
     for (u32 i = 0; i < lanes; ++i) ArenaRelease(&walk.lanes[i]), ArenaRelease(&walk.linkedLanes[i]);
     ArenaRelease(&walk.arena);
+    ArenaRelease(&walk.seen.arena);
+    P_MutexRelease(&walk.seen.mutex);
     P_ConditionRelease(&walk.condition);
     P_MutexRelease(&walk.mutex);
     return !P_IsCancelled(cancel);

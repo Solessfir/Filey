@@ -475,7 +475,13 @@ typedef void P__ListedEntry(void *user, const FILE_ID_EXTD_DIR_INFO *entry, i32 
 function b32 P__ListWithIds(Arena *scratchFor, const wchar *directory, const P_CancelToken *cancel, b32 *cancelled, u32 *error, P__ListedEntry *each, void *user)
 {
     HANDLE folder = CreateFileW(directory, FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
-    if (folder == INVALID_HANDLE_VALUE) return false;
+    if (folder == INVALID_HANDLE_VALUE) {
+        // A folder that is not there or not to be read is no more so to FindFirstFile, which is not asked again.
+        u32 code = GetLastError();
+        if (code != ERROR_ACCESS_DENIED && code != ERROR_PATH_NOT_FOUND && code != ERROR_FILE_NOT_FOUND) return false;
+        *error = code;
+        return true;
+    }
     BY_HANDLE_FILE_INFORMATION own = {0};
     u64 device = GetFileInformationByHandle(folder, &own) ? own.dwVolumeSerialNumber : 0;
     Scratch scratch = GetScratchEx(scratchFor);
@@ -877,7 +883,7 @@ function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals,
     P__Counting counting = { arena, scratch.arena, parent, totals, subfolders, linkedArena, linked };
     if (folder && P__ListWithIds(arena, folder, NULL, &cancelled, &error, P__CountEntry, &counting)) {
         ReleaseScratch(scratch);
-        return true;
+        return !error;
     }
     u32 length = 0;
     while (folder && folder[length]) ++length;
@@ -1722,7 +1728,7 @@ function ArrayStr P_StartupPaths(Arena *arena)
 function u32 P_FileLinkCount(String path)
 {
     Scratch scratch = GetScratch();
-    wchar *wide = P__FilePathWide(scratch.arena, path);
+    wchar *wide = P__FileExtendedPath(scratch.arena, path);
     // Opened for no access, which neither waits on a file another program holds nor downloads a cloud placeholder.
     HANDLE file = wide ? CreateFileW(wide, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL)
                        : INVALID_HANDLE_VALUE;
