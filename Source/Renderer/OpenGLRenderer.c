@@ -1543,6 +1543,11 @@ function void GL__Cull(void)
                 b32 cut = true;
                 u32 shape = (u32)instance.shape;
                 b32 cuttable = instance.textured == 0 && !(shape & (GL_ShapeLine | GL_ShapeRegion | GL_ShapeTurned));
+                // A turned one reaches past its box, which the pieces left are measured by.
+                if (shape & GL_ShapeTurned) {
+                    ArrayPush(&GL.frameArena, kept, instance);
+                    continue;
+                }
                 if (cuttable && instance.thickness > 0 && !(shape & R_Shape_Inverted)) cut = GL__Subtract(pieces, &count, GL__Inner(instance.rect, MaxF32(ceilf(instance.radius), ceilf(instance.thickness)) + 1));
                 for (u64 k = nextOccluder; cut && count && k < occluders.header.count; ++k) cut = GL__Subtract(pieces, &count, occluders.v[k].box);
                 if (!cut || (count == 1 && MemCompare(&pieces[0], &area, sizeof(area)) == 0)) {

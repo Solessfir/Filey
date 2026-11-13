@@ -6641,9 +6641,7 @@ function void Prog_ClosePanelSliding(Prog_State *state, u32 index)
     if (state->closingPanel == id) return;
     // One closing already is let go first.
     if (state->closingPanel) {
-        u32 earlier = Prog_PanelIndex(state, state->closingPanel);
-        state->closingPanel = 0;
-        if (earlier != UINT32_MAX) Prog_ClosePanel(state, earlier);
+        Prog_FinishClosingPanel(state);
         index = Prog_PanelIndex(state, id);
         if (index == UINT32_MAX) return;
     }
@@ -7301,6 +7299,8 @@ function b32 Prog__TakeNumber(String *text, u64 *value)
 // One record per line: the layout's split nodes, then each panel and its tabs; a tab's path ends its line, so it may hold spaces.
 function String Prog_SessionText(Arena *arena, Prog_State *state)
 {
+    // A panel sliding out is not kept.
+    Prog_FinishClosingPanel(state);
     Prog__EnsureTab(state);
     StrBuilder text = {0};
     u32 active = state->activePanel;
@@ -8055,9 +8055,23 @@ function void Prog_SelectTab(Prog_State *state, u32 index)
 // The panels of the layout, leaving out the ones an inspector lists a folder in.
 function u32 Prog_LayoutPanels(const Prog_State *state)
 {
+    // A panel sliding out is gone already.
     u32 result = 0;
-    for (u32 i = 0; i < state->panelCount; ++i) result += state->panels[i].inspectorOf == 0;
+    for (u32 i = 0; i < state->panelCount; ++i) result += state->panels[i].inspectorOf == 0 && state->panels[i].id != state->closingPanel;
     return result;
+}
+
+// Closes at once the panel sliding out, if one is, keeping the panel the keyboard is in active.
+function void Prog_FinishClosingPanel(Prog_State *state)
+{
+    if (!state->closingPanel) return;
+    u32 closing = Prog_PanelIndex(state, state->closingPanel);
+    u64 active = state->panels[state->activePanel].id;
+    state->closingPanel = 0;
+    if (closing == UINT32_MAX) return;
+    Prog_ClosePanel(state, closing);
+    u32 kept = Prog_PanelIndex(state, active);
+    if (kept != UINT32_MAX && kept != state->activePanel) Prog__ActivatePanel(state, kept);
 }
 
 function void Prog_CloseTab(Prog_State *state, u32 index)

@@ -3859,14 +3859,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     b32 changed = state->commandFirst != NULL;
     // A closed split's panel goes once it has slid out.
     if (state->closingPanel && UI->nowMicroseconds - state->closingSince >= Prog_ClosingMicroseconds) {
-        u32 closing = Prog_PanelIndex(state, state->closingPanel);
-        state->closingPanel = 0;
-        if (closing != UINT32_MAX) Prog_ClosePanel(state, closing);
+        Prog_FinishClosingPanel(state);
         changed = true;
     }
     for (Prog_Command *command = state->commandFirst; command; command = command->next) {
-        // Input in another panel's UI makes that panel active first.
+        // Input in another panel's UI makes that panel active first; input in a panel gone or sliding out goes nowhere.
         u32 from = command->panel ? Prog_PanelIndex(state, command->panel) : UINT32_MAX;
+        if (command->panel && (from == UINT32_MAX || command->panel == state->closingPanel)) continue;
         if (from != UINT32_MAX && from != state->activePanel) Prog__ActivatePanel(state, from);
         switch (command->kind) {
             case Prog_CommandKind_SelectRow: {
@@ -5813,21 +5812,26 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     }
     Prog__UsePanel(state, state->activePanel);
     if (state->dropPlace.length) drop = state->dropPlace, intoPanel = false, onFile = false;
+    // Nothing goes into what is being dragged, nor into a folder inside it.
+    for (u64 i = 0; state->dragging && drop.length && i < state->draggedCount; ++i) {
+        if (Prog__EqualFolded(drop, state->draggedPaths[i]) || Prog__IsUnder(drop, state->draggedPaths[i])) drop = (String){0}, intoPanel = false;
+    }
     // Held over a folder for a moment, a drag opens it, in the panel under the pointer, else the active one, and goes on into it.
     String spring = P_DropPending() && !intoPanel && !onFile ? drop : (String){0};
     if (!StrIsEqual(spring, state->springPath)) {
         ArenaClear(&state->springArena);
         state->springPath = StrCopy(&state->springArena, spring);
         state->springSince = UI->nowMicroseconds;
+        state->springFired = false;
     }
-    if (spring.length && UI->nowMicroseconds - state->springSince >= Prog_SpringMicroseconds) {
+    if (spring.length && !state->springFired && UI->nowMicroseconds - state->springSince >= Prog_SpringMicroseconds) {
         u32 into = dropPanel != UINT32_MAX ? dropPanel : state->activePanel;
         Prog__UsePanel(state, into);
         if (!StrIsEqual(spring, state->directory.path)) Prog_RequestDirectory(state, spring, true, 0);
         Prog__UsePanel(state, state->activePanel);
         // Once only, until the drag moves to another folder.
-        state->springSince = UINT64_MAX / 2;
-    } else if (spring.length && state->springSince < UINT64_MAX / 2) {
+        state->springFired = true;
+    } else if (spring.length && !state->springFired) {
         UI_WakeAt(state->springSince + Prog_SpringMicroseconds);
     }
     String archive = {0}, inner = {0};

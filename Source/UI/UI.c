@@ -59,15 +59,26 @@ function void UI_LimitScrollEase(UI_Block *block)
     block->scrollShown.y = UI__Clamp(block->scrollShown.y, block->scrollOffset.y - room, block->scrollOffset.y + room);
 }
 
+// The slot of `key` in the animations' table, or the empty one it would go in.
+function u32 UI__AnimationSlot(UI_Key key)
+{
+    const u32 mask = CArrayCount(UI->animationSlots) - 1;
+    static_assert((CArrayCount(((UI_Context *)0)->animationSlots) & (CArrayCount(((UI_Context *)0)->animationSlots) - 1)) == 0, "a power of two");
+    u32 slot = (u32)(key ^ (key >> 32)) & mask;
+    while (UI->animationSlots[slot] && UI->animations[UI->animationSlots[slot] - 1].key != key) slot = (slot + 1) & mask;
+    return slot;
+}
+
 function UI_Animation *UI__Animation(UI_Key key, f32 initial)
 {
-    for (u32 i = 0; i < UI->animationCount; ++i) {
-        if (UI->animations[i].key == key) {
-            UI->animations[i].lastFrameTouched = UI->frameIndex;
-            return &UI->animations[i];
-        }
+    u32 slot = UI__AnimationSlot(key);
+    if (UI->animationSlots[slot]) {
+        UI_Animation *found = &UI->animations[UI->animationSlots[slot] - 1];
+        found->lastFrameTouched = UI->frameIndex;
+        return found;
     }
     if (UI->animationCount == UI_MaxAnimations) return NULL;
+    UI->animationSlots[slot] = (u16)(UI->animationCount + 1);
     UI_Animation *result = &UI->animations[UI->animationCount++];
     *result = (UI_Animation){ .key = key, .value = initial, .startMicroseconds = UI->nowMicroseconds, .lastFrameTouched = UI->frameIndex };
     return result;
@@ -113,10 +124,14 @@ function f32 UI_Fall(UI_Key key, f32 target)
 
 function f32 UI_KeptOr(UI_Key key, f32 fallback)
 {
-    for (u32 i = 0; i < UI->animationCount; ++i) {
-        if (UI->animations[i].key == key) return UI->animations[i].value;
-    }
-    return fallback;
+    u16 at = UI->animationSlots[UI__AnimationSlot(key)];
+    return at ? UI->animations[at - 1].value : fallback;
+}
+
+function u64 UI_SinceStart(UI_Key key)
+{
+    u16 at = UI->animationSlots[UI__AnimationSlot(key)];
+    return at ? UI->animations[at - 1].startMicroseconds : UI->nowMicroseconds;
 }
 
 function f32 UI_Kept(UI_Key key) { return UI_KeptOr(key, 0); }
@@ -535,6 +550,8 @@ function void UI_EndFrame(void)
         if (UI->animations[i].lastFrameTouched != UI->frameIndex) UI->animations[i] = UI->animations[--UI->animationCount];
         else ++i;
     }
+    MemZero(UI->animationSlots, sizeof(UI->animationSlots));
+    for (u32 i = 0; i < UI->animationCount; ++i) UI->animationSlots[UI__AnimationSlot(UI->animations[i].key)] = (u16)(i + 1);
     UI->wasAnimating = UI->animating;
 }
 

@@ -71,7 +71,7 @@ typedef struct UI_Properties {
     f32 borderThickness;  // 0 draws one pixel
     f32 fade;  // 0 is opaque and 1 invisible, for this block and everything inside it
     f32 scale; // 0 draws it at its size; otherwise it and everything inside it are drawn that much larger around its center
-    f32 rotation; // its text turned clockwise by this many radians about its center
+    f32 rotation; // each glyph of its text turned clockwise by this many radians about its own center, as a single icon turns
     // Above 0, the seconds since its children started to cascade in: each, a little after the one before it, drops into place from above
     // as it fades in, settling as a weight would.
     f32 cascade;
@@ -113,7 +113,7 @@ struct UI_Block {
 
 // A value that eases toward a target, kept while its key is used every frame.
 typedef struct UI_Animation { UI_Key key; f32 value; u64 startMicroseconds, lastFrameTouched; } UI_Animation;
-#define UI_MaxAnimations 512
+#define UI_MaxAnimations 2048
 
 #define UI_HashSlotCount 1024
 typedef struct UI_Context {
@@ -152,6 +152,8 @@ typedef struct UI_Context {
     u32 noInput;  // inside UI_NoInput, blocks take no presses
     UI_Animation animations[UI_MaxAnimations];
     u32 animationCount;
+    // Each animation's place plus one, by its key, which is a hash already; 0 is empty. Rebuilt as the frame's untouched ones go.
+    u16 animationSlots[UI_MaxAnimations * 2];
 } UI_Context;
 
 global UI_Context *UI;
@@ -235,6 +237,8 @@ function f32 UI_Kept(UI_Key key);
 function f32 UI_KeptOr(UI_Key key, f32 fallback);
 // Microseconds since `key` was first asked for in an unbroken run of frames.
 function u64 UI_TimeSince(UI_Key key);
+// When that run started, without keeping `key` for another frame; now without one.
+function u64 UI_SinceStart(UI_Key key);
 // Asks for another frame, for animations that are not eased values.
 function void UI_KeepAnimating(void);
 function void UI_WakeAt(u64 microseconds);

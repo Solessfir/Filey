@@ -2448,6 +2448,7 @@ typedef struct Prog_State {
     Arena springArena;
     String springPath;
     u64 springSince;
+    b32 springFired;          // springPath has been opened; it opens again only once the drag has left it
     u64 bookmarkGap;
     // The panel zoomed to fill the panels' area (an id, 0 for none), the one shown zoomed while it grows or shrinks back, and its place in
     // the layout, which it grows from.
@@ -2622,6 +2623,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events);
 function b32 Prog_ProcessCommands(Prog_State *state);
 function void Prog__WriteSetting(Prog_State *state, String name, String value);
 function void Prog_ClosePanelSliding(Prog_State *state, u32 index);
+function void Prog_FinishClosingPanel(Prog_State *state);
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale);
 function f32 Prog_RowHeight(const R_Font *font);
 function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, const Prog_Entry *entry);

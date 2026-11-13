@@ -4610,7 +4610,7 @@ function b32 Prog__ItemInput(Prog_State *state, u64 index, UI_Block *block, UI_K
 {
     Prog_Entry *entry = &state->directory.entries[index];
     if (state->hasFocus && state->focusedRow == index) state->focusedRowRect = block->rect;
-    if (UI->hotKey == key && !state->loading) {
+    if (UI->hotKey == key && !state->loading && Prog__PanelId(state) != state->closingPanel) {
         state->hoverRow = index;
         state->hoverPanel = Prog__PanelId(state);
         state->hasHoverRow = true;
@@ -6180,14 +6180,15 @@ function UI_Block *Prog__GroupBody(Prog_State *state, Prog_Group group, const Pr
     // Grown at a steady pace, eased out, quicker than the usual approach.
     f32 steady = UI_Steady(shownKey, open ? 1.0f : 0.0f, 0.08f), shown = 1 - (1 - steady) * (1 - steady) * (1 - steady);
     if (!open && shown <= 0) return NULL;
-    if (open) {
-        UI_Key cascadeKey = UI_KeyFromStr(key, S("Cascade"));
-        b32 cascading = UI_Kept(cascadeKey) > 0 || (opening && UI->animate);
-        UI_Animate(cascadeKey, cascading ? 1.0f : 0.0f, cascading ? 1.0f : 0.0f);
-        f32 seconds = cascading ? (f32)UI_TimeSince(UI_KeyFromStr(key, S("Since"))) / 1e6f + 1e-6f : 0;
+    // Its keys are kept only while it runs, so that it ends for good and frees them.
+    UI_Key cascadeKey = UI_KeyFromStr(key, S("Cascade")), sinceKey = UI_KeyFromStr(key, S("Since"));
+    if (open && (UI_Kept(cascadeKey) > 0 || (opening && UI->animate))) {
         u32 rows = 0;
         for (UI_Block *row = last ? last->first : NULL; row; row = row->next) ++rows;
-        if (cascading && seconds < UI_CascadeSeconds(rows)) {
+        f32 seconds = (f32)(UI->nowMicroseconds - Min(UI->nowMicroseconds, UI_SinceStart(sinceKey))) / 1e6f + 1e-6f;
+        if (seconds < UI_CascadeSeconds(rows)) {
+            UI_Animate(cascadeKey, 1, 1);
+            UI_TimeSince(sinceKey);
             UI_SetNextCascade(seconds);
             UI_KeepAnimating();
         }
@@ -14233,7 +14234,7 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     // Keys of blocks without a parent start from the panel's, so that panels showing the same folder keep apart.
     UI->keySeed = Prog_PanelKeySeed(state->panels[index].id);
     state->panelRect = rect;
-    if (UI__Contains(rect, UI->mouse)) state->pointerPanel = state->panels[index].id;
+    if (UI__Contains(rect, UI->mouse) && state->panels[index].id != state->closingPanel) state->pointerPanel = state->panels[index].id;
     f32 width = rect.x1 - rect.x0, height = rect.y1 - rect.y0;
     // A panel whose inspector's list has the keyboard counts as active.
     b32 top = rect.y0 <= area.y0, active = index == state->activePanel || state->panels[state->activePanel].inspectorOf == state->panels[index].id;
