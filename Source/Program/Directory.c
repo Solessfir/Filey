@@ -2786,6 +2786,7 @@ typedef struct Prog__Measure {
     u64 waiting;      // folders on all the stacks
     u32 busy;
     Arena lanes[Prog_WalkLanes];
+    Arena linkedLanes[Prog_WalkLanes];  // a folder's files for the walk to count once, cleared for the next
 } Prog__Measure;
 
 function void Prog__MeasureLane(void *user, u32 index)
@@ -2819,7 +2820,8 @@ function void Prog__MeasureLane(void *user, u32 index)
         P_DirectoryTotals counted = {0};
         ArrayStr below = {0};
         P_LinkedFiles linked = {0};
-        b32 read = P_CountFolder(arena, path, &counted, &below, &linked);
+        ArenaClear(&walk->linkedLanes[index]);
+        b32 read = P_CountFolder(arena, path, &counted, &below, &walk->linkedLanes[index], &linked);
         Prog_TreeTotals *tree = &walk->trees[which];
         if (!read && root) atomic_store(&tree->failed, true);
         atomic_fetch_add(&tree->folders, counted.folders);
@@ -2870,7 +2872,7 @@ function b32 Prog_MeasureTrees(const String *paths, u64 count, Prog_TreeTotals *
     walk.waiting = count;
     u32 lanes = Max(1u, Min(P_ProcessorCount(), (u32)Prog_WalkLanes));
     P_RunLanes(lanes, Prog__MeasureLane, &walk);
-    for (u32 i = 0; i < lanes; ++i) ArenaRelease(&walk.lanes[i]);
+    for (u32 i = 0; i < lanes; ++i) ArenaRelease(&walk.lanes[i]), ArenaRelease(&walk.linkedLanes[i]);
     ArenaRelease(&walk.arena);
     P_ConditionRelease(&walk.condition);
     P_MutexRelease(&walk.mutex);

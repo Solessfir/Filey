@@ -468,22 +468,24 @@ function P_File P__ListedFile(Arena *arena, const wchar *name, i32 nameLength, u
     };
 }
 
-// Lists the folder `directory` from its handle, as FindFirstFile does but with each file's ID, which it leaves out.
-// False, with nothing listed, where the file system does not give IDs, for the folder to be listed the usual way.
-function b32 P__ListWithIds(Arena *arena, const wchar *directory, const P_CancelToken *cancel, P_DirectoryResult *result, u32 *error)
+// Calls `each` with every item in the folder `directory`, read from its handle, as FindFirstFile lists them but with each one's ID, which
+// it leaves out, zero where unknown. False, having called it for none, where the file system does not give IDs, for the folder to be listed
+// the usual way; `error` is set when the listing stops partway.
+typedef void P__ListedEntry(void *user, const FILE_ID_EXTD_DIR_INFO *entry, i32 nameLength, P_FileId id);
+function b32 P__ListWithIds(Arena *scratchFor, const wchar *directory, const P_CancelToken *cancel, b32 *cancelled, u32 *error, P__ListedEntry *each, void *user)
 {
     HANDLE folder = CreateFileW(directory, FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
     if (folder == INVALID_HANDLE_VALUE) return false;
     BY_HANDLE_FILE_INFORMATION own = {0};
     u64 device = GetFileInformationByHandle(folder, &own) ? own.dwVolumeSerialNumber : 0;
-    Scratch scratch = GetScratchEx(arena);
+    Scratch scratch = GetScratchEx(scratchFor);
     // The entries are 8-byte aligned in it.
     const u32 bytes = 64 << 10;
     u64 *buffer = ArenaPushArrayNoZero(scratch.arena, bytes / sizeof(u64), u64);
     b32 handled = true;
     for (b32 first = true;; first = false) {
         if (P_IsCancelled(cancel)) {
-            result->cancelled = true;
+            *cancelled = true;
             break;
         }
         if (!GetFileInformationByHandleEx(folder, first ? FileIdExtdDirectoryRestartInfo : FileIdExtdDirectoryInfo, buffer, bytes)) {
@@ -499,16 +501,12 @@ function b32 P__ListWithIds(Arena *arena, const wchar *directory, const P_Cancel
              entry = (const FILE_ID_EXTD_DIR_INFO *)((const u8 *)entry + entry->NextEntryOffset)) {
             const wchar *name = entry->FileName;
             i32 nameLength = (i32)(entry->FileNameLength / sizeof(wchar));
-            b32 dots = name[0] == L'.' && (nameLength == 1 || (nameLength == 2 && name[1] == L'.'));
-            if (!dots) {
-                P_File file = P__ListedFile(arena, name, nameLength, entry->FileAttributes, entry->ReparsePointTag, (u64)entry->EndOfFile.QuadPart,
-                                            (u64)entry->LastWriteTime.QuadPart, (u64)entry->CreationTime.QuadPart, (u64)entry->LastAccessTime.QuadPart);
+            if (!(name[0] == L'.' && (nameLength == 1 || (nameLength == 2 && name[1] == L'.')))) {
                 // NTFS's IDs fit in 64 bits; ReFS's 128 are folded into them.
                 u64 low = 0, high = 0;
                 MemCopy(&low, entry->FileId.Identifier, 8);
                 MemCopy(&high, entry->FileId.Identifier + 8, 8);
-                if (low || high) file.id = (P_FileId){ device, low ^ (high * UINT64_C(0x9E3779B97F4A7C15)) };
-                ArrayPush(arena, result->files, file);
+                each(user, entry, nameLength, low || high ? (P_FileId){ device, low ^ (high * UINT64_C(0x9E3779B97F4A7C15)) } : (P_FileId){0});
             }
             if (!entry->NextEntryOffset) break;
         }
@@ -516,6 +514,17 @@ function b32 P__ListWithIds(Arena *arena, const wchar *directory, const P_Cancel
     ReleaseScratch(scratch);
     CloseHandle(folder);
     return handled;
+}
+
+typedef struct P__ListedFiles { Arena *arena; P_DirectoryResult *result; } P__ListedFiles;
+
+function void P__ListedFileWithId(void *user, const FILE_ID_EXTD_DIR_INFO *entry, i32 nameLength, P_FileId id)
+{
+    P__ListedFiles *listed = user;
+    P_File file = P__ListedFile(listed->arena, entry->FileName, nameLength, entry->FileAttributes, entry->ReparsePointTag, (u64)entry->EndOfFile.QuadPart,
+                                (u64)entry->LastWriteTime.QuadPart, (u64)entry->CreationTime.QuadPart, (u64)entry->LastAccessTime.QuadPart);
+    file.id = id;
+    ArrayPush(listed->arena, listed->result->files, file);
 }
 
 function P_DirectoryResult P__EnumerateDirectory(Arena *arena, String path, const P_CancelToken *cancel, b32 ids)
@@ -549,7 +558,7 @@ function P_DirectoryResult P__EnumerateDirectory(Arena *arena, String path, cons
         MemCopy(pattern, directory, length * sizeof(wchar));
         if (length && pattern[length - 1] != L'\\') pattern[length++] = L'\\';
         pattern[length] = L'*';
-        b32 listed = ids && P__ListWithIds(arena, directory, cancel, &result, &error);
+        b32 listed = ids && P__ListWithIds(arena, directory, cancel, &result.cancelled, &error, P__ListedFileWithId, &(P__ListedFiles){ arena, &result });
         if (!listed && (find = FindFirstFileExW(pattern, FindExInfoBasic, &data, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH)) == INVALID_HANDLE_VALUE) {
             error = GetLastError();
             if (error == ERROR_FILE_NOT_FOUND) {
@@ -828,11 +837,48 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
     *watch = (P_DirectoryWatch){0};
 }
 
-function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders, P_LinkedFiles *linked)
+typedef struct P__Counting {
+    Arena *arena;
+    Arena *scratch;
+    String parent;
+    P_DirectoryTotals *totals;
+    ArrayStr *subfolders;
+    Arena *linkedArena;
+    P_LinkedFiles *linked;
+} P__Counting;
+
+// One item P_CountFolder lists: a folder's path to walk, unless it is a link, a junction or another reparse point, and a file's bytes, or the
+// file for the walk to count once where its ID tells it apart.
+function void P__CountEntry(void *user, const FILE_ID_EXTD_DIR_INFO *entry, i32 nameLength, P_FileId id)
 {
-    (void)linked;
+    P__Counting *counting = user;
+    if (entry->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+        ++counting->totals->folders;
+        if (!(entry->FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+            String leaf = P__FileStringWide(counting->scratch, entry->FileName, nameLength);
+            ArrayPush(counting->arena, *counting->subfolders, StrFormat(counting->arena, "%S/%S", counting->parent, leaf));
+        }
+    } else {
+        ++counting->totals->files;
+        u64 bytes = (u64)entry->EndOfFile.QuadPart;
+        if (id.device || id.inode) ArrayPush(counting->linkedArena, *counting->linked, ((P_LinkedFile){ id, bytes }));
+        else counting->totals->bytes += bytes;
+    }
+}
+
+function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders, Arena *linkedArena, P_LinkedFiles *linked)
+{
     Scratch scratch = GetScratchEx(arena);
     wchar *folder = P__FileExtendedPath(scratch.arena, path);
+    String parent = path.length && path.value[path.length - 1] == '/' ? StrFromTo(path, 0, (i64)path.length - 1) : path;
+    // Listed with IDs, every file is handed to the walk, as the listing does not say which have other names.
+    b32 cancelled = false;
+    u32 error = 0;
+    P__Counting counting = { arena, scratch.arena, parent, totals, subfolders, linkedArena, linked };
+    if (folder && P__ListWithIds(arena, folder, NULL, &cancelled, &error, P__CountEntry, &counting)) {
+        ReleaseScratch(scratch);
+        return true;
+    }
     u32 length = 0;
     while (folder && folder[length]) ++length;
     wchar *pattern = ArenaPushArray(scratch.arena, length + 3, wchar);
@@ -842,7 +888,6 @@ function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals,
     WIN32_FIND_DATAW data;
     HANDLE find = folder ? FindFirstFileExW(pattern, FindExInfoBasic, &data, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH) : INVALID_HANDLE_VALUE;
     b32 result = find != INVALID_HANDLE_VALUE;
-    String parent = path.length && path.value[path.length - 1] == '/' ? StrFromTo(path, 0, (i64)path.length - 1) : path;
     if (result) {
         do {
             const wchar *name = data.cFileName;

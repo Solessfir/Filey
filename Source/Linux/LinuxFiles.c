@@ -735,7 +735,7 @@ function i64 P_FileModifiedTime(String path)
     return found ? (i64)info.st_mtime : 0;
 }
 
-function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders, P_LinkedFiles *linked)
+function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders, Arena *linkedArena, P_LinkedFiles *linked)
 {
     Scratch scratch = GetScratchEx(arena);
     char *cpath = P__FilePathCString(scratch.arena, path.length ? path : S("."));
@@ -775,7 +775,7 @@ function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals,
             } else {
                 ++totals->files;
                 if (sized && statted && S_ISREG(metadata.st_mode) && metadata.st_size > 0) {
-                    if (metadata.st_nlink > 1) ArrayPush(arena, *linked, ((P_LinkedFile){ { (u64)metadata.st_dev, (u64)metadata.st_ino }, (u64)metadata.st_size }));
+                    if (metadata.st_nlink > 1) ArrayPush(linkedArena, *linked, ((P_LinkedFile){ { (u64)metadata.st_dev, (u64)metadata.st_ino }, (u64)metadata.st_size }));
                     else totals->bytes += (u64)metadata.st_size;
                 }
             }

@@ -2873,14 +2873,14 @@ function void TestMeasure(TestFileFixture *fixture)
     {
         P_DirectoryTotals counted = {0};
         ArrayStr below = {0};
-        Check(P_CountFolder(&arena, S("/"), &counted, &below, &(P_LinkedFiles){0}) && counted.folders > 0);
+        Check(P_CountFolder(&arena, S("/"), &counted, &below, &arena, &(P_LinkedFiles){0}) && counted.folders > 0);
         b32 proc = false, usr = false;
         for (u64 i = 0; i < below.header.count; ++i) proc |= StrIsEqual(below.v[i], S("/proc")), usr |= StrIsEqual(below.v[i], S("/usr"));
         Check(!proc && usr);
         // /proc's own walk counts its files, kcore among them, but none of their sizes, which are not data.
         P_DirectoryTotals kernel = {0};
         ArrayStr inside = {0};
-        Check(P_CountFolder(&arena, S("/proc"), &kernel, &inside, &(P_LinkedFiles){0}) && kernel.files > 0 && kernel.bytes == 0);
+        Check(P_CountFolder(&arena, S("/proc"), &kernel, &inside, &arena, &(P_LinkedFiles){0}) && kernel.files > 0 && kernel.bytes == 0);
     }
 #endif
     // An image file is read at its own size or shrunk to fit, and a text file is not taken for a picture.
@@ -2955,7 +2955,7 @@ function void TestMeasure(TestFileFixture *fixture)
         Check(!missing.complete && !missing.files);
         for (u32 i = 0; i < CArrayCount(paths); ++i) Check(atomic_load(&trees[i].pending) == 0);
     }
-    // A file with two names, one in a subfolder, counts both names but its bytes once in a disk usage scan, and in the measure on Linux.
+    // A file with two names, one in a subfolder, counts both names but its bytes once, in the measure and in a disk usage scan.
     {
         String made = Prog_JoinPath(&arena, fixture->path, S("Linked"));
         Check(!P_CreateItem(&arena, fixture->path, S("Linked"), true, &(String){0}).code);
@@ -2966,11 +2966,11 @@ function void TestMeasure(TestFileFixture *fixture)
         Check(CreateHardLinkW(P__FilePathWide(&arena, second), P__FilePathWide(&arena, first), NULL));
 #else
         Check(link(P__FilePathCString(&arena, first), P__FilePathCString(&arena, second)) == 0);
+#endif
         Prog_TreeTotals tree = {0};
         Check(Prog_MeasureTrees(&made, 1, &tree, &token));
         P_DirectoryTotals totals = Prog_TreeTotalsTaken(&tree, true);
         Check(totals.files == 2 && totals.bytes == 4);
-#endif
         // The listing with IDs is the plain one with them, the same for both names.
         P_DirectoryResult plain = P_EnumerateDirectory(&arena, made, &token), named = P_EnumerateDirectoryWithIds(&arena, made, &token);
         P_DirectoryResult inner = P_EnumerateDirectoryWithIds(&arena, Prog_JoinPath(&arena, made, S("Inner")), &token);

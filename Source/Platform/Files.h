@@ -124,7 +124,7 @@ typedef struct P_DirectoryTotals {
     b32 complete;  // false when cancelled or when `path` itself could not be read
 } P_DirectoryTotals;
 
-// A file with more than one name, which a walk counts the bytes of once.
+// A file that may have more than one name, which a walk counts the bytes of once.
 typedef struct P_LinkedFile {
     P_FileId id;
     u64 bytes;
@@ -134,9 +134,10 @@ typedef struct P_LinkedFiles { ArrayHeader header; P_LinkedFile *v; } P_LinkedFi
 // Adds the items directly inside `path`, hidden ones included, to `totals`: its folders, its files and their bytes.
 // Appends to `subfolders`, in `arena`, the paths of the folders a walk goes on into, which leaves out links and junctions,
 // and on Linux the folders of other file systems, as du -x does.
-// A file with more than one name, which only Linux tells while listing, is counted without its bytes and appended to `linked` instead.
+// A file that may have more than one name is counted without its bytes and appended to `linked`, in `linkedArena`, for the walk to count
+// once: on Linux one that has, and on Windows, whose listing does not say, every file whose ID the file system gives.
 // False when `path` cannot be read. Touches the disk, so run it in a job.
-function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders, P_LinkedFiles *linked);
+function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders, Arena *linkedArena, P_LinkedFiles *linked);
 // Whether `path` is a folder the system makes up rather than stores, such as Linux's /proc, which a walk of the whole drive leaves out.
 function b32 P_IsVirtualFolder(String path);
 // What P_LoadFileIcon takes for the icon of the computer, which lists the drives; empty where there is none to load.
