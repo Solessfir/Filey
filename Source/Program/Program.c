@@ -14083,7 +14083,9 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     UI_Parent(panel) {
         // The window's top border, over the title bar.
         if (top) Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
-        Prog__TabStrip(state, width, top, top && (state->sidebarHidden || state->uiHidden) && rect.x0 <= area.x0, top && rect.x1 >= area.x1, scale, m);
+        // A panel sliding out leaves the window's buttons and its corner to the panel that takes its place.
+        b32 leaving = state->panels[index].id == state->closingPanel;
+        Prog__TabStrip(state, width, top, top && !leaving && (state->sidebarHidden || state->uiHidden) && rect.x0 <= area.x0, top && !leaving && rect.x1 >= area.x1, scale, m);
         // The status bar slides up into the panel that becomes active and down out of the one that stops being it, the first more slowly; the one that stops being it fades to dim, while the new one brightens at once.
         Prog_Panel *own = &state->panels[index];
         if (!own->drawn || own->wasActive != active) {
@@ -14171,35 +14173,39 @@ function void Prog__Layout(Prog_State *state, u32 node, R_Rect rect, R_Rect area
     if (split->kind != Prog_SplitKind_Horizontal && split->kind != Prog_SplitKind_Vertical) return;
     b32 across = split->kind == Prog_SplitKind_Horizontal;
     f32 length = across ? rect.x1 - rect.x0 : rect.y1 - rect.y0, line = m->separator, ratio = split->ratio > 0 ? split->ratio : 0.5f;
-    // A side closing slides out past its edge, its share easing to nothing while it keeps its size, the other side growing into the room.
     b32 closesFirst = state->closingPanel && state->splits[split->first].kind == Prog_SplitKind_Panel && state->splits[split->first].panel == state->closingPanel;
     b32 closesSecond = state->closingPanel && state->splits[split->second].kind == Prog_SplitKind_Panel && state->splits[split->second].panel == state->closingPanel;
-    f32 kept = floorf(MaxF32(0, length - line) * ratio + 0.5f), shift = 0;
-    if (closesFirst || closesSecond) {
-        f32 t = MinF32(1, (f32)(UI->nowMicroseconds - state->closingSince) / (f32)Prog_ClosingMicroseconds), eased = 1 - (1 - t) * (1 - t) * (1 - t);
-        ratio = closesSecond ? ratio + (1 - ratio) * eased : ratio * (1 - eased);
-        UI_KeepAnimating();
-    }
     f32 first = floorf(MaxF32(0, length - line) * ratio + 0.5f);
+    if (closesFirst || closesSecond) {
+        // The side that stays fills the split at once, with the window's buttons and corners its own, and the closing side slides off over it
+        // past its edge, at its own size, uncovering it.
+        f32 t = MinF32(1, (f32)(UI->nowMicroseconds - state->closingSince) / (f32)Prog_ClosingMicroseconds), eased = 1 - (1 - t) * (1 - t) * (1 - t);
+        UI_KeepAnimating();
+        R_Rect gone = rect;
+        if (closesSecond) { if (across) gone.x0 = rect.x0 + first + line; else gone.y0 = rect.y0 + first + line; }
+        else              { if (across) gone.x1 = rect.x0 + first;        else gone.y1 = rect.y0 + first; }
+        f32 size = across ? gone.x1 - gone.x0 : gone.y1 - gone.y0, travel = floorf((size + line) * eased + 0.5f) * (closesSecond ? 1.0f : -1.0f);
+        R_Rect moved = across ? (R_Rect){ gone.x0 + travel, gone.y0, gone.x1 + travel, gone.y1 } : (R_Rect){ gone.x0, gone.y0 + travel, gone.x1, gone.y1 + travel };
+        UI_SetNextPrefWidth(UI_Pixels(rect.x1 - rect.x0));
+        UI_SetNextPrefHeight(UI_Pixels(rect.y1 - rect.y0));
+        UI_Block *box = UI_AddBlock(UI_Flag_Clip);
+        UI_Parent(box) {
+            Prog__Layout(state, closesFirst ? split->second : split->first, rect, area, scale, m);
+            UI_SetNextFloatingOffset((UI_Vec2){ moved.x0 - rect.x0, moved.y0 - rect.y0 });
+            UI_SetNextPrefWidth(UI_Pixels(moved.x1 - moved.x0));
+            UI_SetNextPrefHeight(UI_Pixels(moved.y1 - moved.y0));
+            UI_Block *sliding = UI_AddBlock(UI_Flag_Floating);
+            UI_Parent(sliding) Prog__Layout(state, closesFirst ? split->first : split->second, moved, area, scale, m);
+        }
+        return;
+    }
     R_Rect a = rect, b = rect;
     if (across) { a.x1 = rect.x0 + first; b.x0 = a.x1 + line; }
     else        { a.y1 = rect.y0 + first; b.y0 = a.y1 + line; }
-    if (closesSecond) {
-        f32 full = MaxF32(0, length - line) - kept;
-        if (across) b.x1 = b.x0 + full;
-        else        b.y1 = b.y0 + full;
-    }
-    if (closesFirst) {
-        // Laid out at its whole size, moved back past the edge by what it has given up.
-        shift = kept - first;
-        if (across) a.x0 = a.x1 - kept;
-        else        a.y0 = a.y1 - kept;
-    }
     UI_SetNextPrefWidth(UI_Pixels(rect.x1 - rect.x0));
     UI_SetNextPrefHeight(UI_Pixels(rect.y1 - rect.y0));
     UI_SetNextChildrenLayout(across ? UI_Layout_Horizontal : UI_Layout_Vertical);
-    if (shift > 0) UI_SetNextChildrenPadding(across ? (UI_Padding){ -shift, 0, 0, 0 } : (UI_Padding){ 0, -shift, 0, 0 });
-    UI_Block *box = UI_AddBlock(closesFirst || closesSecond ? UI_Flag_Clip : 0);
+    UI_Block *box = UI_AddBlock(0);
     UI_Parent(box) {
         Prog__Layout(state, split->first, a, area, scale, m);
         // Keys here are the window's, not the last built panel's.
