@@ -1110,6 +1110,9 @@ function f32 LinuxHyprlandRounding(void)
 // Linux keeps no process running ahead of Filey to warm anything for it.
 function void PlatformWarmStart(void) {}
 
+// The EGL context is made current as the window opens.
+function b32 PlatformWindowCreateContext(void) { return true; }
+
 function b32 PlatformWindowOpen(PlatformWindowDesc desc)
 {
     // A pipe whose reader went, as a paste's reader that took enough, or a program given input that quit, fails its write rather than ending Filey; the programs Filey starts get the default back.

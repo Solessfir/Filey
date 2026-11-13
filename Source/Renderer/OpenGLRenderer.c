@@ -205,10 +205,39 @@ typedef struct GL_Solid {
     R_Color color;
 } GL_Solid;
 
+// Texture work asked for before the context is ready, as the fonts and icons are while the graphics driver opens, done in order once it is.
+typedef enum GL_PendingKind {
+    GL_Pending_CreateAlpha,
+    GL_Pending_CreateRGBA,
+    GL_Pending_UpdateAlpha,
+    GL_Pending_UpdateRGBA,
+    GL_Pending_Linear,
+    GL_Pending_Smooth,
+    GL_Pending_Release,
+} GL_PendingKind;
+
+typedef struct GL_Pending {
+    struct GL_Pending *next;
+    GL_PendingKind kind;
+    R_TextureHandle texture;
+    i32 x, y, width, height;
+    void *pixels;  // a copy, or NULL
+} GL_Pending;
+
+// A texture made before the context is ready has this mark, and in its low bits its place in pendingNames, which holds its name once made.
+#define GL__TexturePending (UINT64_C(1) << 41)
+#define GL_MaxPendingTextures 256
+
 typedef struct GL_State {
 #define X(ret, name, ...) GL_##name##Fn *name;
     GL_FUNCTIONS(X)
 #undef X
+
+    b32 ready;  // the context is current and the programs built
+    Arena pendingArena;
+    GL_Pending *pendingFirst, *pendingLast;
+    GLuint pendingNames[GL_MaxPendingTextures];
+    u32 pendingCount;
 
     GLuint program;
     GLint  viewportLocation;
@@ -489,7 +518,35 @@ function GLuint GL__TextureRefFromHandle(R_TextureHandle handle)
 {
     GLuint result = 0;
     MemCopy(&result, &handle, sizeof(result));
+    if (handle.u64[0] & GL__TexturePending) result = result && result <= GL.pendingCount ? GL.pendingNames[result - 1] : 0;
     return result;
+}
+
+// Keeps texture work for when the context is ready; a texture made gets a pending handle at once.
+function R_TextureHandle GL__Defer(GL_PendingKind kind, R_TextureHandle texture, i32 x, i32 y, i32 width, i32 height, const void *pixels, u32 bytesPerPixel)
+{
+    GL_Pending *pending = ArenaPushStruct(&GL.pendingArena, GL_Pending);
+    if (kind == GL_Pending_CreateAlpha || kind == GL_Pending_CreateRGBA) texture.u64[0] = GL__TexturePending | ++GL.pendingCount;
+    *pending = (GL_Pending){ .kind = kind, .texture = texture, .x = x, .y = y, .width = width, .height = height };
+    if (pixels) {
+        u64 bytes = (u64)width * (u64)height * bytesPerPixel;
+        pending->pixels = ArenaPushArrayNoZero(&GL.pendingArena, bytes, u8);
+        MemCopy(pending->pixels, pixels, bytes);
+    }
+    QueuePush(GL.pendingFirst, GL.pendingLast, pending);
+    return texture;
+}
+
+// Whether texture work goes into the queue: before the context is ready, while there is room for the textures it makes.
+function b32 GL__Defers(b32 creates) { return !GL.ready && (!creates || GL.pendingCount < GL_MaxPendingTextures); }
+
+function b32 R_Start(void)
+{
+    if (GL.ready) return true;
+    b32 ok = false;
+    ProfileScope("CreateContext") ok = PlatformWindowCreateContext();
+    if (ok) ProfileScope("InitRenderer") ok = R_Init();
+    return ok;
 }
 
 // A mark above the texture's name, which it never reaches.
@@ -609,11 +666,33 @@ function b32 R_Init(void)
     GL.BlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     GL.Enable(GL_SCISSOR_TEST);
     GL.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    // What was asked for meanwhile is done now, in order, each texture made taking the name its pending handle stands for.
+    GL.ready = true;
+    for (GL_Pending *pending = GL.pendingFirst; pending; pending = pending->next) {
+        switch (pending->kind) {
+            case GL_Pending_CreateAlpha:
+            case GL_Pending_CreateRGBA: {
+                R_TextureHandle made = pending->kind == GL_Pending_CreateAlpha ? R_TextureCreateAlpha(pending->width, pending->height, pending->pixels)
+                                                                               : R_TextureCreateRGBA(pending->width, pending->height, pending->pixels);
+                GL.pendingNames[(u32)pending->texture.u64[0] - 1] = GL__TextureRefFromHandle(made);
+            } break;
+            case GL_Pending_UpdateAlpha: R_TextureUpdateAlpha(pending->texture, pending->x, pending->y, pending->width, pending->height, pending->pixels); break;
+            case GL_Pending_UpdateRGBA: R_TextureUpdateRGBA(pending->texture, pending->x, pending->y, pending->width, pending->height, pending->pixels); break;
+            case GL_Pending_Linear: R_TextureLinear(pending->texture); break;
+            case GL_Pending_Smooth: R_TextureSmooth(pending->texture); break;
+            case GL_Pending_Release: R_TextureRelease(pending->texture); break;
+        }
+    }
+    GL.pendingFirst = GL.pendingLast = NULL;
+    ArenaRelease(&GL.pendingArena);
     return true;
 }
 
 function R_TextureHandle R_TextureCreateAlpha(i32 width, i32 height, const u8 *pixels)
 {
+    if (GL__Defers(true)) return GL__Defer(GL_Pending_CreateAlpha, (R_TextureHandle){0}, 0, 0, width, height, pixels, 1);
+    if (!R_Start()) return (R_TextureHandle){0};
     GLuint texture = 0;
     GL.GenTextures(1, &texture);
     GL.BindTexture(GL_TEXTURE_2D, texture);
@@ -629,6 +708,10 @@ function R_TextureHandle R_TextureCreateAlpha(i32 width, i32 height, const u8 *p
 
 function void R_TextureUpdateAlpha(R_TextureHandle texture, i32 x, i32 y, i32 width, i32 height, const u8 *pixels)
 {
+    if (GL__Defers(false)) {
+        GL__Defer(GL_Pending_UpdateAlpha, texture, x, y, width, height, pixels, 1);
+        return;
+    }
     GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));
     GL.TexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_RED, GL_UNSIGNED_BYTE, pixels);
     ++GL.textureEpoch;
@@ -636,12 +719,21 @@ function void R_TextureUpdateAlpha(R_TextureHandle texture, i32 x, i32 y, i32 wi
 
 function void R_TextureRelease(R_TextureHandle texture)
 {
+    if (GL__Defers(false)) {
+        if (texture.u64[0]) GL__Defer(GL_Pending_Release, texture, 0, 0, 0, 0, NULL, 0);
+        return;
+    }
     GLuint ref = GL__TextureRefFromHandle(texture);
     if (ref) GL.DeleteTextures(1, &ref), ++GL.textureEpoch;
+    // Its name may be given to another texture, which the pending handle must not reach.
+    u32 at = (u32)texture.u64[0];
+    if ((texture.u64[0] & GL__TexturePending) && at && at <= GL.pendingCount) GL.pendingNames[at - 1] = 0;
 }
 
 function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels)
 {
+    if (GL__Defers(true)) return GL__Defer(GL_Pending_CreateRGBA, (R_TextureHandle){0}, 0, 0, width, height, pixels, 4);
+    if (!R_Start()) return (R_TextureHandle){0};
     GLuint texture = 0;
     GL.GenTextures(1, &texture);
     GL.BindTexture(GL_TEXTURE_2D, texture);
@@ -657,6 +749,10 @@ function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *p
 
 function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 width, i32 height, const u32 *pixels)
 {
+    if (GL__Defers(false)) {
+        GL__Defer(GL_Pending_UpdateRGBA, texture, x, y, width, height, pixels, 4);
+        return;
+    }
     GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));
     GL.TexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     ++GL.textureEpoch;
@@ -664,6 +760,10 @@ function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 wid
 
 function void R_TextureLinear(R_TextureHandle texture)
 {
+    if (GL__Defers(false)) {
+        GL__Defer(GL_Pending_Linear, texture, 0, 0, 0, 0, NULL, 0);
+        return;
+    }
     GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -672,6 +772,10 @@ function void R_TextureLinear(R_TextureHandle texture)
 
 function void R_TextureSmooth(R_TextureHandle texture)
 {
+    if (GL__Defers(false)) {
+        GL__Defer(GL_Pending_Smooth, texture, 0, 0, 0, 0, NULL, 0);
+        return;
+    }
     GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));
     GL.GenerateMipmap(GL_TEXTURE_2D);
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -682,7 +786,8 @@ function void R_TextureSmooth(R_TextureHandle texture)
 
 function R_MeshHandle R_MeshCreate(const f32 *positions, const f32 *uvs, const u32 *colors, u32 vertexCount, const u32 *indices, u64 indexCount)
 {
-    if (!vertexCount || !indexCount || indexCount > INT32_MAX) return (R_MeshHandle){0};
+    // A mesh is not kept for later, as textures are: one wanted before the context is ready waits for it.
+    if (!vertexCount || !indexCount || indexCount > INT32_MAX || !R_Start()) return (R_MeshHandle){0};
     GL_Mesh made = { .count = (GLsizei)indexCount }, *mesh = &made;
     GL.GenVertexArrays(1, &mesh->vertexArray);
     GL.BindVertexArray(mesh->vertexArray);
@@ -727,7 +832,7 @@ function void R_MeshRelease(R_MeshHandle handle)
 function void R_MeshDraw(R_MeshHandle handle, R_TextureHandle target, i32 width, i32 height, const f32 view[16], const R_MeshPart *parts, u32 partCount)
 {
     GL_Mesh mesh = GL__MeshFromHandle(handle);
-    if (!mesh.vertexArray || !target.u64[0] || width <= 0 || height <= 0) return;
+    if (!mesh.vertexArray || !target.u64[0] || width <= 0 || height <= 0 || !R_Start()) return;
     ++GL.textureEpoch;
     if (width > GL.meshWidth || height > GL.meshHeight) {
         GL.meshWidth = Max(GL.meshWidth, width), GL.meshHeight = Max(GL.meshHeight, height);

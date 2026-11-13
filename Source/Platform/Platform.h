@@ -167,6 +167,9 @@ typedef struct PlatformWindowInfo {
 } PlatformWindowInfo;
 
 function b32                PlatformWindowOpen(PlatformWindowDesc desc);
+// Makes the window's OpenGL context current on this thread, which R_Start does: on Windows a thread the window started made it meanwhile,
+// as the graphics driver takes over 100 ms to open.
+function b32                PlatformWindowCreateContext(void);
 function PlatformWindowInfo PlatformWindowGetInfo(void);
 // What Windows draws behind a transparent window: its Acrylic blur, Mica (the wallpaper's colors, softly), Mica's tabbed kind, or nothing.
 typedef enum PlatformBackdrop {

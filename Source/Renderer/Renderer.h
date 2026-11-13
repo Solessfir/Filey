@@ -44,6 +44,9 @@ typedef struct R_Font {
 
 // Requires a current OpenGL context (PlatformWindowOpen).
 function b32  R_Init(void);
+// Makes the window's context current and initializes the renderer, once; textures made before it are kept and made then, so that the
+// program can start, fonts and icons too, while the graphics driver opens. What needs the context itself, as a mesh, waits for it.
+function b32  R_Start(void);
 function void R_BeginFrame(i32 width, i32 height, R_Color clear);
 function void R_EndFrame(void);
 // The drawn frame before it is presented, bottom row first, 4 bytes a pixel in blue, green, red, alpha order.

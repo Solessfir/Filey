@@ -21,6 +21,7 @@ typedef struct WinWindowState {
     HWND window;
     HDC dc;
     HGLRC glContext;
+    HANDLE contextThread;  // makes glContext as the window opens, which PlatformWindowCreateContext waits for and makes current here
     HMODULE openGL;
     WglSwapIntervalFn *swapInterval;
 
@@ -788,6 +789,15 @@ function b32 WinCreateGLContext(void)
     return true;
 }
 
+// Makes the context and lets it go, for the main thread to make current.
+function DWORD WINAPI WinContextThread(void *unused)
+{
+    (void)unused;
+    if (WinCreateGLContext()) wglMakeCurrent(NULL, NULL);
+    else if (Win.glContext) wglDeleteContext(Win.glContext), Win.glContext = NULL;
+    return 0;
+}
+
 function void PlatformWarmStart(void)
 {
     // A context of its own opens the graphics driver as Filey's window does, which reads its files off the disk the first time after sign-in.
@@ -903,11 +913,30 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     P__shellOwner = Win.window;
     RegisterDragDrop(Win.window, &WinDropTarget);
 
+    // The context is made on a thread of its own, as the program starts meanwhile; without one, PlatformWindowCreateContext makes it.
     Win.dc = GetDC(Win.window);
-    if (!WinCreateGLContext()) {
-        return false;
-    }
+    Win.contextThread = CreateThread(NULL, 0, WinContextThread, NULL, 0, NULL);
+    return true;
+}
 
+// Waits for the thread making the context, taking the messages sent to the window meanwhile, should making it send one.
+function void Win__JoinContextThread(void)
+{
+    if (!Win.contextThread) return;
+    while (MsgWaitForMultipleObjects(1, &Win.contextThread, FALSE, INFINITE, QS_SENDMESSAGE) == WAIT_OBJECT_0 + 1) {
+        MSG message;
+        PeekMessageW(&message, NULL, 0, 0, PM_NOREMOVE | PM_QS_SENDMESSAGE);
+    }
+    CloseHandle(Win.contextThread);
+    Win.contextThread = NULL;
+}
+
+function b32 PlatformWindowCreateContext(void)
+{
+    if (!Win.contextThread && !Win.glContext) return WinCreateGLContext();
+    Win__JoinContextThread();
+    if (!Win.glContext || !wglMakeCurrent(Win.dc, Win.glContext)) return false;
+    if (Win.swapInterval) Win.swapInterval(1);
     return true;
 }
 
@@ -1042,7 +1071,12 @@ function void PlatformWindowToggleFullscreen(void)
 }
 function void PlatformWindowClose(void) { PlatformPushEvent(PlatformEventKind_CloseRequested); }
 
-function void PlatformWindowHide(void) { ShowWindow(Win.window, SW_HIDE); }
+function void PlatformWindowHide(void)
+{
+    ShowWindow(Win.window, SW_HIDE);
+    // A window closed before its first frame may still be making its context, which the process must not quit under, inside the driver's start.
+    Win__JoinContextThread();
+}
 
 function void PlatformWindowStartMove(void)
 {

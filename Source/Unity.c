@@ -87,6 +87,7 @@ typedef struct Prog_Loop {
     // The families the fonts were last made from.
     Prog_FontName fontName, monoName;
     b32 running;
+    b32 failed;  // the renderer could not start, which ends the run with an error
     b32 needsFrame;
     b32 transparent;  // what the window was last set to
     u8 backdrop;
@@ -279,6 +280,12 @@ function void Prog__Frame(void *user, PlatformEventList events)
         loop->shown = loop->shown || Prog_ReadyToShow(state) || PlatformNowMicroseconds() - loop->launchTime > 300000;
         // Until then it waits for the jobs it waits on, which wake it, or for that moment, rather than going round frame after frame.
         if (!loop->shown) Prog_WakeAt(state, loop->launchTime + 300001);
+        if (loop->shown && !R_Start()) {
+            fprintf(stderr, "Failed to initialize the renderer\n");
+            loop->running = false;
+            loop->failed = true;
+            loop->shown = false;
+        }
         if (loop->shown) ProfileScope("Render") {
             if (loop->vsyncOff != state->noVSync) {
                 loop->vsyncOff = state->noVSync;
@@ -488,20 +495,16 @@ int main(void)
     ReleaseScratch(startup);
     if (!ok) {
         fprintf(stderr, "Failed to start workers\n");
+        PlatformWindowHide();
         return 1;
     }
-    ProfileScope("InitRenderer") ok = R_Init();
-    if (!ok) {
-        fprintf(stderr, "Failed to initialize the renderer\n");
-        Prog_Release(&loop.state);
-        P_ReleaseWindowWake();
-        return 1;
-    }
-
+    // The renderer starts as the first frame is drawn, by which time the graphics driver has opened alongside the program's start, the
+    // fonts and the first icons, whose textures wait for it.
     Arena permanent = {0};
     ProfileScope("LoadFonts") ok = Prog__LoadFonts(&loop, PlatformWindowGetInfo().scale);
     if (!ok) {
         fprintf(stderr, "Failed to load fonts\n");
+        PlatformWindowHide();
         Prog_Release(&loop.state);
         P_ReleaseWindowWake();
         ArenaRelease(&permanent);
@@ -542,5 +545,5 @@ int main(void)
 #if defined(PROFILE)
     Prog__WriteProfile();
 #endif
-    return 0;
+    return loop.failed ? 1 : 0;
 }
