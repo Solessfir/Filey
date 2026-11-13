@@ -3006,7 +3006,11 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             UI_SetNextChildrenPadding((UI_Padding){ tabInset, tabTop, floorf(5.6f * scale + 0.5f), 0 });
             UI_Block *tab = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_MouseClickable);
             UI_Interaction interaction = UI_InteractionFromBlock(tab);
-            if (interaction.pressed && interaction.button != MouseButton_Middle) Prog_QueueCommand(state, Prog_CommandKind_SelectTab, i, 0, interaction.pressOrder);
+            // A tab is shown on the left button's release, so that one dragged away, as into a split, leaves the shown tab as it was; the right
+            // button's press shows it at once, for its menu, which acts on the shown tab.
+            b32 still = UI__DistanceSquared(UI->mouse, UI->pressOrigin) <= 16.0f;
+            if (interaction.clicked && interaction.button == MouseButton_Left && still) Prog_QueueCommand(state, Prog_CommandKind_SelectTab, i, 0, interaction.clickOrder);
+            if (interaction.pressed && interaction.button == MouseButton_Right) Prog_QueueCommand(state, Prog_CommandKind_SelectTab, i, 0, interaction.pressOrder);
             if (interaction.clicked && interaction.button == MouseButton_Middle) Prog_QueueCommand(state, Prog_CommandKind_CloseTabAt, i, 0, interaction.clickOrder);
             // Its menu hangs under it, from a right click or, for the shown tab of the active panel, its hotkey.
             UI_Vec2 menuAt = { tab->rect.x0, tab->rect.y1 + floorf(4.0f * scale + 0.5f) };
