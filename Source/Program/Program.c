@@ -2374,15 +2374,15 @@ function UI_Interaction Prog__DialogButton(UI_Key key, String text, R_Color colo
     return UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_DrawText | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable));
 }
 
-// The button that does what a line of the inspector is for, as Convert: outlined and filled faintly in the accent, the fill stronger under the
-// pointer and when pressed, in the details' font; dim where it cannot be pressed.
+// The button that does what a line of the inspector is for, as Convert: outlined and filled faintly in the text's color, as a dialog's Cancel is,
+// the fill stronger under the pointer and when pressed, in the details' font; dim where it cannot be pressed.
 function f32 Prog__ActionButtonWidth(String text, const Prog_Metrics *m) { return R_TextWidth(m->detail, text) + 2 * floorf(9.6f * m->scale + 0.5f); }
 
 function UI_Interaction Prog__ActionButton(String identity, String text, b32 enabled, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Key key = UI_KeyFromStr(0, identity);
-    R_Color tint = enabled ? theme->accent : theme->textDim, fill = Prog__Fade(tint, 0.16f), border = Prog__Fade(tint, 0.4f);
+    R_Color tint = enabled ? theme->text : theme->textDim, fill = Prog__Fade(tint, 0.08f), border = Prog__Fade(tint, 0.22f);
     fill.a = MinF32(1, fill.a + Prog__ButtonWash(key, enabled && UI->hotKey == key, enabled && UI->activeKey == key, fill).a);
     UI_SetNextPrefWidth(UI_Pixels(Prog__ActionButtonWidth(text, m)));
     UI_SetNextPrefHeight(UI_Pixels(floorf(23.2f * m->scale + 0.5f)));
