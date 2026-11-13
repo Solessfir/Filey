@@ -3927,3 +3927,12 @@ Seek Audio Forward
 
 Go five seconds on in the audio file playing in the inspector.
 = Перейти на пять секунд вперёд в аудиофайле, который играет в инспекторе.
+
+Quick Actions
+= Быстрые действия
+
+Shows buttons for cut, copy, rename and delete at the edge of the selection's menu nearest the pointer.
+= Показывает кнопки вырезания, копирования, переименования и удаления у края меню выделения, ближайшего к указателю.
+
+Quick actions
+= Быстрые действия

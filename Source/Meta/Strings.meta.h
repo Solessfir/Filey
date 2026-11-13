@@ -419,6 +419,7 @@ global const char *const Prog_Strings[] = {
     "and %u more",
     "Permanently delete everything in the %S?",
     "This cannot be undone.",
+    "Quick actions",
     "Edit Menu",
     "Reset",
     "Bring back the system's own order and every item",

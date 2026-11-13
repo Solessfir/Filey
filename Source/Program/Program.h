@@ -982,6 +982,15 @@ typedef enum Prog_PaletteMode {
     Prog_PaletteMode_Count,
 } Prog_PaletteMode;
 
+// The buttons the quick actions' row of the selection's menu can show, by their names in menus.quick.order.
+typedef enum Prog_QuickAction {
+    Prog_QuickAction_Cut,
+    Prog_QuickAction_Copy,
+    Prog_QuickAction_Rename,
+    Prog_QuickAction_Delete,
+    Prog_QuickAction_Count,
+} Prog_QuickAction;
+
 // The options the Options popup lists, each kept in Settings.conf.
 typedef enum Prog_Option {
     Prog_Option_Language,
@@ -1788,6 +1797,10 @@ typedef struct Prog_State {
     b32 menuInline;           // submenus open inside their menu, under their item, rather than beside it
     b32 menuQuickActions;     // the menu of selected items starts with a row of buttons for cutting, copying, renaming and deleting them
     b32 menuQuick;            // the open menu shows that row
+    // The quick actions the row shows, in its order, as Prog_QuickAction values; the rest are hidden. menus.quick.order keeps them.
+    u8 quickOrder[Prog_QuickAction_Count];
+    u8 quickCount;
+    u32 quickDrag;            // with the menu editor open, the shown quick action dragged by its dots, plus one; 0 for none
     b32 noTooltips;           // no tips under the pointer's resting place
     u32 menuExpanded[32];     // with menuInline, the items whose submenus are open, in the order they were opened
     u32 menuExpandedCount;
@@ -2585,6 +2598,7 @@ function void Prog_OpenRow(Prog_State *state, u64 row);
 function Prog_Command *Prog_QueueCommand(Prog_State *state, Prog_CommandKind kind, u64 row, u32 pressCount, u64 inputOrder);
 function void Prog_HandleInput(Prog_State *state, PlatformEventList events);
 function b32 Prog_ProcessCommands(Prog_State *state);
+function void Prog__WriteSetting(Prog_State *state, String name, String value);
 function void Prog_ClosePanelSliding(Prog_State *state, u32 index);
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale);
 function f32 Prog_RowHeight(const R_Font *font);

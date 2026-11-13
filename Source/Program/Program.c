@@ -810,6 +810,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->hideExtensions = state->showSystem = false;
     state->fullPaths = state->noTrail = state->sidebarTree = false;
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
+    for (u32 i = 0; i < Prog_QuickAction_Count; ++i) state->quickOrder[i] = (u8)i;
+    state->quickCount = Prog_QuickAction_Count;
     state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->menuQuickActions = state->noTooltips = state->separateInstances = state->gitFetch = state->mcp = false;
     state->startup = Prog_Startup_LastSession;
     state->newTab = Prog_NewTab_Root;
@@ -902,6 +904,21 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->menuInline = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("menus.quick"))) {
             state->menuQuickActions = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("menus.quick.order"))) {
+            // The names of the buttons shown, in their order, comma separated; those left out are hidden.
+            state->quickCount = 0;
+            for (u64 at = 0; at <= value.length;) {
+                Index comma = StrIndexChar(StrFrom(value, at), ',', SSF_CountOnFail);
+                String part = StrFromTo(value, at, (i64)(at + comma.value));
+                while (part.length && part.value[0] == ' ') part = StrFrom(part, 1);
+                while (part.length && part.value[part.length - 1] == ' ') --part.length;
+                at += comma.value + 1;
+                for (u32 a = 0; a < Prog_QuickAction_Count; ++a) {
+                    b32 taken = false;
+                    for (u32 k = 0; k < state->quickCount; ++k) taken |= state->quickOrder[k] == a;
+                    if (!taken && Prog__EqualFolded(part, Prog_QuickActionNames[a])) state->quickOrder[state->quickCount++] = (u8)a;
+                }
+            }
         } else if (StrIsEqual(name, S("tooltips"))) {
             state->noTooltips = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("startup"))) {
@@ -1101,6 +1118,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = false\n\n"
                                 "# Submenus that open inside their menu, under their item, rather than beside it.\n# menus.inline = false\n\n"
                                 "# A row of buttons for cutting, copying, renaming and deleting at the edge of the menu of selected items nearest the pointer.\n# menus.quick = false\n\n"
+                                "# The buttons that row shows, in their order; those left out are hidden.\n# menus.quick.order = cut, copy, rename, delete\n\n"
                                 "# Tips under the pointer when it rests on files, folders and buttons.\n# tooltips = true\n\n"
                                 "# Whether emptying the Recycle Bin (the Trash) asks first.\n# trash.confirm = true\n\n"
                                 "# How hard the archives Filey writes are compressed, from 0 (stored) to 9 (smallest, slowest).\n# archive.level = 9\n\n"));
@@ -6940,15 +6958,19 @@ function void Prog__DropShadow(f32 x, f32 y, f32 width, f32 height, f32 radius, 
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
 }
 
+// The quick actions' icons.
+function String Prog_QuickActionIcon(u32 action)
+{
+    const String icons[Prog_QuickAction_Count] = { Icon_Scissors, Icon_Copy, Icon_TextCursorInput, Icon_Trash2 };
+    return action < Prog_QuickAction_Count ? icons[action] : (String){0};
+}
+
 // The quick actions' row of the selection's menu, `y` down inside its padding and `width` across: buttons for cut, copy, rename and delete,
 // each running the command for the selection and closing the menu, with a line between it and the items, above it when it is `below` them.
 function void Prog__QuickActions(Prog_State *state, f32 y, f32 width, f32 height, b32 below, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    local_persist const struct { Prog_CommandKind kind; } actions[] = { { Prog_CommandKind_CutSelection }, { Prog_CommandKind_CopySelection }, { Prog_CommandKind_Rename },
-                                                                        { Prog_CommandKind_Trash } };
-    const String icons[] = { Icon_Scissors, Icon_Copy, Icon_TextCursorInput, Icon_Trash2 };
-    f32 line = m->separator, gap = floorf(4.0f * m->scale + 0.5f), buttonWidth = floorf(MinF32(width / (f32)CArrayCount(actions), Prog__ToolbarButtonWidth(m) * 1.6f));
+    f32 line = m->separator, gap = floorf(4.0f * m->scale + 0.5f), buttonWidth = floorf(MinF32(width / (f32)Max(state->quickCount, 1u), Prog__ToolbarButtonWidth(m) * 1.6f));
     UI_SetNextFloatingOffset((UI_Vec2){ 0, below ? y + line + gap : y });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -6956,13 +6978,14 @@ function void Prog__QuickActions(Prog_State *state, f32 y, f32 width, f32 height
     UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
     UI_Block *row = UI_AddBlock(UI_Flag_Floating);
     UI_Parent(row) {
-        for (u32 i = 0; i < CArrayCount(actions); ++i) {
-            UI_Interaction press = Prog__TextButton(StrFormat(&state->frameArena, "QuickAction/%u", i), icons[i], m->icons, UI_Pixels(buttonWidth), height, 0, theme->icon, theme->text,
-                                                    theme->iconDisabled, true, m);
-            Prog__DescribeTooltip(state, actions[i].kind, (String){0});
+        for (u32 k = 0; k < state->quickCount; ++k) {
+            u32 action = state->quickOrder[k];
+            UI_Interaction press = Prog__TextButton(StrFormat(&state->frameArena, "QuickAction/%u", action), Prog_QuickActionIcon(action), m->icons, UI_Pixels(buttonWidth), height, 0,
+                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
+            Prog__DescribeTooltip(state, Prog_QuickActionCommands[action], (String){0});
             if (press.clicked) {
                 Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, press.clickOrder);
-                Prog_QueueCommand(state, actions[i].kind, 0, 0, press.clickOrder);
+                Prog_QueueCommand(state, Prog_QuickActionCommands[action], 0, 0, press.clickOrder);
             }
         }
     }
@@ -7027,7 +7050,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     f32 fieldInset = floorf(2.4f * m->scale + 0.5f), fieldHeight = floorf(30.4f * m->scale + 0.5f);
     f32 searchHeight = search ? fieldInset + fieldHeight + line + floorf(4.0f * m->scale + 0.5f) - pad : 0;
     // The selection's menu can have a row of buttons for its commonest commands, at its edge by the pointer, over a line.
-    b32 quick = search && state->menuQuick;
+    b32 quick = search && state->menuQuick && state->quickCount;
     f32 quickButton = Prog__ToolbarButtonHeight(m) + floorf(4.0f * m->scale + 0.5f), quickHeight = quick ? quickButton + line + floorf(4.0f * m->scale + 0.5f) : 0;
     // The widest row's label and its chips together, rather than the longest label and the most chips of any rows.
     f32 rowWidth = 0, height = 2 * pad + searchHeight + quickHeight;
@@ -10947,6 +10970,82 @@ function void Prog__MenuEditIcon(Prog_State *state, String label, f32 height, f3
 
 // The menu editor, in the place of the system menu whose pencil opened it: the top level's items in their order, each with dots to drag it by and a minus that hides it, then the hidden ones, each with a plus that brings it back.
 // Reset brings back the system's order and every item.
+// The menu editor's section for the quick actions' row: its buttons as rows, those shown dragged by their dots into another order or hidden,
+// and those hidden put back at the end, then a line.
+function void Prog__MenuEditQuick(Prog_State *state, f32 width, f32 row, f32 title, f32 grip, f32 button, f32 pad, f32 gutter, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    UI_SetNextChildrenPadding((UI_Padding){ 2 * pad, 0, pad, 0 });
+    UI_Block *heading = Prog__Box(UI_Flex(), UI_Pixels(title), UI_Layout_Horizontal, (R_Color){0}, 0);
+    UI_Parent(heading) {
+        UI_SetNextFont(m->detail);
+        Prog__Label(Tr("Quick actions"), UI_Flex(), title, 0, theme->textDim, 0);
+    }
+    u32 count = state->quickCount;
+    UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuEditQuickList")), 0);
+    list->props.width = UI_Flex(), list->props.height = UI_Pixels((f32)count * row), list->props.childrenLayout = UI_Layout_Vertical;
+    u32 dragged = state->quickDrag ? state->quickDrag - 1 : UINT32_MAX;
+    u32 landing = (u32)Min(Max((i64)floorf((UI->mouse.y - list->rect.y0) / MaxF32(1, row) + 0.5f), (i64)0), (i64)count);
+    b32 anyActive = false;
+    UI_Parent(list) {
+        for (u32 k = 0; k < count; ++k) {
+            u32 action = state->quickOrder[k];
+            String label = Prog_CommandLabel(Prog_QuickActionCommands[action]);
+            UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, 0 });
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            if (k == dragged) UI_SetNextOpacity(0.35f);
+            UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
+            UI_Parent(line) {
+                UI_Key gripKey = UI_KeyFromStr(0, StrFormat(frame, "MenuEditQuickGrip/%u", action));
+                UI_SetNextPrefWidth(UI_Pixels(grip));
+                UI_SetNextPrefHeight(UI_Pixels(row));
+                UI_Block *handle = UI_AddBlockFromKey(gripKey, UI_Flag_LeftMouseClickable);
+                UI_Interaction drag = UI_InteractionFromBlock(handle);
+                anyActive |= drag.active;
+                if (drag.active && drag.isDragging) state->quickDrag = k + 1;
+                if (drag.released && state->quickDrag == k + 1) {
+                    Prog_QueueCommand(state, Prog_CommandKind_MenuEditQuickMove, k, 0, drag.pressOrder)->target = landing;
+                    state->quickDrag = 0;
+                }
+                UI_Parent(handle) Prog__Icon(Icon_GripVertical, grip, row, UI->hotKey == gripKey || drag.active ? theme->text : theme->textDim, 0.5f, m);
+                Prog__Icon(Prog_QuickActionIcon(action), grip, row, theme->icon, 0.5f, m);
+                Prog__Spacer(UI_Pixels(floorf(pad * 0.5f)), UI_Pixels(row));
+                Prog__Label(label, UI_Flex(), row, 0, theme->text, 0);
+                UI_Interaction hide = Prog__TextButton(StrFormat(frame, "MenuEditQuickHide/%u", action), Icon_CircleMinus, m->icons, UI_Pixels(button), button, 0, theme->icon, theme->text,
+                                                       theme->iconDisabled, true, m);
+                if (hide.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuEditQuickToggle, k, 0, hide.clickOrder)->target = 1;
+            }
+        }
+        if (state->quickDrag && dragged < count && landing != dragged && landing != dragged + 1) {
+            UI_SetNextFloatingOffset((UI_Vec2){ pad + grip, (f32)landing * row - floorf(m->stroke) });
+            UI_SetNextPrefWidth(UI_Pixels(width - 2 * pad - grip - gutter));
+            UI_SetNextPrefHeight(UI_Pixels(MaxF32(2, floorf(1.6f * m->scale + 0.5f))));
+            UI_SetNextColors((UI_Colors){ .background = theme->selection });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        }
+    }
+    if (!anyActive) state->quickDrag = 0;
+    for (u32 action = 0; action < Prog_QuickAction_Count; ++action) {
+        b32 shown = false;
+        for (u32 k = 0; k < count; ++k) shown |= state->quickOrder[k] == action;
+        if (shown) continue;
+        UI_SetNextChildrenPadding((UI_Padding){ pad + grip, 0, pad, 0 });
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+        UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(line) {
+            Prog__Icon(Prog_QuickActionIcon(action), grip, row, theme->iconDisabled, 0.5f, m);
+            Prog__Spacer(UI_Pixels(floorf(pad * 0.5f)), UI_Pixels(row));
+            Prog__Label(Prog_CommandLabel(Prog_QuickActionCommands[action]), UI_Flex(), row, 0, theme->textDim, 0);
+            UI_Interaction back = Prog__TextButton(StrFormat(frame, "MenuEditQuickShow/%u", action), Icon_CirclePlus, m->icons, UI_Pixels(button), button, 0, theme->accent, theme->text,
+                                                   theme->iconDisabled, true, m);
+            if (back.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuEditQuickToggle, action, 0, back.clickOrder);
+        }
+    }
+    Prog__Spacer(UI_Flex(), UI_Pixels(pad));
+    Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
+}
+
 function void Prog__MenuEditor(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->menuEditing) return;
@@ -10977,8 +11076,11 @@ function void Prog__MenuEditor(Prog_State *state, const Prog_Metrics *m)
     f32 width = MaxF32(state->menuEditAt.x1 - state->menuEditAt.x0, widest + grip + chevron + button + 4 * pad + m->gap);
     width = floorf(MinF32(MaxF32(width, 260.0f * s), view.x1 - view.x0 - 2 * pad));
     f32 listHeight = (f32)shownCount * row, hiddenHeight = hiddenCount ? m->separator + title + (f32)hiddenCount * row + pad : 0;
+    // With the quick actions on, their buttons come first, shown and hidden under a title of their own, over a line.
+    b32 quickSection = state->menuQuickActions;
+    f32 quickHeight = quickSection ? title + (f32)Prog_QuickAction_Count * row + pad + m->separator : 0;
     // Below the header, what does not fit in the window scrolls.
-    f32 content = pad + listHeight + pad + hiddenHeight, room = MaxF32(row, view.y1 - view.y0 - head - m->separator - 2 * pad);
+    f32 content = quickHeight + pad + listHeight + pad + hiddenHeight, room = MaxF32(row, view.y1 - view.y0 - head - m->separator - 2 * pad);
     f32 bodyHeight = MinF32(content, room);
     b32 scrolls = content > bodyHeight + 0.5f;
     f32 gutter = scrolls ? Prog__ScrollGutter(m) : 0;
@@ -11002,7 +11104,7 @@ function void Prog__MenuEditor(Prog_State *state, const Prog_Metrics *m)
         UI_Parent(header) {
             Prog__Icon(Icon_Pencil, grip, head, theme->icon, 0, m);
             Prog__Label(Tr("Edit Menu"), UI_Flex(), head, 0, theme->text, 0);
-            b32 changed = state->menuHidden.header.count || state->menuOrder.header.count;
+            b32 changed = state->menuHidden.header.count || state->menuOrder.header.count || (state->menuQuickActions && !Prog_QuickActionsDefault(state));
             UI_Interaction reset = Prog__TextButton(S("MenuEditReset"), Tr("Reset"), NULL, UI_TextContent(), button, m->inset, theme->text, theme->text, theme->iconDisabled, changed, m);
             if (reset.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuEditReset, 0, 0, reset.clickOrder);
             Prog__PopupTooltip(state, Tr("Bring back the system's own order and every item"));
@@ -11019,6 +11121,7 @@ function void Prog__MenuEditor(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenPadding((UI_Padding){ 0, 0, gutter, 0 });
         UI_Block *body = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuEditBody")), UI_Flag_Clip | (scrolls ? UI_Flag_Scrollable : 0));
         UI_Block *outer = UI_PushParent(body);
+        if (quickSection) Prog__MenuEditQuick(state, width, row, title, grip, button, pad, gutter, m);
         Prog__Spacer(UI_Flex(), UI_Pixels(pad));
         UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuEditList")), 0);
         list->props.width = UI_Flex(), list->props.height = UI_Pixels(listHeight), list->props.childrenLayout = UI_Layout_Vertical;

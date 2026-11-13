@@ -3928,3 +3928,12 @@ Seek Audio Forward
 
 Go five seconds on in the audio file playing in the inspector.
 = 在检查器中播放的音频文件里前进五秒。
+
+Quick Actions
+= 快捷操作
+
+Shows buttons for cut, copy, rename and delete at the edge of the selection's menu nearest the pointer.
+= 在所选项目菜单靠近指针的一侧显示剪切、复制、重命名和删除按钮。
+
+Quick actions
+= 快捷操作

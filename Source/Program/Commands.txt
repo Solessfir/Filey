@@ -288,6 +288,12 @@ command MenuEditToggle {
 command MenuEditMove {
 }
 
+command MenuEditQuickToggle {
+}
+
+command MenuEditQuickMove {
+}
+
 command MenuEditReset {
 }
 

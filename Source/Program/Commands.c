@@ -400,13 +400,34 @@ function String Prog__RowsFolder(Prog_State *state, Arena *arena, u64 *rows, u64
     return parent.length ? Prog_JoinPath(arena, state->directory.path, parent) : state->directory.path;
 }
 
-// Whether a system menu item does what one of the quick actions' buttons does: cut, copy, rename or delete.
-function b32 Prog__QuickActionItem(const P_MenuItem *item)
+// The quick actions' names in menus.quick.order, and their commands, which label them.
+global const String Prog_QuickActionNames[Prog_QuickAction_Count] = { SInit("cut"), SInit("copy"), SInit("rename"), SInit("delete") };
+global const Prog_CommandKind Prog_QuickActionCommands[Prog_QuickAction_Count] = { Prog_CommandKind_CutSelection, Prog_CommandKind_CopySelection, Prog_CommandKind_Rename,
+                                                                                   Prog_CommandKind_Trash };
+
+// Whether the quick actions' row shows all its buttons in their first order.
+function b32 Prog_QuickActionsDefault(const Prog_State *state)
 {
-    return StrIsEqual(item->verb, S("cut")) || StrIsEqual(item->verb, S("copy")) || StrIsEqual(item->verb, S("rename")) || StrIsEqual(item->verb, S("delete")) ||
-           item->action == P_MenuAction_Cut || item->action == P_MenuAction_Copy || item->action == P_MenuAction_Trash || item->action == P_MenuAction_Delete ||
-           (item->action == P_MenuAction_Command && (item->id == Prog_CommandKind_Rename || item->id == Prog_CommandKind_Trash || item->id == Prog_CommandKind_CutSelection ||
-                                                     item->id == Prog_CommandKind_CopySelection));
+    b32 result = state->quickCount == Prog_QuickAction_Count;
+    for (u32 k = 0; result && k < state->quickCount; ++k) result = state->quickOrder[k] == k;
+    return result;
+}
+
+// Whether a system menu item does what one of the quick actions' row's buttons does, which it then leaves to the row: cut, copy, rename or
+// delete, those the row shows.
+function b32 Prog__QuickActionItem(const Prog_State *state, const P_MenuItem *item)
+{
+    b32 does[Prog_QuickAction_Count] = {
+        StrIsEqual(item->verb, S("cut")) || item->action == P_MenuAction_Cut || (item->action == P_MenuAction_Command && item->id == Prog_CommandKind_CutSelection),
+        StrIsEqual(item->verb, S("copy")) || item->action == P_MenuAction_Copy || (item->action == P_MenuAction_Command && item->id == Prog_CommandKind_CopySelection),
+        StrIsEqual(item->verb, S("rename")) || (item->action == P_MenuAction_Command && item->id == Prog_CommandKind_Rename),
+        StrIsEqual(item->verb, S("delete")) || item->action == P_MenuAction_Trash || item->action == P_MenuAction_Delete ||
+            (item->action == P_MenuAction_Command && item->id == Prog_CommandKind_Trash),
+    };
+    for (u32 k = 0; k < state->quickCount; ++k) {
+        if (does[state->quickOrder[k]]) return true;
+    }
+    return false;
 }
 
 // Opens Filey's own menu of `items` with its corner at `at`.
@@ -2221,7 +2242,7 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
     state->menuQuick = state->menuQuickActions && state->menuRowCount && !state->directory.archive;
     for (u32 i = 0; state->menuQuick && i < state->menu.rootCount; ++i) {
         P_MenuItem *item = &state->menu.items[i];
-        if (Prog__QuickActionItem(item)) item->label = (String){0};
+        if (Prog__QuickActionItem(state, item)) item->label = (String){0};
     }
     Prog__ApplyMenuPins(state);
     b32 atRow = !mouse && state->menuRowCount;
@@ -5055,6 +5076,36 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog__SetList(&state->menuHiddenArena, &state->menuHidden, hidden, count);
                 Prog__SaveList(state, Prog_MenuHiddenFile, state->menuHidden);
             } break;
+            case Prog_CommandKind_MenuEditQuickToggle:
+            case Prog_CommandKind_MenuEditQuickMove: {
+                // Hides a shown quick action (row, its place) or shows a hidden one (row, the action) at the end; or moves the shown one at
+                // `row` to before the one at `target`.
+                u8 order[Prog_QuickAction_Count];
+                u32 count = state->quickCount;
+                MemCopy(order, state->quickOrder, sizeof(order));
+                if (command->kind == Prog_CommandKind_MenuEditQuickMove) {
+                    u32 from = (u32)command->row, to = (u32)Min(command->target, (u64)count);
+                    if (from >= count || to == from || to == from + 1) break;
+                    u8 moved = order[from];
+                    if (to > from) { MemMove(&order[from], &order[from + 1], to - from - 1); order[to - 1] = moved; }
+                    else           { MemMove(&order[to + 1], &order[to], from - to); order[to] = moved; }
+                } else if (command->target) {
+                    if (command->row >= count) break;
+                    MemMove(&order[command->row], &order[command->row + 1], count - command->row - 1);
+                    --count;
+                } else {
+                    b32 shown = false;
+                    for (u32 k = 0; k < count; ++k) shown |= order[k] == command->row;
+                    if (shown || command->row >= Prog_QuickAction_Count) break;
+                    order[count++] = (u8)command->row;
+                }
+                StrBuilder text = {0};
+                for (u32 k = 0; k < count; ++k) {
+                    if (k) StrBuildCStr(&state->frameArena, &text, ", ");
+                    StrBuildStr(&state->frameArena, &text, Prog_QuickActionNames[order[k]]);
+                }
+                Prog__WriteSetting(state, S("menus.quick.order"), text.buffer);
+            } break;
             case Prog_CommandKind_MenuEditMove: {
                 u64 total = state->menuEditLabels.header.count, from = command->row, to = Min(command->target, total);
                 if (!state->menuEditing || from >= total || to == from || to == from + 1) break;
@@ -5074,6 +5125,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog__SetList(&state->menuOrderArena, &state->menuOrder, NULL, 0);
                 Prog__SaveList(state, Prog_MenuHiddenFile, state->menuHidden);
                 Prog__SaveList(state, Prog_MenuOrderFile, state->menuOrder);
+                if (!Prog_QuickActionsDefault(state)) Prog__WriteSetting(state, S("menus.quick.order"), S("cut, copy, rename, delete"));
                 // The list in the system's order; its submenus' marks follow the labels.
                 u64 total = state->menuEditSystem.header.count;
                 b8 *subs = ArenaPushArray(&state->frameArena, total + 1, b8);
