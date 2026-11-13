@@ -80,6 +80,7 @@ function void Prog__PassToDirectory(Prog_State *state, String path)
 function void Prog_CloseMenu(Prog_State *state)
 {
     if (state->menuOpen) P_ContextMenuClose(&state->menu);
+    state->menuQuick = false;
     ArenaClear(&state->menuArena);
     state->menu = (P_ContextMenu){0};
     state->menuOpen = false;
@@ -3579,7 +3580,10 @@ function const P_Place *Prog__PinnedBookmark(const Prog_State *state, u64 index)
         // Not those the bookmarks or the places have already.
         b32 known = false;
         for (u64 k = 0; k < state->bookmarks.header.count && !known; ++k) known = Prog__EqualFolded(state->bookmarks.v[k], path);
-        for (u64 k = 0; k < state->places.header.count && !known; ++k) known = Prog__EqualFolded(state->places.v[k].path, path);
+        // A place hidden from the sidebar does not show it.
+        for (u64 k = 0; k < state->places.header.count && !known; ++k) {
+            known = Prog__EqualFolded(state->places.v[k].path, path) && (state->placesShowHidden || !Prog_PlaceHidden(state, state->places.v[k].path));
+        }
         if (known) continue;
         if (!wanted--) return &state->pinned.v[i];
     }

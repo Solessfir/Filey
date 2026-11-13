@@ -14879,7 +14879,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     if (sidebar > 0) Prog__SidebarEdge(state, view.x0 + sidebar - full, view.x0 + sidebar, view.y0 + m->separator + Prog__TitleStripHeight(m), view.y1, scale, m);
     // A name being edited in the sidebar whose row is out of sight, folded away or with the sidebar gone, is dropped; one still sliding in is not.
     if (state->layoutSaving && state->nameFor && !state->nameShown && (sidebar >= full || state->sidebarHidden || state->uiHidden)) {
-        Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, 0);
+        Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, 0)->panel = 0;
     }
     state->nameShown = false;
     Prog__UsePanel(state, state->activePanel);

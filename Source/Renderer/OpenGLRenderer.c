@@ -1542,7 +1542,7 @@ function void GL__Cull(void)
                 u32 count = 1;
                 b32 cut = true;
                 u32 shape = (u32)instance.shape;
-                b32 cuttable = instance.textured == 0 && !(shape & (GL_ShapeLine | GL_ShapeRegion | GL_ShapeTurned));
+                b32 cuttable = instance.textured == 0 && !(shape & (GL_ShapeLine | GL_ShapeRegion));
                 // A turned one reaches past its box, which the pieces left are measured by.
                 if (shape & GL_ShapeTurned) {
                     ArrayPush(&GL.frameArena, kept, instance);

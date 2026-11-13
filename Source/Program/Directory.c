@@ -6621,8 +6621,9 @@ function void Prog_ClosePanel(Prog_State *state, u32 index)
     state->splits[sibling] = state->splits[leaf] = (Prog_Split){0};
     u32 next = Prog_PanelIndex(state, Prog__FirstPanelOf(state, parent));
     // Released while current, so that its fields are live; the slot left behind is empty.
+    // A menu opens in the active panel, so one open in another panel, as during a closing panel's slide, stays open.
     if (state->renaming && index == state->activePanel) Prog__EndRename(state, false);
-    Prog_CloseMenu(state);
+    if (index == state->activePanel) Prog_CloseMenu(state);
     Prog__UsePanel(state, index);
     Prog__ReleaseCurrentPanel(state);
     Prog__UsePanel(state, next);
@@ -8070,8 +8071,12 @@ function void Prog_FinishClosingPanel(Prog_State *state)
     state->closingPanel = 0;
     if (closing == UINT32_MAX) return;
     Prog_ClosePanel(state, closing);
+    // Only made current again, as activating it would end a rename open in it against the panel made active meanwhile.
     u32 kept = Prog_PanelIndex(state, active);
-    if (kept != UINT32_MAX && kept != state->activePanel) Prog__ActivatePanel(state, kept);
+    if (kept != UINT32_MAX && kept != state->activePanel) {
+        Prog__UsePanel(state, kept);
+        state->activePanel = kept;
+    }
 }
 
 function void Prog_CloseTab(Prog_State *state, u32 index)
@@ -9288,6 +9293,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog__OrderDrives(state, &result->drives);
                 state->drives = result->drives;
                 state->pathRoots = result->roots;
+                for (u64 c = 0; c < state->clouds.header.count; ++c) ArrayPush(&state->placesArena, state->pathRoots, state->clouds.v[c].path);
                 state->searchPlaces = result->searched;
                 state->missingBookmarks = result->missing;
                 Prog__RequestShares(state);

@@ -20,7 +20,7 @@ typedef struct Prog__UsageWalk {
     Prog__UsageFiles files;
     Prog__UsageTypes types;
     Prog__UsageTypeMap typeOf;
-    Prog_Seen seen;
+    Prog_Seen seen;           // its lock and arena; the walk is one tree, its files in seenFiles
     Prog_SeenFiles seenFiles;
 } Prog__UsageWalk;
 
