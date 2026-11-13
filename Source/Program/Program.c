@@ -812,6 +812,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
     for (u32 i = 0; i < Prog_QuickAction_Count; ++i) state->quickOrder[i] = (u8)i;
     state->quickCount = Prog_QuickAction_Count;
+    b32 pinnedBefore = state->pinnedPlaces;
     state->pinnedPlaces = false;
     state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->menuQuickActions = state->noTooltips = state->separateInstances = state->gitFetch = state->mcp = false;
     state->startup = Prog_Startup_LastSession;
@@ -902,7 +903,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         } else if (StrIsEqual(name, S("places.pinned"))) {
             b32 on = Prog__SettingOn(value);
             // Read again at once when turned on.
-            if (on && !state->pinnedPlaces) state->pinnedTime = 0;
+            if (on && !pinnedBefore) state->pinnedTime = 0;
             state->pinnedPlaces = on;
         } else if (StrIsEqual(name, S("sidebar.tree"))) {
             state->sidebarTree = Prog__SettingOn(value);
@@ -6356,7 +6357,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                     u64 count = state->bookmarks.header.count, found = 0, pinnedCount = 0;
                     for (u64 i = 0; i < count; ++i) found += Prog__SidebarFinds(state, Prog_PathName(state, state->bookmarks.v[i])) ? 1 : 0;
                     // Explorer's pinned folders follow the bookmarks' own, while the option shows them.
-                    for (String pinned; (pinned = Prog__PinnedBookmark(state, count + pinnedCount)).length; ++pinnedCount) found += Prog__SidebarFinds(state, Prog_PathName(state, pinned)) ? 1 : 0;
+                    for (const P_Place *pinned; (pinned = Prog__PinnedBookmark(state, count + pinnedCount)); ++pinnedCount) found += Prog__SidebarFinds(state, pinned->name) ? 1 : 0;
                     if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Bookmarks, Tr("Bookmarks"), Icon_Bookmark, m);
                     // A drag over the section pins its folders between the bookmarks the pointer is between, marked by a line there; the rects are the last layout's.
                     R_Rect title = sidebar->last ? sidebar->last->rect : (R_Rect){0}, zone = title;
@@ -6380,9 +6381,12 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                                 lineY = row.y1;
                             }
                         }
+                        // By the name Explorer shows; a drop over them goes after the bookmarks' own.
                         for (u64 k = 0; k < pinnedCount; ++k) {
-                            String path = Prog__PinnedBookmark(state, count + k);
-                            if (Prog__SidebarFinds(state, Prog_PathName(state, path))) Prog__SidebarItem(state, Prog_Group_Bookmarks, count + k, Prog_PathName(state, path), path, NULL, false, m);
+                            const P_Place *pinned = Prog__PinnedBookmark(state, count + k);
+                            if (!Prog__SidebarFinds(state, pinned->name)) continue;
+                            Prog__SidebarItem(state, Prog_Group_Bookmarks, count + k, pinned->name, pinned->path, NULL, false, m);
+                            zone.y1 = body->last->rect.y1;
                         }
                     }
                     // Not while filtering, which leaves bookmarks out from between the others.
@@ -6998,11 +7002,11 @@ function void Prog__QuickActions(Prog_State *state, f32 y, f32 width, f32 height
         for (u32 k = 0; k < state->quickCount; ++k) {
             u32 action = state->quickOrder[k];
             UI_Interaction press = Prog__TextButton(StrFormat(&state->frameArena, "QuickAction/%u", action), Prog_QuickActionIcon(action), m->icons, UI_Pixels(buttonWidth), height, 0,
-                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
+                                                    theme->icon, theme->text, theme->iconDisabled, Prog_CommandAvailable(state, Prog_QuickActionCommands[action]), m);
             Prog__DescribeTooltip(state, Prog_QuickActionCommands[action], (String){0});
             if (press.clicked) {
                 Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, press.clickOrder);
-                Prog_QueueCommand(state, Prog_QuickActionCommands[action], 0, 0, press.clickOrder);
+                Prog_QueueCommand(state, Prog_QuickActionCommands[action], action == Prog_QuickAction_Copy, 0, press.clickOrder);
             }
         }
     }
@@ -7120,7 +7124,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // Submenus open to the right of their item, or to the left when there is no room; a menu pushed in from the right edge keeps a margin.
     // A submenu sits against its opener's panel, on the side the menus have been opening to while there is room, so that it does not cover the
     // panel before.
-    if (flips && x + width > view.x1 && x - width >= view.x0) x -= width;
+    if (flips && x + width > view.x1 && x - width >= view.x0) x = MinF32(x - width, view.x1 - width);
     else if (place.leftward && x - place.openerWidth - width >= view.x0) x -= place.openerWidth + width;
     else if (x + width > view.x1) x = place.openerWidth > 0 ? x - place.openerWidth - width : view.x1 - width - floorf(4.0f * m->scale + 0.5f);
     if (upward) y = state->menuAbove - MinF32(height, limit);
@@ -7144,7 +7148,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     b32 quickBelow = quick && upward;
     // On whole pixels, for a joined submenu's lines to meet its edges exactly.
     height = floorf(MinF32(height, flips ? limit : view.y1 - view.y0) + 0.5f);
-    if (upward) y = state->menuAbove - height;
+    if (upward) y = floorf(MaxF32(view.y0, MinF32(state->menuAbove - height, view.y1 - height)));
     // Inline, the menu grows and shrinks with the submenus opening in it, as its rows slide.
     if (flat) {
         // It stays where it opened, and once it reaches the window's bottom its rows scroll.

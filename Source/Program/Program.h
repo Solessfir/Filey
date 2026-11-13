@@ -245,6 +245,7 @@ struct Prog_Command {
     u64 inputOrder;
     KeyMods mods;
     UI_Vec2 at;  // menus: where they open
+    f32 above;   // menus from the keyboard: the top of the row they open under, which one opening up ends at; 0 for `at`
     f32 atRight;  // menus: when nonzero, the right edge they line up with instead of at.x
 };
 
@@ -569,6 +570,7 @@ typedef struct Prog_JobInput {
     b32 miller;            // FilesList: for a Miller column of `panel`, rather than the folder dropdown
     b32 explorer;          // Open: the folder `path` in the system's file manager
     b32 pinned;            // Places: the folders pinned to Explorer's Quick access are read too
+    b32 clouds;            // Places: the cloud drives' folders are read too
     b32 expanded;
     b32 tree;               // a tree: the folders `treeOpen` names, by their paths from `path`, are listed too
     String *treeOpen;
@@ -978,6 +980,8 @@ typedef struct Prog_Places {
     ArrayStr missing;   // the bookmarks whose folders are gone
     P_ArrayPlace pinned; // P_PinnedFolders, when the job was asked to read them
     b32 pinnedRead;
+    P_ArrayPlace clouds; // P_CloudPlaces, likewise
+    b32 cloudsRead;
 } Prog_Places;
 
 typedef enum Prog_PaletteMode {
@@ -2402,6 +2406,10 @@ typedef struct Prog_State {
     Arena pinnedArena;
     P_ArrayPlace pinned;
     u64 pinnedTime;
+    // The cloud drives' folders, which follow the home folder among the places, read once a run and as drives come and go, into cloudArena.
+    Arena cloudArena;
+    P_ArrayPlace clouds;
+    b32 cloudsRead;
     b32 windowInactive;       // another window has the focus, which dims the title strip
     b32 drivesChanged;        // the system told of a drive or medium coming or going, which the places are listed again for
     Arena placesArena;        // the latest places listing

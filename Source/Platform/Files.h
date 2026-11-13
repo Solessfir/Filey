@@ -419,6 +419,9 @@ typedef struct P_ArrayPlace { ArrayHeader header; P_Place *v; } P_ArrayPlace;
 
 // The user's home and its desktop, documents, downloads, music, pictures and videos folders that exist.
 function P_ArrayPlace P_UserPlaces(Arena *arena);
+// The cloud drives' folders on Windows: OneDrive's, Google Drive's, iCloud's and MEGA's, those set up; none on Linux. Asks the drives, so run it
+// in a job, and seldom, as it can wake a sleeping disk.
+function P_ArrayPlace P_CloudPlaces(Arena *arena);
 // The folders pinned to Explorer's Quick access, in its order, for the places to show; none on Linux, whose GTK bookmarks are among the places
 // already. Talks to the shell, so run it in a job.
 function P_ArrayPlace P_PinnedFolders(Arena *arena);

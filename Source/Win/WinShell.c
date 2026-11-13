@@ -1399,6 +1399,15 @@ function void P__AddCloudFolders(Arena *arena, P_ArrayPlace *places, String home
     ReleaseScratch(scratch);
 }
 
+function P_ArrayPlace P_CloudPlaces(Arena *arena)
+{
+    P_ArrayPlace result = {0};
+    Scratch scratch = GetScratchEx(arena);
+    P__AddCloudFolders(arena, &result, P__KnownFolder(scratch.arena, &P__FolderProfile));
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function P_ArrayPlace P_UserPlaces(Arena *arena)
 {
     local_persist const struct { const GUID *id; const char *name; } folders[] = {
@@ -1411,7 +1420,6 @@ function P_ArrayPlace P_UserPlaces(Arena *arena)
         if (!path.length) continue;
         String name = folders[i].name ? StrFromCStr(folders[i].name) : StrFrom(path, StrIndexChar(path, '/', SSF_SearchBackwards).value + 1);
         ArrayPush(arena, result, ((P_Place){ .name = name, .path = path, .home = !folders[i].name }));
-        if (i == 0) P__AddCloudFolders(arena, &result, path);
     }
     ArrayPush(arena, result, ((P_Place){ .name = S("Recycle Bin"), .path = P_TrashFolder(arena) }));
     return result;

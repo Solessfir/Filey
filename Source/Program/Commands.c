@@ -123,15 +123,18 @@ function i64 Prog__ListPlace(const ArrayStr *list, String label)
     return -1;
 }
 
+function b32 Prog__QuickActionItem(const Prog_State *state, const P_MenuItem *item);
+
 // `base` as the menu editor left it: the top level without its hidden items, and those it ordered in its order, in the places they had
-// between the rest; the submenus as they are.
+// between the rest; the submenus as they are. The quick actions' row, while it shows, takes the items it stands for.
 function P_ContextMenu Prog__ShapeMenu(Prog_State *state, P_ContextMenu base)
 {
-    if (!state->menuHidden.header.count && !state->menuOrder.header.count) return base;
+    if (!state->menuHidden.header.count && !state->menuOrder.header.count && !state->menuQuick) return base;
     Arena *frame = &state->frameArena;
     u32 *roots = ArenaPushArray(frame, base.rootCount + 1, u32), kept = 0;
     for (u32 i = 0; i < base.rootCount; ++i) {
         if (!base.items[i].separator && Prog__ListPlace(&state->menuHidden, base.items[i].label) >= 0) continue;
+        if (state->menuQuick && Prog__QuickActionItem(state, &base.items[i])) continue;
         roots[kept++] = i;
     }
     // The ordered ones fill their own places again, sorted by where the order has them.
@@ -421,8 +424,8 @@ function b32 Prog__QuickActionItem(const Prog_State *state, const P_MenuItem *it
         StrIsEqual(item->verb, S("cut")) || item->action == P_MenuAction_Cut || (item->action == P_MenuAction_Command && item->id == Prog_CommandKind_CutSelection),
         StrIsEqual(item->verb, S("copy")) || item->action == P_MenuAction_Copy || (item->action == P_MenuAction_Command && item->id == Prog_CommandKind_CopySelection),
         StrIsEqual(item->verb, S("rename")) || (item->action == P_MenuAction_Command && item->id == Prog_CommandKind_Rename),
-        StrIsEqual(item->verb, S("delete")) || item->action == P_MenuAction_Trash || item->action == P_MenuAction_Delete ||
-            (item->action == P_MenuAction_Command && item->id == Prog_CommandKind_Trash),
+        // Deleting for good, which the button does not, keeps its item.
+        StrIsEqual(item->verb, S("delete")) || item->action == P_MenuAction_Trash || (item->action == P_MenuAction_Command && item->id == Prog_CommandKind_Trash),
     };
     for (u32 k = 0; k < state->quickCount; ++k) {
         if (does[state->quickOrder[k]]) return true;
@@ -2239,11 +2242,9 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
         return;
     }
     // With the quick actions on, the selection's menu leaves their items to the row of buttons at its edge.
-    state->menuQuick = state->menuQuickActions && state->menuRowCount && !state->directory.archive;
-    for (u32 i = 0; state->menuQuick && i < state->menu.rootCount; ++i) {
-        P_MenuItem *item = &state->menu.items[i];
-        if (Prog__QuickActionItem(state, item)) item->label = (String){0};
-    }
+    // Not in an archive, the bin or This PC, whose items are not cut, copied, renamed and deleted as files are.
+    state->menuQuick = state->menuQuickActions && state->menuRowCount && !state->directory.archive && !P_IsTrashFolder(state->directory.path) &&
+                       !StrIsEqual(state->directory.path, Prog_ThisPC) && !P_IsVirtualFolder(state->directory.path);
     Prog__ApplyMenuPins(state);
     b32 atRow = !mouse && state->menuRowCount;
     state->menuAt = atRow ? (UI_Vec2){ state->focusedRowRect.x0 + 24, state->focusedRowRect.y1 } : state->ui.mouse;
@@ -3567,20 +3568,22 @@ function b32 Prog__RunsDropped(const Prog_Entry *entry)
     return false;
 }
 
-// Explorer's pinned folder that is the bookmarks' row `index`, after their own, those bookmarked already left out; empty for the bookmarks'
-// own rows and past the end. The bookmarks show these only while places.pinned is on.
-function String Prog__PinnedBookmark(const Prog_State *state, u64 index)
+// Explorer's pinned folder that is the bookmarks' row `index`, after their own, those bookmarked or among the places already left out; NULL
+// for the bookmarks' own rows and past the end. The bookmarks show these only while places.pinned is on.
+function const P_Place *Prog__PinnedBookmark(const Prog_State *state, u64 index)
 {
-    if (!state->pinnedPlaces || index < state->bookmarks.header.count) return (String){0};
+    if (!state->pinnedPlaces || index < state->bookmarks.header.count) return NULL;
     u64 wanted = index - state->bookmarks.header.count;
     for (u64 i = 0; i < state->pinned.header.count; ++i) {
         String path = state->pinned.v[i].path;
-        b32 bookmarked = false;
-        for (u64 k = 0; k < state->bookmarks.header.count && !bookmarked; ++k) bookmarked = Prog__EqualFolded(state->bookmarks.v[k], path);
-        if (bookmarked) continue;
-        if (!wanted--) return path;
+        // Not those the bookmarks or the places have already.
+        b32 known = false;
+        for (u64 k = 0; k < state->bookmarks.header.count && !known; ++k) known = Prog__EqualFolded(state->bookmarks.v[k], path);
+        for (u64 k = 0; k < state->places.header.count && !known; ++k) known = Prog__EqualFolded(state->places.v[k].path, path);
+        if (known) continue;
+        if (!wanted--) return &state->pinned.v[i];
     }
-    return (String){0};
+    return NULL;
 }
 
 // Whether the sidebar row `index` of `group` is one of Explorer's pinned folders, which the bookmarks show but do not keep: not moved, removed
@@ -3596,7 +3599,11 @@ function String Prog__SidebarPath(const Prog_State *state, Prog_Group group, u64
     if (group == Prog_Group_Tree) return (index & UINT32_MAX) < state->treeNodes.header.count ? state->treeNodes.v[index & UINT32_MAX].path : (String){0};
     switch (group) {
         case Prog_Group_Recents: return index < state->recents.header.count ? state->recents.v[index] : (String){0};
-        case Prog_Group_Bookmarks: return index < state->bookmarks.header.count ? state->bookmarks.v[index] : Prog__PinnedBookmark(state, index);
+        case Prog_Group_Bookmarks: {
+            if (index < state->bookmarks.header.count) return state->bookmarks.v[index];
+            const P_Place *pinned = Prog__PinnedBookmark(state, index);
+            return pinned ? pinned->path : (String){0};
+        }
         case Prog_Group_Storage: {
             // The drives, then the servers' shares.
             if (index < state->drives.header.count) return state->drives.v[index].path;
@@ -4299,7 +4306,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog__ApplyMenuPins(state);
                 state->menuAt = command->at.x != 0 || command->at.y != 0 ? command->at : state->ui.mouse;
                 state->menuFlips = true;
-                state->menuAbove = state->menuAt.y;
+                state->menuAbove = command->above > 0 ? command->above : state->menuAt.y;
                 state->menuQuick = false;
                 state->menuHighlight = UINT32_MAX;
                 Prog__MenuMove(state, 1);
@@ -5624,7 +5631,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_CopySelection: {
                 // The inspector's selected text, while it has some, rather than the files.
                 String selected;
-                if (Prog_InspectorSelection(state, &state->frameArena, &selected)) PlatformClipboardSetText(selected);
+                // Not from the quick actions' button, row 1, which stands for the menu's Copy of the items.
+                if (!command->row && Prog_InspectorSelection(state, &state->frameArena, &selected)) PlatformClipboardSetText(selected);
                 else Prog__FileCommand(state, command->kind);
             } break;
             case Prog_CommandKind_CutSelection:
@@ -6101,6 +6109,7 @@ function b32 Prog__SidebarKey(Prog_State *state, const PlatformEvent *event, u64
         Prog_Command *command = Prog_QueueCommand(state, stop->title ? Prog_CommandKind_GroupMenu : Prog_CommandKind_SidebarMenu, stop->group, 0, order);
         command->target = stop->index;
         command->at = (UI_Vec2){ stop->rect.x0 + (stop->rect.y1 - stop->rect.y0), stop->rect.y1 };
+        command->above = stop->rect.y0;
         return true;
     }
     return Prog__TypesInBox(event->key, event->mods);

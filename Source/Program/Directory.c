@@ -3725,6 +3725,7 @@ function void Prog__DirectoryJob(P_Job *job)
             result->roots = P_PathRoots(&job->arena);
             result->searched = P_SearchPlaces(&job->arena);
             if (input->pinned) result->pinned = P_PinnedFolders(&job->arena), result->pinnedRead = true;
+            if (input->clouds) result->clouds = P_CloudPlaces(&job->arena), result->cloudsRead = true;
             for (u64 i = 0; i < input->pathCount; ++i) if (!P_PathExists(input->paths[i])) ArrayPush(&job->arena, result->missing, input->paths[i]);
         }
         job->result = result;
@@ -8364,6 +8365,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     Prog__TreeUpdate(state);
     // Drives are listed again every few seconds while the sidebar shows them, and at once when the system tells of one coming or going.
     if ((state->placesWanted || state->drivesChanged) && !state->placesJob && (state->drivesChanged || !state->placesTime || now - state->placesTime >= Millions(5))) {
+        b32 clouds = !state->cloudsRead || state->drivesChanged;
         state->drivesChanged = false;
         state->placesTime = now;
         P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
@@ -8373,6 +8375,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         // The pinned folders are read less often, as asking the shell for them takes longer than listing the drives.
         input->pinned = state->pinnedPlaces && (!state->pinnedTime || now - state->pinnedTime >= Prog_PinnedMicroseconds);
         if (input->pinned) state->pinnedTime = now;
+        input->clouds = clouds;
+        state->cloudsRead = true;
         input->pathCount = state->bookmarks.header.count;
         input->paths = ArenaPushArray(&job->arena, Max(input->pathCount, (u64)1), String);
         for (u64 i = 0; i < input->pathCount; ++i) input->paths[i] = StrCopy(&job->arena, state->bookmarks.v[i]);
@@ -9238,7 +9242,24 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->places = (P_ArrayPlace){0};
                 ArrayPush(&state->placesArena, state->places, ((P_Place){ .name = Prog_ThisPC, .path = Prog_ThisPC }));
                 if (P_NetworkFolder().length) ArrayPush(&state->placesArena, state->places, ((P_Place){ .name = P_NetworkFolder(), .path = P_NetworkFolder() }));
-                for (u64 i = 0; i < result->places.header.count; ++i) ArrayPush(&state->placesArena, state->places, result->places.v[i]);
+                if (result->cloudsRead) {
+                    ArenaClear(&state->cloudArena);
+                    state->clouds = (P_ArrayPlace){0};
+                    for (u64 i = 0; i < result->clouds.header.count; ++i) {
+                        P_Place place = result->clouds.v[i];
+                        place.name = StrCopy(&state->cloudArena, place.name), place.path = StrCopy(&state->cloudArena, place.path);
+                        ArrayPush(&state->cloudArena, state->clouds, place);
+                    }
+                }
+                // The cloud drives' folders follow the home folder, as in Explorer, but for those among the places already.
+                for (u64 i = 0; i < result->places.header.count; ++i) {
+                    ArrayPush(&state->placesArena, state->places, result->places.v[i]);
+                    for (u64 c = 0; result->places.v[i].home && c < state->clouds.header.count; ++c) {
+                        b32 known = false;
+                        for (u64 k = 0; k < result->places.header.count && !known; ++k) known = Prog__EqualFolded(result->places.v[k].path, state->clouds.v[c].path);
+                        if (!known) ArrayPush(&state->placesArena, state->places, state->clouds.v[c]);
+                    }
+                }
                 // Explorer's pinned folders, which the bookmarks show after their own.
                 if (result->pinnedRead) {
                     ArenaClear(&state->pinnedArena);
