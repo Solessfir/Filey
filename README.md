@@ -7,7 +7,7 @@
 > If you care about hand-crafted software, use File Pilot instead, or better, buy it.
 > Developers like Vjekoslav Krajačić, who build amazing apps like it by hand, deserve our support.
 
-![Filey with two panels: a git repository on the left and an archive listed in the inspector on the right](.github/Screenshot.png)
+![Filey with the Options open over a folder of screenshots, one of them previewed in the inspector](.github/Screenshot.png)
 
 ## Features
 
