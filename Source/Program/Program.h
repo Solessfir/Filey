@@ -455,6 +455,9 @@ typedef struct Prog_ThumbnailSlot {
 #define Prog_ThumbnailSlots 3
 
 // What a measure of a folder's tree has counted so far, readable while it runs; `pending` is the folders of it left to list, 0 once it is done.
+// The files with more than one name a walk has counted, so that it counts each once.
+typedef struct Prog_SeenFiles { MapHeader header; struct { P_FileId key; b8 value; } *v; } Prog_SeenFiles;
+
 typedef struct Prog_TreeTotals {
     atomic_uint_fast64_t folders, files, bytes;
     atomic_uint_fast64_t pending;

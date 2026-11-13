@@ -2873,14 +2873,14 @@ function void TestMeasure(TestFileFixture *fixture)
     {
         P_DirectoryTotals counted = {0};
         ArrayStr below = {0};
-        Check(P_CountFolder(&arena, S("/"), &counted, &below) && counted.folders > 0);
+        Check(P_CountFolder(&arena, S("/"), &counted, &below, &(P_LinkedFiles){0}) && counted.folders > 0);
         b32 proc = false, usr = false;
         for (u64 i = 0; i < below.header.count; ++i) proc |= StrIsEqual(below.v[i], S("/proc")), usr |= StrIsEqual(below.v[i], S("/usr"));
         Check(!proc && usr);
         // /proc's own walk counts its files, kcore among them, but none of their sizes, which are not data.
         P_DirectoryTotals kernel = {0};
         ArrayStr inside = {0};
-        Check(P_CountFolder(&arena, S("/proc"), &kernel, &inside) && kernel.files > 0 && kernel.bytes == 0);
+        Check(P_CountFolder(&arena, S("/proc"), &kernel, &inside, &(P_LinkedFiles){0}) && kernel.files > 0 && kernel.bytes == 0);
     }
 #endif
     // An image file is read at its own size or shrunk to fit, and a text file is not taken for a picture.
@@ -2955,6 +2955,27 @@ function void TestMeasure(TestFileFixture *fixture)
         Check(!missing.complete && !missing.files);
         for (u32 i = 0; i < CArrayCount(paths); ++i) Check(atomic_load(&trees[i].pending) == 0);
     }
+#if defined(__linux__)
+    // A file with two names, one in a subfolder, counts both names but its bytes once, in the measure and in a disk usage scan.
+    {
+        String made = Prog_JoinPath(&arena, fixture->path, S("Linked"));
+        Check(!P_CreateItem(&arena, fixture->path, S("Linked"), true, &(String){0}).code);
+        Check(!P_CreateItem(&arena, made, S("Inner"), true, &(String){0}).code);
+        String first = Prog_JoinPath(&arena, made, S("a.txt")), second = Prog_JoinPath(&arena, made, S("Inner/b.txt"));
+        Check(!P_WriteFile(&arena, first, S("abcd")).code && link(P__FilePathCString(&arena, first), P__FilePathCString(&arena, second)) == 0);
+        Prog_TreeTotals tree = {0};
+        Check(Prog_MeasureTrees(&made, 1, &tree, &token));
+        P_DirectoryTotals totals = Prog_TreeTotalsTaken(&tree, true);
+        Check(totals.files == 2 && totals.bytes == 4);
+        Arena kept = {0};
+        Prog_UsageProgress progress = {0};
+        Prog_Usage usage = {0};
+        Check(Prog_ScanUsage(&kept, made, &progress, &token, &usage) && usage.folders[0].files == 2 && usage.folders[0].bytes == 4);
+        ArenaRelease(&kept);
+        Check(P__TestRemovePath(fixture, S("Linked/Inner/b.txt"), false) && P__TestRemovePath(fixture, S("Linked/Inner"), true));
+        Check(P__TestRemovePath(fixture, S("Linked/a.txt"), false) && P__TestRemovePath(fixture, S("Linked"), true));
+    }
+#endif
     // A disk usage scan comes to what the measure does, its folders largest first, its types adding up to the whole, and a treemap inside its rectangle that starts with the root's frame.
     {
         Prog_TreeTotals tree = {0};

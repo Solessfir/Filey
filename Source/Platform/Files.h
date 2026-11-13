@@ -10,6 +10,12 @@ typedef enum P_FileKind {
     P_FileKind_Count,
 } P_FileKind;
 
+// Which file an item is in its file system, the same for each of its names, where the system says.
+typedef struct P_FileId {
+    u64 device;
+    u64 inode;
+} P_FileId;
+
 typedef struct P_File {
     String name;
     u64 size;
@@ -28,6 +34,8 @@ typedef struct P_File {
     b8 online;          // its contents are only in the cloud, as a synced drive's placeholders are, and reading them downloads them
     b8 ownIcon;         // a folder that may choose its own icon, as a read-only or system one with a desktop.ini does on Windows
     u16 mode;           // the permission bits where the system has them, as on Linux (owner, group, others: read, write, run); 0 elsewhere
+    u32 links;          // how many names, hard links, it has, on Linux; 0 where a listing does not say, as on Windows, and for a link
+    P_FileId id;        // with `links`
 } P_File;
 
 typedef struct P_FileArray {
@@ -114,11 +122,19 @@ typedef struct P_DirectoryTotals {
     b32 complete;  // false when cancelled or when `path` itself could not be read
 } P_DirectoryTotals;
 
+// A file with more than one name, which a walk counts the bytes of once.
+typedef struct P_LinkedFile {
+    P_FileId id;
+    u64 bytes;
+} P_LinkedFile;
+typedef struct P_LinkedFiles { ArrayHeader header; P_LinkedFile *v; } P_LinkedFiles;
+
 // Adds the items directly inside `path`, hidden ones included, to `totals`: its folders, its files and their bytes.
 // Appends to `subfolders`, in `arena`, the paths of the folders a walk goes on into, which leaves out links and junctions,
 // and on Linux the folders of other file systems, as du -x does.
+// A file with more than one name, which only Linux tells while listing, is counted without its bytes and appended to `linked` instead.
 // False when `path` cannot be read. Touches the disk, so run it in a job.
-function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders);
+function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders, P_LinkedFiles *linked);
 // Whether `path` is a folder the system makes up rather than stores, such as Linux's /proc, which a walk of the whole drive leaves out.
 function b32 P_IsVirtualFolder(String path);
 // What P_LoadFileIcon takes for the icon of the computer, which lists the drives; empty where there is none to load.

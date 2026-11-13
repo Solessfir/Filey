@@ -762,8 +762,9 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
     *watch = (P_DirectoryWatch){0};
 }
 
-function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders)
+function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders, P_LinkedFiles *linked)
 {
+    (void)linked;
     Scratch scratch = GetScratchEx(arena);
     wchar *folder = P__FileExtendedPath(scratch.arena, path);
     u32 length = 0;

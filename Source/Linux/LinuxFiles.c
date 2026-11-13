@@ -196,6 +196,10 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
                     file.kind = S_ISDIR(metadata.stx_mode) ? P_FileKind_Directory : S_ISREG(metadata.stx_mode) ? P_FileKind_File : P_FileKind_Other;
                     file.size = metadata.stx_size;
                     file.mode = (u16)(metadata.stx_mode & 07777);
+                    if (!file.symbolicLink) {
+                        file.links = metadata.stx_nlink;
+                        file.id = (P_FileId){ (u64)metadata.stx_dev_major << 32 | metadata.stx_dev_minor, metadata.stx_ino };
+                    }
                     file.modifiedTimeUnix = (i64)metadata.stx_mtime.tv_sec;
                     file.accessedTimeUnix = (i64)metadata.stx_atime.tv_sec;
                     file.createdTimeUnix = (metadata.stx_mask & STATX_BTIME) ? (i64)metadata.stx_btime.tv_sec : 0;
@@ -726,7 +730,7 @@ function i64 P_FileModifiedTime(String path)
     return found ? (i64)info.st_mtime : 0;
 }
 
-function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders)
+function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders, P_LinkedFiles *linked)
 {
     Scratch scratch = GetScratchEx(arena);
     char *cpath = P__FilePathCString(scratch.arena, path.length ? path : S("."));
@@ -765,7 +769,10 @@ function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals,
                 }
             } else {
                 ++totals->files;
-                if (sized && statted && S_ISREG(metadata.st_mode) && metadata.st_size > 0) totals->bytes += (u64)metadata.st_size;
+                if (sized && statted && S_ISREG(metadata.st_mode) && metadata.st_size > 0) {
+                    if (metadata.st_nlink > 1) ArrayPush(arena, *linked, ((P_LinkedFile){ { (u64)metadata.st_dev, (u64)metadata.st_ino }, (u64)metadata.st_size }));
+                    else totals->bytes += (u64)metadata.st_size;
+                }
             }
         }
         closedir(stream);

@@ -20,6 +20,7 @@ typedef struct Prog__UsageWalk {
     Prog__UsageFiles files;
     Prog__UsageTypes types;
     Prog__UsageTypeMap typeOf;
+    Prog_SeenFiles seen;
 } Prog__UsageWalk;
 
 // Sorts `order`, `count` indices, by their `keys`, largest first, keeping the order of equal ones; `spare` holds as many.
@@ -88,6 +89,7 @@ function void Prog__UsageLane(void *user, u32 lane)
         b8 *walked = ArenaPushArray(&local, count + 1, b8);
         u64 ownBytes = 0;
         i64 newest = 0;
+        b32 linked = false;
         for (u32 i = 0; i < count; ++i) {
             const P_File *file = &listed.files.v[i];
             // A link or junction counts as a file of no size, as what it leads to is counted where it is; a folder the system makes up, as /proc, counts without going into it.
@@ -96,10 +98,22 @@ function void Prog__UsageLane(void *user, u32 lane)
                 folders[folderCount++] = i;
             } else {
                 keys[i] = file->symbolicLink ? 0 : file->size;
+                linked |= file->links > 1;
                 files[fileCount++] = i;
                 ownBytes += keys[i];
                 newest = Max(newest, file->modifiedTimeUnix);
             }
+        }
+        // A file with more than one name counts where the walk first finds it, and with no size at its other names.
+        if (linked) {
+            P_MutexLock(&walk->mutex);
+            for (u32 k = 0; k < fileCount; ++k) {
+                const P_File *file = &listed.files.v[files[k]];
+                if (file->links <= 1 || file->symbolicLink) continue;
+                if (MapGet(walk->seen, b8, file->id)) ownBytes -= keys[files[k]], keys[files[k]] = 0;
+                else MapPut(&walk->walk, walk->seen, file->id, true);
+            }
+            P_MutexUnlock(&walk->mutex);
         }
         Prog__UsageSort(files, fileCount, keys, spare);
         // The listing's extensions, counted here so that the lock is held once for them.

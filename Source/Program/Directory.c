@@ -2781,6 +2781,7 @@ typedef struct Prog__Measure {
     u32 *turn;        // the trees with folders on their stacks
     b8 *inTurn;
     b8 *started;      // its own folder has been taken, so later ones are its subfolders
+    Prog_SeenFiles *seen;  // by tree
     u32 turnCount, next;
     u64 waiting;      // folders on all the stacks
     u32 busy;
@@ -2817,13 +2818,19 @@ function void Prog__MeasureLane(void *user, u32 index)
         P_MutexUnlock(&walk->mutex);
         P_DirectoryTotals counted = {0};
         ArrayStr below = {0};
-        b32 read = P_CountFolder(arena, path, &counted, &below);
+        P_LinkedFiles linked = {0};
+        b32 read = P_CountFolder(arena, path, &counted, &below, &linked);
         Prog_TreeTotals *tree = &walk->trees[which];
         if (!read && root) atomic_store(&tree->failed, true);
         atomic_fetch_add(&tree->folders, counted.folders);
         atomic_fetch_add(&tree->files, counted.files);
         atomic_fetch_add(&tree->bytes, counted.bytes);
         P_MutexLock(&walk->mutex);
+        for (u64 i = 0; i < linked.header.count; ++i) {
+            if (MapGet(walk->seen[which], b8, linked.v[i].id)) continue;
+            MapPut(&walk->arena, walk->seen[which], linked.v[i].id, true);
+            atomic_fetch_add(&tree->bytes, linked.v[i].bytes);
+        }
         for (u64 i = 0; i < below.header.count; ++i) ArrayPush(&walk->arena, *stack, below.v[i]);
         if (below.header.count && !walk->inTurn[which]) {
             walk->turn[walk->turnCount++] = which;
@@ -2853,6 +2860,7 @@ function b32 Prog_MeasureTrees(const String *paths, u64 count, Prog_TreeTotals *
     walk.turn = ArenaPushArray(&walk.arena, room, u32);
     walk.inTurn = ArenaPushArray(&walk.arena, room, b8);
     walk.started = ArenaPushArray(&walk.arena, room, b8);
+    walk.seen = ArenaPushArray(&walk.arena, room, Prog_SeenFiles);
     for (u64 i = 0; i < count; ++i) {
         atomic_store(&trees[i].pending, 1);
         ArrayPush(&walk.arena, walk.stacks[i], paths[i]);
