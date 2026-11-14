@@ -1,0 +1,43 @@
+# Every pull request, and every push to main, builds Filey on Windows and Linux and runs the tests on both, with the release's toolchains.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request makes an older run's result moot.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      # #embed needs Clang 19 or later, newer than the runner may have.
+      - name: Install LLVM
+        run: choco upgrade llvm -y --no-progress
+      - name: Build and test
+        shell: cmd
+        run: |
+          set "PATH=C:\Program Files\LLVM\bin;%PATH%"
+          call Build.bat test
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # Ubuntu's own Clang is 18, older than #embed needs.
+      - name: Install Clang and the libraries
+        run: |
+          # The LLVM site now and then turns the runners away for a while, so it is asked again.
+          curl -fsSL --retry 6 --retry-all-errors --retry-delay 20 -o llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 20
+          sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libegl-dev libfreetype-dev libfontconfig-dev libarchive13t64 git
+      - name: Build and test
+        run: CC=clang-20 ./Build.sh test
