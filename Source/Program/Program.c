@@ -1125,7 +1125,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# The folders pinned to Explorer's Quick access, after the bookmarks (Windows).\n# places.pinned = false\n\n"
                                 "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = false\n\n"
                                 "# Submenus that open inside their menu, under their item, rather than beside it.\n# menus.inline = false\n\n"
-                                "# A row of buttons for cutting, copying, renaming and deleting at the edge of the menu of selected items nearest the pointer.\n# menus.quick = false\n\n"
+                                "# A row of buttons for cutting, copying, renaming and deleting at the top of the menu of selected items.\n# menus.quick = false\n\n"
                                 "# The buttons that row shows, in their order; those left out are hidden.\n# menus.quick.order = cut, copy, rename, delete\n\n"
                                 "# Tips under the pointer when it rests on files, folders and buttons.\n# tooltips = true\n\n"
                                 "# Whether emptying the Recycle Bin (the Trash) asks first.\n# trash.confirm = true\n\n"
@@ -1214,7 +1214,7 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                    0, 1, Prog_OptionCorners, 2, SInit("corners") },
     [Prog_Option_InlineSubmenus] = { TrInit("Inline Submenus"), TrInit("Opens a menu's submenus inside it, under their item, rather than beside it."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, SInit("menus.inline") },
-    [Prog_Option_QuickActions] = { TrInit("Quick Actions"), TrInit("Shows buttons for cut, copy, rename and delete at the edge of the selection's menu nearest the pointer."),
+    [Prog_Option_QuickActions] = { TrInit("Quick Actions"), TrInit("Shows buttons for cut, copy, rename and delete at the top of the selection's menu."),
                                    Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("menus.quick") },
     [Prog_Option_Tooltips] = { TrInit("Tooltips"), TrInit("Shows tips when the pointer rests on files, folders and buttons."), Prog_OptionControl_Switch, 0, 1,
                                Prog_OptionSwitch, 2, SInit("tooltips") },
@@ -6988,12 +6988,12 @@ function String Prog_QuickActionIcon(u32 action)
 }
 
 // The quick actions' row of the selection's menu, `y` down inside its padding and `width` across: buttons for cut, copy, rename and delete,
-// each running the command for the selection and closing the menu, with a line between it and the items, above it when it is `below` them.
-function void Prog__QuickActions(Prog_State *state, f32 y, f32 width, f32 height, b32 below, const Prog_Metrics *m)
+// each running the command for the selection and closing the menu, with a line between it and the items under it.
+function void Prog__QuickActions(Prog_State *state, f32 y, f32 width, f32 height, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 line = m->separator, gap = floorf(4.0f * m->scale + 0.5f), buttonWidth = floorf(MinF32(width / (f32)Max(state->quickCount, 1u), Prog__ToolbarButtonWidth(m) * 1.6f));
-    UI_SetNextFloatingOffset((UI_Vec2){ 0, below ? y + line + gap : y });
+    UI_SetNextFloatingOffset((UI_Vec2){ 0, y });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -7011,7 +7011,7 @@ function void Prog__QuickActions(Prog_State *state, f32 y, f32 width, f32 height
             }
         }
     }
-    UI_SetNextFloatingOffset((UI_Vec2){ 0, below ? y : y + height + gap });
+    UI_SetNextFloatingOffset((UI_Vec2){ 0, y + height + gap });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(line));
     UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
@@ -7145,8 +7145,6 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     itemHeight *= 0.9f + 0.1f * reveal;
     height = 2 * pad + searchHeight + quickHeight;
     for (u32 i = 0; i < shown; ++i) height += Prog_MenuItemAt(state, visible[i])->separator ? separatorHeight : itemHeight;
-    // At the bottom when the menu opened up from the pointer, else under the search field.
-    b32 quickBelow = quick && upward;
     // On whole pixels, for a joined submenu's lines to meet its edges exactly.
     height = floorf(MinF32(height, flips ? limit : view.y1 - view.y0) + 0.5f);
     if (upward) y = floorf(MaxF32(view.y0, MinF32(state->menuAbove - height, view.y1 - height)));
@@ -7271,13 +7269,11 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             Prog__Spacer(UI_Flex(), UI_Pixels(searchHeight));
             itemY += searchHeight;
         }
+        // Always under the search field, whichever way the menu opened, so that the buttons are where the hand expects them.
         if (quick) {
-            f32 rowY = quickBelow ? height - 2 * pad - quickHeight : searchHeight;
-            Prog__QuickActions(state, rowY, width - 2 * pad, quickButton, quickBelow, m);
-            if (!quickBelow) {
-                Prog__Spacer(UI_Flex(), UI_Pixels(quickHeight));
-                itemY += quickHeight;
-            }
+            Prog__QuickActions(state, searchHeight, width - 2 * pad, quickButton, m);
+            Prog__Spacer(UI_Flex(), UI_Pixels(quickHeight));
+            itemY += quickHeight;
         }
         // The rows, in a list of their own under the search field, which scrolls when they do not fit.
         String listName = StrFormat(&state->frameArena, "MenuList/%u/%u/%u", state->menuSerial, level, place.first);

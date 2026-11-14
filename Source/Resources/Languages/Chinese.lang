@@ -3932,8 +3932,8 @@ Go five seconds on in the audio file playing in the inspector.
 Quick Actions
 = 快捷操作
 
-Shows buttons for cut, copy, rename and delete at the edge of the selection's menu nearest the pointer.
-= 在所选项目菜单靠近指针的一侧显示剪切、复制、重命名和删除按钮。
+Shows buttons for cut, copy, rename and delete at the top of the selection's menu.
+= 在所选项目菜单顶部显示剪切、复制、重命名和删除按钮。
 
 Quick actions
 = 快捷操作

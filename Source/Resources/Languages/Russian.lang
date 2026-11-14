@@ -3931,8 +3931,8 @@ Go five seconds on in the audio file playing in the inspector.
 Quick Actions
 = Быстрые действия
 
-Shows buttons for cut, copy, rename and delete at the edge of the selection's menu nearest the pointer.
-= Показывает кнопки вырезания, копирования, переименования и удаления у края меню выделения, ближайшего к указателю.
+Shows buttons for cut, copy, rename and delete at the top of the selection's menu.
+= Показывает кнопки вырезания, копирования, переименования и удаления вверху меню выделения.
 
 Quick actions
 = Быстрые действия

@@ -26,7 +26,7 @@ global const char *const Prog_Strings[] = {
     "Inline Submenus",
     "Opens a menu's submenus inside it, under their item, rather than beside it.",
     "Quick Actions",
-    "Shows buttons for cut, copy, rename and delete at the edge of the selection's menu nearest the pointer.",
+    "Shows buttons for cut, copy, rename and delete at the top of the selection's menu.",
     "Tooltips",
     "Shows tips when the pointer rests on files, folders and buttons.",
     "System Light / Dark Scheme",

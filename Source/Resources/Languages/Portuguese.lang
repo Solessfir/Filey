@@ -3933,8 +3933,8 @@ Go five seconds on in the audio file playing in the inspector.
 Quick Actions
 = Ações rápidas
 
-Shows buttons for cut, copy, rename and delete at the edge of the selection's menu nearest the pointer.
-= Mostra botões para recortar, copiar, renomear e excluir na borda do menu da seleção mais próxima do ponteiro.
+Shows buttons for cut, copy, rename and delete at the top of the selection's menu.
+= Mostra botões para recortar, copiar, renomear e excluir no topo do menu da seleção.
 
 Quick actions
 = Ações rápidas
