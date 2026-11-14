@@ -7004,7 +7004,9 @@ function void Prog__QuickActions(Prog_State *state, f32 y, f32 width, f32 height
             u32 action = state->quickOrder[k];
             UI_Interaction press = Prog__TextButton(StrFormat(&state->frameArena, "QuickAction/%u", action), Prog_QuickActionIcon(action), m->icons, UI_Pixels(buttonWidth), height, 0,
                                                     theme->icon, theme->text, theme->iconDisabled, Prog_CommandAvailable(state, Prog_QuickActionCommands[action]), m);
+            // Its command's name and hotkeys, drawn over the menu as the tips of a menu's own buttons are.
             Prog__DescribeTooltip(state, Prog_QuickActionCommands[action], (String){0});
+            if (state->tooltipKey == UI->parent->last->key) state->tooltipAbove = true;
             if (press.clicked) {
                 Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, press.clickOrder);
                 Prog_QueueCommand(state, Prog_QuickActionCommands[action], action == Prog_QuickAction_Copy, 0, press.clickOrder);
