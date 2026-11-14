@@ -210,6 +210,7 @@ function void PlatformWindowSetSize(i32 width, i32 height, b32 maximized);
 function void PlatformWindowRestoredSize(i32 *width, i32 *height);
 // Covers the whole screen without the system's frame, or goes back to how the window was.
 function void PlatformWindowToggleFullscreen(void);
+function b32  PlatformWindowIsFullscreen(void);
 // Pushes CloseRequested, as the system's close does.
 function void PlatformWindowClose(void);
 // Takes the window off the screen at once, as the program quits, while it waits for its background work to stop.

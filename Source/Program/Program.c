@@ -14826,6 +14826,11 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     else if (iconsChanged) Prog_ReloadIcons(state);
     state->iconScale = scale;
     const Prog_Metrics *m = &metrics;
+    // Maximized or full screen, the screen's top edge is the title bar's: the pointer pressed against it reaches the buttons along it, which
+    // sit a little below.
+    b32 edge = (PlatformWindowIsMaximized() || PlatformWindowIsFullscreen()) && !state->uiHidden;
+    state->ui.snapAbove = edge ? m->separator + floorf(Prog__TitleStripHeight(m) * 0.25f) : 0;
+    state->ui.snapTo = m->separator + floorf(Prog__TitleStripHeight(m) * 0.5f);
 
     UI->root->props.childrenPadding = (UI_Padding){0};
     UI->root->props.childrenLayout = UI_Layout_Horizontal;

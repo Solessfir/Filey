@@ -209,7 +209,8 @@ function void UI__Input(PlatformEventList events)
         }
         if (event->kind == PlatformEventKind_MouseMove || event->kind == PlatformEventKind_MouseDown ||
             event->kind == PlatformEventKind_MouseUp || event->kind == PlatformEventKind_MouseWheel) {
-            UI->mouse = (UI_Vec2){event->x, event->y};
+            // Only inside the window: a drag carried above it, as a tab dragged out into a window of its own, goes where it is.
+            UI->mouse = (UI_Vec2){event->x, event->y >= 0 && event->y < UI->snapAbove ? UI->snapTo : event->y};
             UI->mouseKnown = true;
             UI->mods = event->mods;
         }

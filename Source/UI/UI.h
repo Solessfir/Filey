@@ -133,6 +133,9 @@ typedef struct UI_Context {
     KeyMods activeMods;
     KeyMods mods;  // held by the last mouse or key event
     UI_Vec2 mouse, pressOrigin, lastPressPosition, wheel;
+    // The pointer in the window's top `snapAbove` pixels acts as if at `snapTo`, as along a maximized window's top edge, where a flick to
+    // the screen's edge lands on the title bar's buttons. 0 leaves it where it is.
+    f32 snapAbove, snapTo;
     b32 drawingLayer;  // a fading block is being drawn into a layer, inside which its parts draw unfaded
     b32 squareCorners; // every corner is drawn square
     b32 reverseScroll; // the wheel scrolls the other way

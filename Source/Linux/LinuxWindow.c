@@ -1732,6 +1732,7 @@ function void PlatformWindowSetTransparent(b32 transparent, PlatformBackdrop bac
 // Compositors older than xdg-shell version 5 never send their capabilities, and those are taken to support everything.
 function b32 PlatformWindowHasButtons(void) { return !Wl.noMinimize; }
 function b32 PlatformWindowIsMaximized(void) { return Wl.maximized; }
+function b32 PlatformWindowIsFullscreen(void) { return Wl.fullscreen; }
 // Maximized tells nothing here: Hyprland reports every window maximized, so that programs leave out their frames.
 function b32 PlatformWindowNeedsBorder(void) { return !Wl.fullscreen; }
 function void PlatformWindowMinimize(void) { xdg_toplevel_set_minimized(Wl.toplevel); }
